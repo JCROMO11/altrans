@@ -1,0 +1,20 @@
+# Datos sensibles
+data/
+data_sheets/
+cleaned_data/
+informes/
+supabase/migrations/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Entorno
+.env
+.env.local
+
+# Supabase
+supabase/.branches
+supabase/.temp
