@@ -100,89 +100,13 @@ def read_csv_with_header_detection(file, unnamed_null_threshold=80):
     print(f"'{file.name}' cargado con {len(df)} filas y {len(df.columns)} columnas.")
     return df
 
-def columns_schema(df_list: list[pd.DataFrame], files: list, similarity_threshold: int = 80) -> dict:
-    """
-    Analiza las columnas de todos los DataFrames y devuelve un dict con tres secciones:
-
-    - 'universal':  columnas normalizadas presentes en TODOS los archivos.
-    - 'parciales':  columnas normalizadas presentes en ALGUNOS archivos,
-                    con la lista de archivos y dtype por archivo.
-    - 'similares':  grupos de columnas con nombres distintos pero parecidos
-                    (similaridad >= similarity_threshold), candidatos a ser la misma.
-    - 'unicas':     columnas que solo aparecen en un único archivo.
-    """
-    from rapidfuzz import fuzz
-    from collections import defaultdict
-
-    n_files = len(df_list)
-
-    # Construir índice: col_norm → {file: dtype_original}
-    col_index = defaultdict(dict)  # {col_norm: {filename: dtype}}
-    col_raw   = defaultdict(set)   # {col_norm: set of raw names seen}
-
-    for df, f in zip(df_list, files):
-        for col in df.columns:
-            norm = normalize_col(col)
-            col_index[norm][f.name] = str(df[col].dtype)
-            col_raw[norm].add(col.strip())
-
-    # Clasificar por frecuencia
-    universal = {}
-    parciales  = {}
-    unicas     = {}
-
-    for norm, file_dtype in col_index.items():
-        count = len(file_dtype)
-        entry = {
-            "archivos":    list(file_dtype.keys()),
-            "n_archivos":  count,
-            "raw_names":   sorted(col_raw[norm]),
-            "dtypes":      file_dtype,
-        }
-        if count == n_files:
-            universal[norm] = entry
-        elif count == 1:
-            unicas[norm] = entry
-        else:
-            parciales[norm] = entry
-
-    # Detectar columnas similares (nombre distinto, significado posiblemente igual)
-    all_norms = list(col_index.keys())
-    visited   = set()
-    similares = []
-
-    for i, a in enumerate(all_norms):
-        if a in visited:
-            continue
-        grupo = [a]
-        for b in all_norms[i + 1:]:
-            if b in visited:
-                continue
-            score = fuzz.ratio(a, b)
-            if score >= similarity_threshold:
-                grupo.append(b)
-                visited.add(b)
-        if len(grupo) > 1:
-            visited.add(a)
-            similares.append({
-                "columnas":   grupo,
-                "raw_names":  {g: sorted(col_raw[g]) for g in grupo},
-                "n_archivos": {g: len(col_index[g]) for g in grupo},
-            })
-
-    return {
-        "universal": universal,
-        "parciales":  parciales,
-        "unicas":     unicas,
-        "similares":  similares,
-    }
-
 
 MESES = {
     "ENERO": 1, "FEBRERO": 2, "MARZO": 3, "ABRIL": 4,
     "MAYO": 5, "JUNIO": 6, "JULIO": 7, "AGOSTO": 8,
     "SEPTIEMBRE": 9, "OCTUBRE": 10, "NOVIEMBRE": 11, "DICIEMBRE": 12,
 }
+
 
 def _parse_periodo(stem: str):
     """
@@ -361,57 +285,13 @@ def classify_rows(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Data
     )
 
 
-def validate_manifiestos(cleaned: pd.DataFrame, folder: str | Path) -> pd.DataFrame:
-    """
-    Compara los manifiestos del DataFrame limpio contra los CSV originales.
-    Retorna un DataFrame resumen por archivo con:
-      - total_raw: manifiestos en el CSV original (excl. ANULADO)
-      - total_clean: manifiestos en el cleaned
-      - anulados: filas con ANULADO en el CSV original
-      - perdidos: manifiestos que estaban en raw pero no en cleaned
-    """
-    folder = Path(folder)
-    results = []
-
-    clean_manifiestos = set(
-        cleaned["manifiesto"].dropna().astype(str).str.strip().str.upper()
-    )
-
-    for path in sorted(folder.glob("*.csv")):
-        raw = read_csv_with_header_detection(path)
-        # Buscar columna manifiesto (puede tener espacios)
-        man_col = next((c for c in raw.columns if "manifiesto" in c.lower()), None)
-        if man_col is None:
-            results.append({"archivo": path.name, "total_raw": None,
-                            "total_clean": None, "anulados": None, "perdidos": None})
-            continue
-
-        valores = raw[man_col].astype(str).str.strip().str.upper()
-        anulados = valores.eq("ANULADO").sum()
-        validos  = valores[~valores.eq("ANULADO") & valores.notna() & ~valores.eq("NAN")]
-        perdidos = validos[~validos.isin(clean_manifiestos)].tolist()
-
-        file_clean = cleaned[cleaned["archivo_origen"] == path.stem.strip()]["manifiesto"]
-        total_clean = file_clean.dropna().count()
-
-        results.append({
-            "archivo":     path.name,
-            "total_raw":   len(validos),
-            "total_clean": int(total_clean),
-            "anulados":    int(anulados),
-            "perdidos":    len(perdidos),
-            "manifiestos_perdidos": ", ".join(perdidos[:20]),  # primeros 20
-        })
-
-    return pd.DataFrame(results)
-
-
-DATE_COLS     = ["fecha_despacho", "fecha_cumplido", "fecha_pago", "fecha"]
-MONEY_COLS    = ["valor_remesa", "flete_conductor", "anticipo", "valor_pagado"]
-ID_COLS       = ["manifiesto", "consecutivo_semanal"]
-DAYS_COLS     = ["dias_cumplido"]
+DATE_COLS  = ["fecha_despacho", "fecha_cumplido", "fecha_pago", "fecha"]
+MONEY_COLS = ["valor_remesa", "flete_conductor", "anticipo", "valor_pagado"]
+ID_COLS    = ["manifiesto", "consecutivo_semanal"]
+DAYS_COLS  = ["dias_cumplido"]
 # Columnas con demasiados nulos o datos ya cubiertos por otra columna
-DEAD_COLS     = {"tiempo_lg_cargue", "tiempo_lg_descargue", "agencia"}
+DEAD_COLS  = {"tiempo_lg_cargue", "tiempo_lg_descargue", "agencia"}
+
 
 # ── Entidad financiera ────────────────────────────────────────────────────────
 
@@ -737,7 +617,18 @@ def _clean_money(val: str) -> float | None:
     s = str(val).strip().upper()
     if s in ("ANULADO", "X", "", "NAN"):
         return None
-    s = s.replace("$", "").replace(".", "").replace(",", "").strip()
+    s = s.replace("$", "").replace(",", "").strip()
+    # Formato colombiano: punto como separador de miles (1.080.750), coma como decimal.
+    # Pandas serializa floats con punto decimal (6691597.0). Distinguir casos:
+    # - Múltiples puntos → todos son miles colombianos → eliminar.
+    # - Un solo punto seguido de exactamente 3 dígitos → miles colombiano → eliminar.
+    # - Un solo punto seguido de 1-2 dígitos → punto decimal de pandas → conservar.
+    dot_count = s.count(".")
+    if dot_count > 1:
+        s = s.replace(".", "")
+    elif dot_count == 1:
+        if re.search(r"\.\d{3}$", s):
+            s = s.replace(".", "")
     try:
         return float(s)
     except ValueError:
@@ -1245,11 +1136,15 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
 
 def expand_remesas(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Expande filas con múltiples remesas separadas por ';'.
+    Consolida filas con múltiples remesas separadas por ';'.
     - Filas simples: no cambian.
-    - Filas multi-remesa: se expanden repitiendo todos los demás campos.
-    Retorna (df_expandido, df_multi_report) donde df_multi_report
-    contiene las filas originales antes de expandir para la reunión.
+    - Filas multi-remesa: se mantiene UNA fila por manifiesto.
+      valor_remesa: se suman todos los valores individuales.
+      cliente: se deduplica (valores únicos separados por '; ').
+      remesas: se mantiene la lista separada por '; ' para trazabilidad.
+      flete_conductor y anticipo no se tocan — corresponden al viaje completo.
+    Retorna (df_consolidado, df_multi_report) donde df_multi_report
+    contiene las filas originales antes de consolidar (para el informe).
     """
     df = df.copy()
     df["remesas"] = df["remesas"].astype(str).str.strip()
@@ -1257,9 +1152,44 @@ def expand_remesas(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     multi_mask = df["remesas"].str.contains(";", na=False)
     df_multi_report = df[multi_mask].copy()
 
-    df["remesas"] = df["remesas"].str.split(r"\s*;\s*")
-    df = df.explode("remesas").reset_index(drop=True)
-    df["remesas"] = df["remesas"].str.strip()
+    if not multi_mask.any():
+        return df, df_multi_report
+
+    def _sum_semicolon_money(val) -> float | None:
+        """Suma valores monetarios separados por ';': '5,750,000; 5,750,000' → 11500000."""
+        if pd.isna(val):
+            return None
+        parts = re.split(r"\s*;\s*", str(val).strip())
+        total = 0.0
+        for p in parts:
+            p = p.replace("$", "").replace(",", "").replace(".", "").strip()
+            try:
+                total += float(p)
+            except ValueError:
+                pass
+        return total if total > 0 else None
+
+    def _dedup_semicolon(val) -> str:
+        if pd.isna(val):
+            return val
+        parts = re.split(r"\s*;\s*", str(val).strip())
+        seen, result = set(), []
+        for p in parts:
+            if p not in seen:
+                seen.add(p)
+                result.append(p)
+        return "; ".join(result)
+
+    if "valor_remesa" in df.columns:
+        vr = df["valor_remesa"].astype(object)
+        vr[multi_mask] = df.loc[multi_mask, "valor_remesa"].apply(_sum_semicolon_money)
+        df["valor_remesa"] = vr
+    if "cliente" in df.columns:
+        cl = df["cliente"].astype(object)
+        cl[multi_mask] = df.loc[multi_mask, "cliente"].apply(_dedup_semicolon)
+        df["cliente"] = cl
+
+    return df, df_multi_report
 
     return df, df_multi_report
 
@@ -1277,193 +1207,6 @@ def _add_calculated_cols(df: pd.DataFrame) -> pd.DataFrame:
     df["dias_para_facturar"] = (fecha_factura - fecha_despacho).dt.days
 
     return df
-
-
-months_files = list(Path('data_sheets/').glob('*.csv'))
-
-def schema_to_df(schema: dict) -> pd.DataFrame:
-    """Convierte el resultado de columns_schema() a un DataFrame."""
-    rows = []
-
-    for col, info in schema['universal'].items():
-        rows.append({
-            "categoria":  "universal",
-            "columna":    col,
-            "n_archivos": info["n_archivos"],
-            "archivos":   "",
-            "raw_names":  ", ".join(info["raw_names"]),
-            "dtypes":     ", ".join(sorted(set(info["dtypes"].values()))),
-            "similares":  "",
-        })
-    for col, info in sorted(schema['parciales'].items(), key=lambda x: -x[1]['n_archivos']):
-        rows.append({
-            "categoria":  "parcial",
-            "columna":    col,
-            "n_archivos": info["n_archivos"],
-            "archivos":   ", ".join(info["archivos"]),
-            "raw_names":  ", ".join(info["raw_names"]),
-            "dtypes":     ", ".join(sorted(set(info["dtypes"].values()))),
-            "similares":  "",
-        })
-    for grupo in schema['similares']:
-        for col in grupo['columnas']:
-            rows.append({
-                "categoria":  "similar",
-                "columna":    col,
-                "n_archivos": grupo["n_archivos"][col],
-                "archivos":   "",
-                "raw_names":  ", ".join(grupo["raw_names"][col]),
-                "dtypes":     "",
-                "similares":  " | ".join(c for c in grupo["columnas"] if c != col),
-            })
-    for col, info in schema['unicas'].items():
-        rows.append({
-            "categoria":  "unica",
-            "columna":    col,
-            "n_archivos": 1,
-            "archivos":   ", ".join(info["archivos"]),
-            "raw_names":  ", ".join(info["raw_names"]),
-            "dtypes":     ", ".join(sorted(set(info["dtypes"].values()))),
-            "similares":  "",
-        })
-
-    return pd.DataFrame(rows).sort_values("n_archivos", ascending=False).reset_index(drop=True)
-
-
-def summary_from_df(df: pd.DataFrame, label: str) -> pd.DataFrame:
-    """Genera un summary de nulos y dtypes desde un DataFrame ya cargado."""
-    rows = []
-    for i in range(len(df.columns)):
-        col    = df.columns[i]
-        series = df.iloc[:, i]
-        rows.append({
-            "etapa":      label,
-            "column":     col,
-            "dtype":      str(series.dtype),
-            "null_count": int(series.isna().sum()),
-            "null_pct":   round(series.isna().mean() * 100, 2),
-        })
-    return pd.DataFrame(rows)
-
-
-def summary_before_per_file(df_list: list[pd.DataFrame], files: list) -> pd.DataFrame:
-    """
-    Genera un resumen por columna y archivo de los CSVs originales.
-    Cada fila representa una columna de un archivo específico con su dtype,
-    conteo de nulos y porcentaje de nulos.
-    """
-    rows = []
-    for df, f in zip(df_list, files):
-        n_filas = len(df)
-        for col in df.columns:
-            series = df[col]
-            null_count = int(series.isna().sum())
-            null_pct = round(series.isna().mean() * 100, 2) if n_filas > 0 else 0.0
-            rows.append({
-                "columna":    col,
-                "archivo":    f.name,
-                "dtype":      str(series.dtype),
-                "null_count": null_count,
-                "null_pct":   null_pct,
-            })
-    return pd.DataFrame(rows)
-
-
-_DISCRETE_MAX_UNIQUE = 60   # umbral: si n_unicos <= esto y no es numérico → discreto
-
-
-def _make_enum_suggestion(col: str, values: list) -> str:
-    """Genera un bloque Python Enum para una columna categórica."""
-    class_name = "".join(w.capitalize() for w in re.split(r"[_\s]+", col))
-    lines = [f"class {class_name}(str, Enum):"]
-    for v in sorted(str(x) for x in values if x is not None and str(x).strip()):
-        member = re.sub(r"[^A-Z0-9_]", "_", str(v).strip().upper())
-        member = re.sub(r"_+", "_", member).strip("_")
-        if not member:
-            continue
-        if member[0].isdigit():
-            member = "V_" + member
-        lines.append(f'    {member} = "{v}"')
-    return "\n".join(lines)
-
-
-def column_value_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Analiza cada columna del DataFrame limpio y devuelve un perfil con:
-    - Columnas discretas/categóricas: valores únicos y definición Enum sugerida
-    - Columnas numéricas: min, max, media, mediana, p25, p75, p95
-    - Columnas de fecha: min y max
-    """
-    import datetime
-
-    rows = []
-    for col in df.columns:
-        series = df[col].dropna()
-        n_total   = len(df[col])
-        n_nulos   = int(df[col].isna().sum())
-        pct_nulos = round(n_nulos / n_total * 100, 1) if n_total else 0.0
-        n_unicos  = int(series.nunique())
-
-        row = {
-            "columna":      col,
-            "n_total":      n_total,
-            "n_nulos":      n_nulos,
-            "pct_nulos":    pct_nulos,
-            "n_unicos":     n_unicos,
-            "tipo_inferido": "",
-            # Numéricos
-            "min":     None, "max":     None, "media":   None,
-            "mediana": None, "p25":     None, "p75":     None, "p95": None,
-            # Discretos
-            "valores_unicos":  "",
-            "enum_sugerido":   "",
-        }
-
-        # ── Fechas ────────────────────────────────────────────────
-        if pd.api.types.is_datetime64_any_dtype(series):
-            row["tipo_inferido"] = "fecha"
-            row["min"] = str(series.min().date())
-            row["max"] = str(series.max().date())
-
-        elif series.apply(lambda x: isinstance(x, datetime.date)).any():
-            row["tipo_inferido"] = "fecha"
-            try:
-                row["min"] = str(series.min())
-                row["max"] = str(series.max())
-            except Exception:
-                pass
-
-        # ── Numéricos ─────────────────────────────────────────────
-        elif pd.api.types.is_numeric_dtype(series):
-            row["tipo_inferido"] = "numerico"
-            row["min"]    = round(float(series.min()),    2)
-            row["max"]    = round(float(series.max()),    2)
-            row["media"]  = round(float(series.mean()),   2)
-            row["mediana"]= round(float(series.median()), 2)
-            row["p25"]    = round(float(series.quantile(0.25)), 2)
-            row["p75"]    = round(float(series.quantile(0.75)), 2)
-            row["p95"]    = round(float(series.quantile(0.95)), 2)
-            # Pocos únicos numéricos → también anotar como posible discreto
-            if n_unicos <= 20:
-                vals = sorted(series.unique())
-                row["valores_unicos"] = ", ".join(str(v) for v in vals)
-
-        # ── Discretos / categóricos ───────────────────────────────
-        elif n_unicos <= _DISCRETE_MAX_UNIQUE:
-            row["tipo_inferido"] = "discreto"
-            vals = sorted(str(v) for v in series.unique() if str(v).strip())
-            row["valores_unicos"] = ", ".join(vals)
-            row["enum_sugerido"]  = _make_enum_suggestion(col, vals)
-
-        # ── Texto libre ───────────────────────────────────────────
-        else:
-            row["tipo_inferido"] = "texto_libre"
-            sample = series.dropna().head(5).tolist()
-            row["valores_unicos"] = " | ".join(str(v) for v in sample) + " …"
-
-        rows.append(row)
-
-    return pd.DataFrame(rows)
 
 
 def fix_review_rows(
@@ -1569,75 +1312,30 @@ def fix_review_rows(
     return combined, review.reset_index(drop=True)
 
 
+# ── Informes de calidad numérica ──────────────────────────────────────────
+
+
 if __name__ == "__main__":
-    INFORME_PATH = Path("informes/informe_etl.xlsx")
-    INFORME_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CLEANED_DIR = Path("cleaned_data")
+    CLEANED_DIR.mkdir(exist_ok=True)
 
-    # ── FASE 1 — Análisis ANTES de limpieza ──────────────────────
+    # ── Fase 1 — Carga y clasificación ────────────────────────────────
     print("=" * 60)
-    print("FASE 1 — Análisis ANTES de limpieza")
-    print("=" * 60)
-
-    raw_dfs = [read_csv_with_header_detection(f) for f in months_files]
-    summary_before = summary_before_per_file(raw_dfs, months_files)
-    schema_before_df = schema_to_df(columns_schema(raw_dfs, months_files))
-
-    # ── FASE 2 — Limpieza y clasificación ────────────────────────
-    print()
-    print("=" * 60)
-    print("FASE 2 — Limpieza y clasificación")
+    print("Carga y clasificación de filas")
     print("=" * 60)
 
-    combined, review, dropped = load_all('data_sheets/')
-
-    # ── Post-proceso de filas de revisión ────────────────────────
+    combined, review, dropped = load_all("data_sheets/")
     combined, review = fix_review_rows(combined, review)
 
-    if len(review):
-        review_report = (
-            review.groupby("archivo_origen")
-            .size().reset_index(name="filas_revision")
-            .sort_values("filas_revision", ascending=False)
-        )
-        print("\n  Filas para revisión por archivo:")
-        print(review_report.to_string(index=False))
-
-    if len(dropped):
-        dropped_report = (
-            dropped.groupby("archivo_origen")
-            .size().reset_index(name="filas_eliminadas")
-            .sort_values("filas_eliminadas", ascending=False)
-        )
-
-    # ── FASE 3 — Validación de manifiestos ───────────────────────
+    # ── Fase 2 — Limpieza de valores ──────────────────────────────────
     print()
     print("=" * 60)
-    print("FASE 3 — Validación de manifiestos")
+    print("Limpieza de valores")
     print("=" * 60)
 
-    validation = validate_manifiestos(combined, 'data_sheets/')
-
-    total_raw   = validation["total_raw"].sum()
-    total_clean = validation["total_clean"].sum()
-    diferencia  = total_raw - total_clean
-    total_perdidos = validation["perdidos"].sum()
-
-    print(f"\n  {'Manifiestos en raw:':<45} {int(total_raw):>6}")
-    print(f"  {'Manifiestos en cleaned:':<45} {int(total_clean):>6}")
-    print(f"  {'Diferencia:':<45} {int(diferencia):>6}  {'OK' if diferencia == 0 else 'HAY PERDIDOS'}")
-    print(f"  {'No encontrados en cleaned:':<45} {int(total_perdidos):>6}")
-
-    if total_perdidos:
-        print("\n  Archivos con pérdidas:")
-        print(validation[validation["perdidos"] > 0][
-            ["archivo", "total_raw", "total_clean", "anulados", "perdidos"]
-        ].to_string(index=False))
-
-    # ── FASE 4 — Limpieza de valores y expansión ─────────────────
-    print()
-    print("=" * 60)
-    print("FASE 4 — Limpieza de valores y expansión")
-    print("=" * 60)
+    # expand_remesas debe correr ANTES de clean_values para que _clean_money
+    # pueda parsear los valores monetarios ya consolidados (sin ';').
+    combined, multi_remesas_report = expand_remesas(combined)
 
     if "estado" in combined.columns:
         combined["_estado_original"] = combined["estado"].copy()
@@ -1648,80 +1346,47 @@ if __name__ == "__main__":
     if "_estado_original" in combined.columns:
         otros_mask = combined["estado"] == "OTROS"
         if otros_mask.any():
-            report_cols = [c for c in [
+            cols = [c for c in [
                 "manifiesto", "archivo_origen", "mes", "año",
                 "fecha_despacho", "cliente", "origen", "destino",
                 "_estado_original", "estado",
             ] if c in combined.columns]
-            otros_report = combined[otros_mask][report_cols].copy()
-            otros_report = otros_report.rename(columns={"_estado_original": "estado_original"})
-            print(f"  Estados 'OTROS' (para reunión): {otros_mask.sum()} filas")
+            otros_report = combined[otros_mask][cols].rename(
+                columns={"_estado_original": "estado_original"}
+            )
         combined = combined.drop(columns=["_estado_original"])
 
-    summary_after = summary_from_df(combined, "despues")
-
-    combined, multi_remesas_report = expand_remesas(combined)
-    if len(multi_remesas_report):
-        print(f"  Filas con multi-remesa (para reunión): {len(multi_remesas_report)}")
-
-    # ── FASE 4b — Limpieza de columnas de responsables ───────────────
+    # ── Fase 3 — Normalización de responsables ────────────────────────
     print()
     print("=" * 60)
-    print("FASE 4b — Normalización de responsables")
+    print("Normalización de responsables")
     print("=" * 60)
 
     combined, person_report = clean_person_cols(combined)
 
-    for col in ["responsable_estado_interno", "nombre_responsable", "responsable"]:
-        sub = person_report[person_report["columna"] == col]
-        if sub.empty:
-            continue
-        normalizados = sub[sub["tipo_cambio"] == "normalizado"]["n_registros"].sum()
-        eliminados   = sub[sub["tipo_cambio"] == "eliminado"]["n_registros"].sum()
-        n_canon      = sub[sub["tipo_cambio"] != "eliminado"]["valor_canonico"].nunique()
-        print(f"  {col}: {n_canon} valores canónicos | "
-              f"{normalizados} registros normalizados | {eliminados} eliminados")
+    # ── Exportar datos limpios y artefactos ETL ───────────────────────
+    combined.to_csv(CLEANED_DIR / "individual_cleaned.csv", index=False)
 
-    # ── FASE 5 — Perfil de columnas (discretas / numéricas / fechas) ──
-    print()
-    print("=" * 60)
-    print("FASE 5 — Perfil de columnas (discretas / numéricas / fechas)")
-    print("=" * 60)
-
-    col_profile = column_value_profile(combined)
-    discretas = col_profile[col_profile["tipo_inferido"] == "discreto"]
-    numericas = col_profile[col_profile["tipo_inferido"] == "numerico"]
-    print(f"  Columnas discretas (Enum): {len(discretas)}")
-    print(f"  Columnas numéricas (rango): {len(numericas)}")
-
-    # ── EXPORTAR ─────────────────────────────────────────────────
-    # 1. Datos limpios → CSV
-    Path("cleaned_data").mkdir(exist_ok=True)
-    combined.to_csv('cleaned_data/individual_cleaned.csv', index=False)
-
-    # 2. Todos los informes → un solo Excel con hojas
-    with pd.ExcelWriter(INFORME_PATH, engine="openpyxl") as writer:
-        summary_before.to_excel(writer, sheet_name="resumen_antes", index=False)
-        summary_after.to_excel(writer, sheet_name="resumen_despues", index=False)
-        schema_before_df.to_excel(writer, sheet_name="esquema_antes", index=False)
-        validation.to_excel(writer, sheet_name="validacion_manifiestos", index=False)
-        if len(review):
-            review.to_excel(writer, sheet_name="filas_revision", index=False)
-        if len(dropped):
-            dropped_report.to_excel(writer, sheet_name="filas_eliminadas", index=False)
-        if len(otros_report):
-            otros_report.to_excel(writer, sheet_name="estado_otros", index=False)
-        if len(multi_remesas_report):
-            multi_remesas_report.to_excel(writer, sheet_name="multi_remesas", index=False)
-        col_profile.to_excel(writer, sheet_name="perfil_columnas", index=False)
-        if len(person_report):
-            # Hoja detallada: una fila por (valor_original, valor_canonico)
-            person_report.sort_values(
-                ["columna", "valor_canonico", "n_registros"],
-                ascending=[True, True, False],
-            ).to_excel(writer, sheet_name="normalizacion_responsables", index=False)
+    if len(review):
+        review.to_csv(CLEANED_DIR / "filas_revision.csv", index=False)
+    if len(dropped):
+        dropped.to_csv(CLEANED_DIR / "filas_eliminadas.csv", index=False)
+    if len(multi_remesas_report):
+        multi_remesas_report.to_csv(CLEANED_DIR / "multi_remesas.csv", index=False)
+    if len(otros_report):
+        otros_report.to_csv(CLEANED_DIR / "estado_otros.csv", index=False)
+    if len(person_report):
+        person_report.sort_values(
+            ["columna", "valor_canonico", "n_registros"],
+            ascending=[True, True, False],
+        ).to_csv(CLEANED_DIR / "normalizacion_responsables.csv", index=False)
 
     print()
     print("Archivos generados:")
-    print(f"  cleaned_data/individual_cleaned.csv  ({len(combined)} filas)")
-    print(f"  {INFORME_PATH}  (todos los informes)")
+    print(f"  {CLEANED_DIR}/individual_cleaned.csv  ({len(combined):,} filas)")
+    if len(review):               print(f"  {CLEANED_DIR}/filas_revision.csv  ({len(review)} filas)")
+    if len(dropped):              print(f"  {CLEANED_DIR}/filas_eliminadas.csv  ({len(dropped)} filas)")
+    if len(multi_remesas_report): print(f"  {CLEANED_DIR}/multi_remesas.csv  ({len(multi_remesas_report)} filas)")
+    if len(otros_report):         print(f"  {CLEANED_DIR}/estado_otros.csv  ({len(otros_report)} filas)")
+    if len(person_report):        print(f"  {CLEANED_DIR}/normalizacion_responsables.csv  ({len(person_report)} filas)")
+    print("\n  → Ejecuta 'python -m etl_individual.informes' para generar el informe.")

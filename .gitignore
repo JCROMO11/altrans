@@ -15,6 +15,10 @@ __pycache__/
 .env
 .env.local
 
+# NPM environment
+dashboard/.env
+dashboard/.env.local
+
 # Supabase
 supabase/.branches
 supabase/.temp
