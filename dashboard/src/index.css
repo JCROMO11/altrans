@@ -1,0 +1,118 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Inter Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Paleta corporativa Altrans (dark-only) */
+:root {
+    --background:           #0D1B2A;
+    --foreground:           #F0F4F8;
+    --card:                 #1B2B3B;
+    --card-foreground:      #F0F4F8;
+    --popover:              #1B2B3B;
+    --popover-foreground:   #F0F4F8;
+    --primary:              #1E6FBF;
+    --primary-foreground:   #F0F4F8;
+    --secondary:            #2A3F52;
+    --secondary-foreground: #F0F4F8;
+    --muted:                #162232;
+    --muted-foreground:     #8FA3B1;
+    --accent:               #2A3F52;
+    --accent-foreground:    #F0F4F8;
+    --destructive:          #E05252;
+    --border:               #2A3F52;
+    --input:                #2A3F52;
+    --ring:                 #1E6FBF;
+    --radius: 0.625rem;
+    --sidebar:              #0D1B2A;
+    --sidebar-foreground:   #F0F4F8;
+    --sidebar-primary:      #1E6FBF;
+    --sidebar-primary-foreground: #F0F4F8;
+    --sidebar-accent:       #1B2B3B;
+    --sidebar-accent-foreground: #F0F4F8;
+    --sidebar-border:       #2A3F52;
+    --sidebar-ring:         #1E6FBF;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* ── Date input ─────────────────────────────────────────────────────────────── */
+input[type="date"] {
+  color-scheme: dark;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(45%) sepia(70%) saturate(400%) hue-rotate(185deg) brightness(95%);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px;
+  transition: filter 0.15s;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  filter: invert(55%) sepia(90%) saturate(500%) hue-rotate(185deg) brightness(110%);
+}
+
+/* ── Number input: hide native spinners ──────────────────────────────────────── */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
