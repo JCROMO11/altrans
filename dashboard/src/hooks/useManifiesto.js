@@ -89,7 +89,6 @@ export function useManifiesto() {
       factura_no:         form.factura_no         || null,
       fecha_factura:      form.fecha_factura       || null,
       factura_electronica: form.factura_electronica || null,
-      dias_para_facturar: form.dias_para_facturar  ? Number(form.dias_para_facturar) : null,
       mes_facturacion:    form.mes_facturacion     ? Number(form.mes_facturacion)    : null,
       estado_interno:     form.estado_interno      || null,
       responsable_id:     form.responsable_id      || null,

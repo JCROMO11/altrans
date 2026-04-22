@@ -65,13 +65,12 @@ class Propietario(Base):
 class Conductor(Base):
     __tablename__ = "conductores"
     __table_args__ = (
-        # PENDIENTE CONFIRMAR CON EMPRESA
-        # CheckConstraint(r"cedula ~ '^\d{6,12}$'",  name="chk_cedula_formato"),
-        # CheckConstraint(r"celular ~ '^3\d{9}$'",   name="chk_celular_colombiano"),  # revisar si hay números ecuatorianos
+        CheckConstraint(r"cedula IS NULL OR cedula ~ '^\d+$'", name="chk_cedula_solo_digitos"),
+        # CheckConstraint(r"celular ~ '^[0-9]{10}$'", name="chk_celular_formato"),  # pendiente confirmar números ecuatorianos
     )
 
     id         = Column(Integer, primary_key=True)
-    cedula     = Column(String(20), unique=True)       # NULL permitido (múltiples)
+    cedula     = Column(String(20), unique=True)       # NULL permitido (múltiples conductores sin cédula)
     nombre     = Column(String(200), nullable=False)
     celular    = Column(String(20))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -131,33 +130,31 @@ class Responsable(Base):
 class Manifiesto(Base):
     __tablename__ = "manifiestos"
     __table_args__ = (
-        CheckConstraint("manifiesto > 0",           name="chk_manifiesto_positivo"),
-        CheckConstraint("año BETWEEN 2020 AND 2030", name="chk_año_rango"),
-        CheckConstraint("valor_remesa >= 0",         name="chk_valor_remesa_no_negativo"),
-        CheckConstraint("flete_conductor >= 0",      name="chk_flete_conductor_no_negativo"),
-        CheckConstraint("anticipo >= 0",             name="chk_anticipo_no_negativo"),
-        # PENDIENTE CONFIRMAR CON EMPRESA
-        # CheckConstraint("anticipo <= flete_conductor", name="chk_anticipo_lte_flete"),
+        CheckConstraint("manifiesto BETWEEN 10000 AND 9999999", name="chk_manifiesto_digitos"),
+        CheckConstraint("año BETWEEN 2020 AND 2030",            name="chk_año_rango"),
+        CheckConstraint("fecha_despacho >= '2023-01-01'",       name="chk_fecha_despacho_desde_2023"),
+        CheckConstraint("valor_remesa >= 0",                    name="chk_valor_remesa_no_negativo"),
+        CheckConstraint("flete_conductor >= 0",                 name="chk_flete_conductor_no_negativo"),
+        CheckConstraint("anticipo >= 0",                        name="chk_anticipo_no_negativo"),
+        # CheckConstraint("anticipo <= flete_conductor", name="chk_anticipo_lte_flete"),  # pendiente confirmar
     )
 
     manifiesto          = Column(BigInteger, primary_key=True)
     periodo             = Column(Date)
     año                 = Column(SmallInteger)
     mes                 = Column(mes_enum)
-    semana              = Column(String(20))
     consecutivo_semanal = Column(Integer)
-    fecha_despacho      = Column(Date)
+    fecha_despacho      = Column(Date, nullable=False)
     conductor_id        = Column(Integer, ForeignKey("conductores.id"))
     placa               = Column(String(10), ForeignKey("vehiculos.placa"))
     cliente_id          = Column(Integer, ForeignKey("clientes.id"))
-    origen_id           = Column(Integer, ForeignKey("lugares.id"))
-    destino_id          = Column(Integer, ForeignKey("lugares.id"))
-    agencia_id          = Column(Integer, ForeignKey("agencias.id"))
+    origen_id           = Column(Integer, ForeignKey("lugares.id"),   nullable=False)
+    destino_id          = Column(Integer, ForeignKey("lugares.id"),   nullable=False)
+    agencia_id          = Column(Integer, ForeignKey("agencias.id"),  nullable=False)
     responsable_id      = Column(Integer, ForeignKey("responsables.id"))
     valor_remesa        = Column(Numeric(14, 2))
-    flete_conductor     = Column(Numeric(14, 2))
+    flete_conductor     = Column(Numeric(14, 2), nullable=False)
     anticipo            = Column(Numeric(14, 2))
-    archivo_origen      = Column(String(100))
     created_at          = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -165,7 +162,7 @@ class Remesa(Base):
     __tablename__ = "remesas"
     __table_args__ = (
         UniqueConstraint("manifiesto_id", "codigo_remesa"),
-        CheckConstraint("codigo_remesa ~ '^[0-9]+$'", name="chk_codigo_remesa_numerico"),
+        CheckConstraint("codigo_remesa IS NULL OR codigo_remesa ~ '^[0-9]{5,6}$'", name="chk_codigo_remesa_formato"),
     )
 
     id            = Column(Integer, primary_key=True)
@@ -216,17 +213,17 @@ class Facturacion(Base):
     __tablename__ = "facturacion"
     __table_args__ = (
         CheckConstraint("mes_facturacion BETWEEN 1 AND 12", name="chk_mes_facturacion_rango"),
-        # PENDIENTE CONFIRMAR CON EMPRESA
         # CheckConstraint("fecha_factura BETWEEN '2020-01-01' AND '2030-12-31'", name="chk_fecha_factura_rango"),
-        # CheckConstraint("dias_para_facturar BETWEEN 0 AND 365",                name="chk_dias_facturar_rango"),
     )
+
+    # dias_para_facturar no se almacena: calculado en v_facturacion como
+    #   (fecha_factura - manifiestos.fecha_despacho)
 
     id                  = Column(Integer, primary_key=True)
     manifiesto_id       = Column(BigInteger, ForeignKey("manifiestos.manifiesto"), nullable=False, unique=True)
     factura_no          = Column(String(50))
     fecha_factura       = Column(Date)
     factura_electronica = Column(String(200))
-    dias_para_facturar  = Column(Numeric(6, 1))
     mes_facturacion     = Column(SmallInteger)
     estado_interno      = Column(estado_interno_enum)
     responsable_id      = Column(Integer, ForeignKey("responsables.id"))
