@@ -45,7 +45,7 @@ export function useDashboard(mes, año) {
         const manifiestos = await fetchAll(() => {
           let q = supabase
             .from('manifiestos')
-            .select('manifiesto, conductor_id, cliente_id, origen_id, destino_id, agencia_id, valor_remesa, flete_conductor, anticipo')
+            .select('manifiesto, conductor_id, cliente_id, origen_id, destino_id, agencia_id, valor_remesa, flete_conductor, anticipo, fecha_despacho')
           if (mes) q = q.eq('mes', mes)
           if (año) q = q.eq('año', año)
           return q
@@ -61,7 +61,7 @@ export function useDashboard(mes, año) {
         const [pagos, facturacion, conductoresData, clientesData, agenciasData, lugaresData, anualRes] =
           await Promise.all([
             fetchIn('pagos_conductor', 'manifiesto_id, fecha_cumplido, estado, novedades, valor_pagado', 'manifiesto_id', ids),
-            fetchIn('facturacion',     'manifiesto_id, factura_no, dias_para_facturar, estado_interno',  'manifiesto_id', ids),
+            fetchIn('facturacion',      'manifiesto_id, factura_no, fecha_factura, estado_interno',       'manifiesto_id', ids),
             fetchIn('conductores', 'id, nombre', 'id', conductorIds),
             fetchIn('clientes',    'id, nombre', 'id', clienteIds),
             fetchIn('agencias',    'id, nombre', 'id', agenciaIds),
@@ -99,9 +99,13 @@ export function useDashboard(mes, año) {
           return !factMap[m.manifiesto]?.factura_no
         }).length
         const conNovedad = pagos.filter(p => p.novedades?.trim() && p.estado !== 'ANULADO').length
-        const factsConDias = facturacion.filter(f => f.dias_para_facturar != null)
+        const manifMap = Object.fromEntries(manifiestos.map(m => [m.manifiesto, m]))
+        const factsConDias = facturacion.filter(f => f.fecha_factura && manifMap[f.manifiesto_id]?.fecha_despacho)
         const diasPromFacturar = factsConDias.length
-          ? Math.round(factsConDias.reduce((s, f) => s + Number(f.dias_para_facturar), 0) / factsConDias.length)
+          ? Math.round(factsConDias.reduce((s, f) => {
+              const dias = (new Date(f.fecha_factura) - new Date(manifMap[f.manifiesto_id].fecha_despacho)) / 86400000
+              return s + dias
+            }, 0) / factsConDias.length)
           : 0
 
         const anualMap  = Object.fromEntries(anualData.map(r => [r.mes, r]))

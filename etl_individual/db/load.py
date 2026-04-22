@@ -68,13 +68,15 @@ def _float(val) -> float | None:
 
 
 def _cedula(val) -> str | None:
-    """Normaliza cédulas: '12345.0' y '12345' → '12345'. Maneja IDs alfanuméricos."""
+    """Normaliza cédulas: '12345.0' y '12345' → '12345'. Solo dígitos; cualquier otra cosa → None."""
     if pd.isna(val):
         return None
     try:
-        return str(int(float(val))).strip() or None
+        result = str(int(float(val))).strip()
+        return result if re.fullmatch(r'\d+', result) else None
     except Exception:
-        return str(val).strip() or None
+        result = str(val).strip()
+        return result if re.fullmatch(r'\d+', result) else None
 
 
 # ── Helpers de dominio ────────────────────────────────────────────────
@@ -247,25 +249,26 @@ def _load_manifiestos(df: pd.DataFrame, session: Session, maps: dict) -> int:
             cedula_map.get(_cedula(r.cedula_conductor))
             or nombre_map.get(_str(r.conductor))
         )
+        fecha_d = _date(r.fecha_despacho) or _date(r.periodo)   # fallback a periodo si falta
+        if fecha_d is None:
+            continue   # sin fecha no se puede insertar (NOT NULL)
         rows.append({
             "manifiesto":          man,
             "periodo":             _date(r.periodo),
             "año":                 _int(r.año),
             "mes":                 _str(r.mes),
-            "semana":              _str(r.semana),
             "consecutivo_semanal": _int(r.consecutivo_semanal),
-            "fecha_despacho":      _date(r.fecha_despacho),
+            "fecha_despacho":      fecha_d,
             "conductor_id":        conductor_id,
             "placa":               _str(r.placa) if _is_valid_placa(_str(r.placa)) else None,
             "cliente_id":          maps["clientes"].get(_clean_cliente(r.cliente)),
-            "origen_id":           maps["lugares"].get(_str(r.origen)),
-            "destino_id":          maps["lugares"].get(_str(r.destino)),
-            "agencia_id":          maps["agencias"].get(_str(r.agencia_despachadora)),
+            "origen_id":           maps["lugares"].get(_str(r.origen)) or maps["lugares"].get("DESCONOCIDO"),
+            "destino_id":          maps["lugares"].get(_str(r.destino)) or maps["lugares"].get("DESCONOCIDO"),
+            "agencia_id":          maps["agencias"].get(_str(r.agencia_despachadora)) or maps["agencias"].get("ANULADO"),
             "responsable_id":      maps["responsables"].get(_str(r.nombre_responsable)),
             "valor_remesa":        _float(r.valor_remesa),
-            "flete_conductor":     _float(r.flete_conductor),
+            "flete_conductor":     _float(r.flete_conductor) or 0.0,
             "anticipo":            _float(r.anticipo),
-            "archivo_origen":      _str(r.archivo_origen),
         })
 
     if rows:
@@ -284,7 +287,6 @@ def _load_manifiestos(df: pd.DataFrame, session: Session, maps: dict) -> int:
                 "valor_remesa":        stmt.excluded.valor_remesa,
                 "flete_conductor":     stmt.excluded.flete_conductor,
                 "anticipo":            stmt.excluded.anticipo,
-                "archivo_origen":      stmt.excluded.archivo_origen,
             },
         )
         session.execute(stmt)
@@ -294,26 +296,27 @@ def _load_manifiestos(df: pd.DataFrame, session: Session, maps: dict) -> int:
 
 def _load_remesas(df: pd.DataFrame, session: Session) -> int:
     """
-    El CSV ya está expandido (una remesa por fila).
-    Deduplica por (manifiesto_id, codigo_remesa) en Python antes de insertar.
+    Expande el campo remesas (puede contener varios códigos separados por ';')
+    e inserta una fila por código.  Solo acepta códigos de 5-6 dígitos numéricos.
+    Deduplica por (manifiesto_id, codigo_remesa) antes de insertar.
     """
     seen: set[tuple] = set()
     rows = []
     for r in df.itertuples():
-        man    = _int(r.manifiesto)
-        codigo = _str(r.remesas)
+        man = _int(r.manifiesto)
         if man is None:
             continue
-        if not codigo or codigo.upper() in ("NAN", "NONE"):
+        raw = _str(r.remesas)
+        if not raw or raw.upper() in ("NAN", "NONE", "ANULADO"):
             continue
-        if codigo.upper() == "ANULADO":
-            codigo = None
-        elif not re.fullmatch(r'[0-9]+', codigo):   # rechazar no-numéricos (viola chk_codigo_remesa_numerico)
-            continue
-        key = (man, codigo)
-        if key not in seen:
-            seen.add(key)
-            rows.append({"manifiesto_id": man, "codigo_remesa": codigo})
+        for codigo in raw.split(";"):
+            codigo = codigo.strip()
+            if not codigo or not re.fullmatch(r'[0-9]{5,6}', codigo):
+                continue
+            key = (man, codigo)
+            if key not in seen:
+                seen.add(key)
+                rows.append({"manifiesto_id": man, "codigo_remesa": codigo})
 
     if rows:
         stmt = pg_insert(Remesa).values(rows).on_conflict_do_nothing(
@@ -379,7 +382,6 @@ def _load_facturacion(df: pd.DataFrame, session: Session, resp_map: dict[str, in
             "factura_no":          _str(r.factura_no),
             "fecha_factura":       _date(r.fecha),
             "factura_electronica": _str(r.factura_electronica),
-            "dias_para_facturar":  _float(r.dias_para_facturar),
             "mes_facturacion":     _int(r.mes_facturacion),
             "estado_interno":      _str(r.estado_interno),
             "responsable_id":      resp_map.get(resp_ei),
@@ -393,7 +395,6 @@ def _load_facturacion(df: pd.DataFrame, session: Session, resp_map: dict[str, in
                 "factura_no":          stmt.excluded.factura_no,
                 "fecha_factura":       stmt.excluded.fecha_factura,
                 "factura_electronica": stmt.excluded.factura_electronica,
-                "dias_para_facturar":  stmt.excluded.dias_para_facturar,
                 "mes_facturacion":     stmt.excluded.mes_facturacion,
                 "estado_interno":      stmt.excluded.estado_interno,
                 "responsable_id":      stmt.excluded.responsable_id,

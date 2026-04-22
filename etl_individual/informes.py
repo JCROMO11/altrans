@@ -9,6 +9,7 @@ Hojas:
   4_Diferencias          — Valores que cambiaron entre raw y cleaned
   5_Perfil_columnas      — Perfil por columna (tipos, nulos, rangos)
   6_Valores_categoricos  — Distribución de valores para columnas categóricas
+  7_Linaje_columnas      — Todas las columnas raw y su destino (Conservada/Estandarizada/Fusionada/Transformada/Eliminada/Creada)
 """
 
 import re
@@ -37,10 +38,10 @@ OUTPUT_FILE  = ROOT / "informes/informe_etl.xlsx"
 
 # Artefactos ETL generados por cleaning_individual.py
 ETL_ARTIFACTS = [
-    ("7_Filas_revision",             "filas_revision.csv"),
-    ("8_Multi_remesas",              "multi_remesas.csv"),
-    ("9_Estado_otros",               "estado_otros.csv"),
-    ("10_Normalizacion_responsables", "normalizacion_responsables.csv"),
+    ("8_Filas_revision",             "filas_revision.csv"),
+    ("9_Multi_remesas",              "multi_remesas.csv"),
+    ("10_Estado_otros",              "estado_otros.csv"),
+    ("11_Normalizacion_responsables","normalizacion_responsables.csv"),
 ]
 
 NUMERIC_COLS   = ["valor_remesa", "flete_conductor", "valor_pagado", "anticipo"]
@@ -130,6 +131,7 @@ clean_manif_index = (
 
 rows_manifiestos = []
 rows_diferencias = []
+raw_col_registry: dict[str, list[str]] = {}   # col_normalizada → [archivos]
 
 print("Procesando archivos raw...")
 for path in sorted(DATA_FOLDER.glob("*.csv")):
@@ -143,6 +145,8 @@ for path in sorted(DATA_FOLDER.glob("*.csv")):
         continue
 
     raw_cols = list(raw.columns)
+    for _c in raw_cols:
+        raw_col_registry.setdefault(_c, []).append(archivo)
     man_col  = next((c for c in raw_cols if "manifiesto" in c.lower()), None)
 
     if man_col is None:
@@ -420,6 +424,191 @@ enum_df = pd.concat(enum_parts, ignore_index=True) if enum_parts else pd.DataFra
 )
 
 
+# ── Linaje de columnas ────────────────────────────────────────────────────────
+
+_TRANSFORMED_COLS_INFO: dict[str, str] = {
+    "estado":                     "Categorizado con reglas ESTADO_RULES (PAGO A X DIAS, CONTRAENTREGA, PRONTO PAGO, URBANO, ANULADO…). Valores sin patrón → OTROS",
+    "condicion_pago":             "Normalizada a categorías canónicas: CONTRAENTREGA, PAGO NORMAL, PRONTO PAGO, CONTINGENCIA 20-25 DH. Números sueltos → NULL",
+    "entidad_financiera":         "Normalizada: método (TRANSF/CHEQUE) + banco (BANCOLOMBIA, DAVIVIENDA, BANCO DE BOGOTA). Personas y fechas coladas → NULL. Detalles extras → novedades",
+    "estado_interno":             "Normalizada a valores canónicos del Enum (FACTURA RECIBIDA, NOVEDAD PENDIENTE, etc.)",
+    "responsable":                "Lista negra de valores inusuales → NULL con nota en novedades. Valores cortos o con dígitos marcados como inusuales",
+    "responsable_estado_interno": "Fuzzy-clustering (umbral 92 %) + correcciones explícitas de typos (LILANA→LILIANA, DAVIID→DAVID, CATHERN→CATHERIN, etc.)",
+    "nombre_responsable":         "Fuzzy-clustering + correcciones explícitas (LILIANAOBREGON→LILIANA OBREGON, OPERAIVO 3→OPERATIVO 3, etc.)",
+    "celular":                    "Validado: exactamente 10 dígitos. Inválidos → NULL con nota en novedades",
+    "cedula_conductor":           "Validado: 6–12 dígitos. Inválidos → NULL con nota en novedades",
+    "origen":                     "Nombre oficial estandarizado (ej. CALI→SANTIAGO DE CALI, BOGOTA→BOGOTÁ D.C.). Departamento extraído a columna separada. Paréntesis eliminados",
+    "destino":                    "Nombre oficial estandarizado. Departamento extraído a columna separada. Paréntesis eliminados",
+    "valor_remesa":               "Monetario colombiano → float ($ y puntos de miles eliminados). Multi-remesa (;): valores sumados",
+    "flete_conductor":            "Monetario colombiano → float ($ y puntos de miles eliminados)",
+    "anticipo":                   "Monetario colombiano → float",
+    "valor_pagado":               "Monetario colombiano → float",
+    "manifiesto":                 "ID limpiado: .0 eliminado, convertido a string entero",
+    "consecutivo_semanal":        "ID limpiado: .0 eliminado, convertido a string entero",
+    "fecha_despacho":             "Parseada a date (sin hora). Errores → NaT",
+    "fecha_cumplido":             "Parseada a date (sin hora). Errores → NaT",
+    "fecha_pago":                 "Parseada a date (sin hora). Errores → NaT",
+    "fecha":                      "Parseada a date (sin hora). Errores → NaT",
+    "dias_cumplido":              "Numérico limpiado: textos y fechas coladas → NULL. Valores fuera de rango (< -365 o > 3 650) → NULL",
+    "agencia_despachadora":       "ANULADO (variantes) → 'ANULADO'. LETRAS+NÚMEROS → solo letras + nota. Lista negra (INFORMATIVO, RNDC) → NULL",
+    "remesas":                    "Multi-remesa (';'): se consolida en una fila; valor_remesa acumulado; lista original conservada en este campo",
+    "cliente":                    "Multi-remesa: clientes duplicados deduplicados dentro del mismo manifiesto",
+    "mes_facturacion":            "Convertida a entero nullable (evita '4.0' de pandas)",
+}
+
+_CREATED_COLS_INFO: dict[str, str] = {
+    "archivo_origen":       "Nombre del archivo CSV fuente sin extensión (trazabilidad)",
+    "mes":                  "Mes en texto extraído del nombre del archivo (ej. 'ENERO')",
+    "año":                  "Año numérico extraído del nombre del archivo",
+    "periodo":              "Fecha del primer día del mes (YYYY-MM-01) derivada del nombre del archivo",
+    "semana":               "Número de semana ('Semana 1'…) detectado de filas 'SEMANA X' en el CSV. 'N/A' si el archivo no usa semanas",
+    "departamento_origen":  "Departamento extraído de origen: texto en paréntesis, palabras clave del nombre o tabla de fallback por ciudad conocida",
+    "departamento_destino": "Departamento extraído de destino con la misma lógica que departamento_origen",
+    "mes_facturacion":      "Mes numérico (1–12) de la fecha de factura (campo fecha.dt.month)",
+    "dias_para_facturar":   "Días entre fecha_despacho y fecha de factura (puede ser negativo si hay error de fechas)",
+    "novedades":            "Acumulado de notas de limpieza: entidad financiera ambigua, celular/cédula inválidos, estado especial, agencia inusual, etc.",
+}
+
+# Columnas que en DEAD_COLS se eliminan DESPUÉS de ser renombradas
+_DEAD_COLS_FROM_RENAME: dict[str, str] = {
+    "tiemp. lg cargue":    "tiempo_lg_cargue",
+    "tiemp. lg descargue": "tiempo_lg_descargue",
+}
+
+
+def _build_linaje_df(col_registry: dict[str, list[str]]) -> pd.DataFrame:
+    """Construye la tabla de linaje raw → cleaned para todas las columnas vistas."""
+    from etl_individual.cleaning_individual import DROP_COLS, DEAD_COLS
+
+    # Cuántos orígenes apuntan a cada destino (para detectar fusiones)
+    dest_sources: dict[str, list[str]] = {}
+    for src, dst in RENAME_MAP.items():
+        dest_sources.setdefault(dst, []).append(src)
+    fused_dests = {dst for dst, srcs in dest_sources.items() if len(srcs) > 1}
+
+    rows = []
+
+    for raw_col in sorted(col_registry.keys()):
+        archivos = ", ".join(sorted(set(col_registry[raw_col])))
+        col_key  = re.sub(r"\s+", " ", raw_col.strip()).lower()
+
+        # 1. Columna de ruido / índice de Excel
+        should_drop = (
+            col_key in DROP_COLS
+            or not col_key                                  # cadena vacía
+            or col_key == "nan"                             # nombre NaN residual
+            or re.fullmatch(r"\d+", col_key)
+            or re.fullmatch(r"[a-z,]{1,2}", col_key)
+            or bool(re.match(r"^unnamed:\s*\d+$", col_key))
+        )
+        if should_drop:
+            rows.append({
+                "columna_origen":  raw_col,
+                "columna_destino": "—",
+                "accion":          "Eliminada",
+                "archivos_en":     archivos,
+                "comentario":      "Columna de ruido, índice de Excel o nombre inválido → descartada",
+            })
+            continue
+
+        # 2. Renombrada via RENAME_MAP
+        if col_key in RENAME_MAP:
+            dest    = RENAME_MAP[col_key]
+            is_dead = dest in DEAD_COLS
+            if is_dead:
+                rows.append({
+                    "columna_origen":  raw_col,
+                    "columna_destino": "—",
+                    "accion":          "Eliminada",
+                    "archivos_en":     archivos,
+                    "comentario":      f"Renombrada internamente a '{dest}', luego eliminada como columna muerta (demasiados nulos o cubierta por otra)",
+                })
+            else:
+                is_fused = dest in fused_dests
+                accion   = "Fusionada" if is_fused else "Estandarizada"
+                base     = f"Renombrada a '{dest}'"
+                if is_fused:
+                    peers = ", ".join(f"'{s}'" for s in dest_sources[dest] if s != col_key)
+                    base += f"; se fusiona con: {peers}"
+                extra   = _TRANSFORMED_COLS_INFO.get(dest, "")
+                comment = f"{base}. {extra}" if extra else base
+                rows.append({
+                    "columna_origen":  raw_col,
+                    "columna_destino": dest,
+                    "accion":          accion,
+                    "archivos_en":     archivos,
+                    "comentario":      comment,
+                })
+            continue
+
+        # 3. Columna muerta que conserva su nombre (ej. agencia)
+        if col_key in DEAD_COLS:
+            extra_comment = (
+                "Sus valores se propagan a 'agencia_despachadora' donde esté vacía antes de eliminarse"
+                if col_key == "agencia"
+                else "Demasiados nulos o cubierta por otra columna → eliminada"
+            )
+            rows.append({
+                "columna_origen":  raw_col,
+                "columna_destino": "—",
+                "accion":          "Eliminada",
+                "archivos_en":     archivos,
+                "comentario":      extra_comment,
+            })
+            continue
+
+        # 4. Columna generada por el ETL que también aparece en los raw
+        #    (ej. semana creada por week_col, novedades pre-existente en algunos archivos)
+        if col_key in _CREATED_COLS_INFO:
+            rows.append({
+                "columna_origen":  raw_col,
+                "columna_destino": raw_col,
+                "accion":          "Creada",
+                "archivos_en":     archivos,
+                "comentario":      _CREATED_COLS_INFO[col_key],
+            })
+            continue
+
+        # 5. Columna que se conserva pero sus valores se transforman
+        if col_key in _TRANSFORMED_COLS_INFO:
+            rows.append({
+                "columna_origen":  raw_col,
+                "columna_destino": raw_col,
+                "accion":          "Transformada",
+                "archivos_en":     archivos,
+                "comentario":      _TRANSFORMED_COLS_INFO[col_key],
+            })
+            continue
+
+        # 6. Conservada sin cambios
+        rows.append({
+            "columna_origen":  raw_col,
+            "columna_destino": raw_col,
+            "accion":          "Conservada",
+            "archivos_en":     archivos,
+            "comentario":      "Sin cambios estructurales ni de valores",
+        })
+
+    # Columnas creadas por el ETL que NO aparecen en ningún raw
+    for col, comment in _CREATED_COLS_INFO.items():
+        if col in col_registry:
+            continue   # ya se procesó arriba
+        rows.append({
+            "columna_origen":  "—",
+            "columna_destino": col,
+            "accion":          "Creada",
+            "archivos_en":     "Todos los archivos",
+            "comentario":      comment,
+        })
+
+    return pd.DataFrame(rows, columns=[
+        "columna_origen", "columna_destino", "accion", "archivos_en", "comentario"
+    ])
+
+
+print("Construyendo linaje de columnas...")
+df_linaje = _build_linaje_df(raw_col_registry)
+
+
 # ── DataFrames de salida ──────────────────────────────────────────────────────
 
 df_manifiestos   = pd.DataFrame(rows_manifiestos)
@@ -494,6 +683,7 @@ with pd.ExcelWriter(OUTPUT_FILE, engine="openpyxl") as writer:
     df_diferencias.to_excel(writer,   sheet_name="4_Diferencias",         index=False)
     profile_df.to_excel(writer,       sheet_name="5_Perfil_columnas",     index=False)
     enum_df.to_excel(writer,          sheet_name="6_Valores_categoricos", index=False)
+    df_linaje.to_excel(writer,        sheet_name="7_Linaje_columnas",     index=False)
 
     # Artefactos ETL (opcionales, generados por cleaning_individual.py)
     for sheet, filename in ETL_ARTIFACTS:
@@ -582,6 +772,29 @@ autofit(ws)
 # — Hoja 6: Valores categóricos —
 ws = wb["6_Valores_categoricos"]
 style_header_row(ws)
+autofit(ws)
+
+# — Hoja 7: Linaje de columnas —
+_ACCION_FILLS = {
+    "Estandarizada": PatternFill("solid", fgColor="C6EFCE"),   # verde claro
+    "Fusionada":     PatternFill("solid", fgColor="FFEB9C"),   # amarillo
+    "Transformada":  PatternFill("solid", fgColor="DDEBF7"),   # azul claro
+    "Eliminada":     PatternFill("solid", fgColor="FFC7CE"),   # rojo claro
+    "Creada":        PatternFill("solid", fgColor="E2EFDA"),   # verde más suave
+    "Conservada":    None,
+}
+ws = wb["7_Linaje_columnas"]
+style_header_row(ws)
+accion_col_idx = next(
+    (i for i, c in enumerate(ws[1], 1) if str(c.value or "").lower() == "accion"), None
+)
+if accion_col_idx:
+    for row in ws.iter_rows(min_row=2):
+        accion_val = str(row[accion_col_idx - 1].value or "")
+        fill = _ACCION_FILLS.get(accion_val)
+        if fill:
+            for cell in row:
+                cell.fill = fill
 autofit(ws)
 
 # — Hojas de artefactos ETL —
