@@ -147,6 +147,7 @@ class Manifiesto(Base):
     fecha_despacho      = Column(Date, nullable=False)
     conductor_id        = Column(Integer, ForeignKey("conductores.id"))
     placa               = Column(String(10), ForeignKey("vehiculos.placa"))
+    placa_remolque      = Column(String(10))
     cliente_id          = Column(Integer, ForeignKey("clientes.id"))
     origen_id           = Column(Integer, ForeignKey("lugares.id"),   nullable=False)
     destino_id          = Column(Integer, ForeignKey("lugares.id"),   nullable=False)
