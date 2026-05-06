@@ -428,7 +428,7 @@ enum_df = pd.concat(enum_parts, ignore_index=True) if enum_parts else pd.DataFra
 
 _TRANSFORMED_COLS_INFO: dict[str, str] = {
     "estado":                     "Categorizado con reglas ESTADO_RULES (PAGO A X DIAS, CONTRAENTREGA, PRONTO PAGO, URBANO, ANULADO…). Valores sin patrón → OTROS",
-    "condicion_pago":             "Normalizada a categorías canónicas: CONTRAENTREGA, PAGO NORMAL, PRONTO PAGO, CONTINGENCIA 20-25 DH. Números sueltos → NULL",
+    "compromiso_pago":            "Normalizada a categorías canónicas: CONTRAENTREGA, PAGO NORMAL, PRONTO PAGO, CONTINGENCIA 20-25 DH. Números sueltos → NULL",
     "entidad_financiera":         "Normalizada: método (TRANSF/CHEQUE) + banco (BANCOLOMBIA, DAVIVIENDA, BANCO DE BOGOTA). Personas y fechas coladas → NULL. Detalles extras → novedades",
     "estado_interno":             "Normalizada a valores canónicos del Enum (FACTURA RECIBIDA, NOVEDAD PENDIENTE, etc.)",
     "responsable":                "Lista negra de valores inusuales → NULL con nota en novedades. Valores cortos o con dígitos marcados como inusuales",
