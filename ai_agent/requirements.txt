@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+groq
+httpx
+python-dotenv
+pyjwt
+
+# Claude / Anthropic (producción)
+# anthropic

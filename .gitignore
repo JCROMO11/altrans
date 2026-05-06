@@ -1,9 +1,16 @@
-# Datos sensibles
+# Datos sensibles / generados localmente
 data/
 data_sheets/
 cleaned_data/
 informes/
+exports/
 supabase/migrations/
+
+# Binarios e instaladores
+*.deb
+
+# Herramientas locales
+.claude/
 
 # Python
 __pycache__/
