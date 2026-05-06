@@ -14,10 +14,10 @@ const AÑOS        = [2023, 2024, 2025, 2026]
 const BLUE   = '#1E6FBF'
 const GOLD   = '#C9A84C'
 const ALERT  = '#E05252'
-const TICK   = '#F0F4F8'
-const GRID   = '#2A3F52'
-const TT_BG  = '#1B2B3B'
-const TT_BDR = '#2A3F52'
+const TICK   = '#0F172A'
+const GRID   = '#E2E8F0'
+const TT_BG  = '#FFFFFF'
+const TT_BDR = '#E2E8F0'
 
 const CHART_COLORS = [BLUE, GOLD, '#22c55e', ALERT, '#a855f7', '#14b8a6', '#f97316', '#ec4899', '#6366f1', '#84cc16']
 
@@ -70,8 +70,8 @@ function FilterPill({ label, active, onClick }) {
       onClick={onClick}
       className="px-3 py-1 rounded-full text-xs font-medium transition-all duration-150"
       style={active
-        ? { background: BLUE, color: TICK }
-        : { background: '#162232', color: '#8FA3B1' }
+        ? { background: BLUE, color: '#FFFFFF' }
+        : { background: '#F1F5F9', color: '#64748B' }
       }
     >
       {label}

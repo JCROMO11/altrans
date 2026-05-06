@@ -4,91 +4,52 @@ import { supabase } from '../lib/supabase'
 export function useCatalogos() {
   const [catalogos, setCatalogos] = useState({
     conductores: [], clientes: [], lugares: [],
-    responsables: [], vehiculos: [], remolques: [], agencias: [],
+    responsables: [], vehiculos: [], remolques: [], agencias: [], propietarios: [],
   })
   const [loading, setLoading] = useState(true)
 
   const fetch = useCallback(async () => {
-    const [c, cl, l, r, v, rm, a, freq] = await Promise.all([
-      supabase.from('conductores').select('id, nombre, cedula, celular').order('nombre'),
-      supabase.from('clientes').select('id, nombre').order('nombre'),
-      supabase.from('lugares').select('id, nombre').order('nombre'),
-      supabase.from('responsables').select('id, nombre').order('nombre'),
-      supabase.from('vehiculos').select('placa').order('placa'),
-      supabase.from('remolques').select('placa').order('placa'),
-      supabase.from('agencias').select('id, nombre').order('nombre'),
-      Promise.resolve(supabase.rpc('catalog_frecuencias')).catch(() => ({ data: null })),
-    ])
-
-    const freqMap = {}
-    for (const row of (freq.data ?? [])) {
-      if (!freqMap[row.tipo]) freqMap[row.tipo] = {}
-      const key = row.ref_id != null ? row.ref_id : row.ref_placa
-      freqMap[row.tipo][key] = (freqMap[row.tipo][key] ?? 0) + Number(row.cnt)
+    // Usamos un RPC (función SQL) en lugar de consulta directa a la tabla.
+    // Las RPCs no están sujetas al max-rows de PostgREST (1000 por defecto),
+    // lo que garantiza que se devuelven TODOS los conductores, clientes, etc.
+    const { data: cat, error } = await supabase.rpc('get_catalogos')
+    if (error || !cat) {
+      console.error('get_catalogos error:', error)
+      setLoading(false)
+      return
     }
 
-    const sortByFreq = (items, tipo, keyFn) =>
-      [...items].sort((a, b) => (freqMap[tipo]?.[keyFn(b)] ?? 0) - (freqMap[tipo]?.[keyFn(a)] ?? 0))
+    const toList = (arr) => (arr ?? []).filter(Boolean)
 
     setCatalogos({
-      conductores:  sortByFreq(c.data ?? [],  'conductor',   x => x.id),
-      clientes:     sortByFreq(cl.data ?? [], 'cliente',     x => x.id),
-      lugares:      sortByFreq(l.data ?? [],  'lugar',       x => x.id),
-      responsables: sortByFreq(r.data ?? [],  'responsable', x => x.id),
-      vehiculos:    sortByFreq(v.data ?? [],  'vehiculo',    x => x.placa),
-      remolques:    rm.data ?? [],
-      agencias:     a.data ?? [],
+      conductores: toList(cat.conductores).map(c => ({
+        id:      c.nombre,
+        nombre:  c.nombre,
+        cedula:  c.cedula  ?? null,
+        celular: c.celular ?? null,
+      })),
+      clientes:     toList(cat.clientes).map(n => ({ id: n, nombre: n })),
+      lugares:      toList(cat.lugares).map(n => ({ id: n, nombre: n })),
+      responsables: toList(cat.responsables).map(n => ({ id: n, nombre: n })),
+      vehiculos:    toList(cat.vehiculos).map(n => ({ id: n, placa: n, nombre: n })),
+      remolques:    toList(cat.remolques).map(n => ({ id: n, placa: n, nombre: n })),
+      agencias:     toList(cat.agencias).map(n => ({ id: n, nombre: n })),
+      propietarios: toList(cat.propietarios).map(n => ({ id: n, nombre: n })),
     })
     setLoading(false)
   }, [])
 
   useEffect(() => { fetch() }, [fetch])
 
-  const createConductor = async (nombre, extras = {}) => {
-    const { data, error } = await supabase.from('conductores')
-      .insert({ nombre, cedula: extras.cedula || null, celular: extras.celular || null })
-      .select().single()
-    if (error) throw error
-    await fetch()
-    return data
+  return {
+    catalogos, loading,
+    createConductor:   async (nombre, extras = {}) => ({ id: nombre, nombre, cedula: extras.cedula, celular: extras.celular }),
+    updateConductor:   async () => {},
+    createCliente:     async (nombre) => ({ id: nombre, nombre }),
+    createLugar:       async (nombre) => ({ id: nombre, nombre }),
+    createResponsable: async (nombre) => ({ id: nombre, nombre }),
+    createVehiculo:    async (placa)  => ({ id: placa, placa }),
+    createRemolque:    async (placa)  => ({ id: placa, placa }),
+    createPropietario: async (nombre) => ({ id: nombre, nombre }),
   }
-  const updateConductor = async (id, updates) => {
-    const { error } = await supabase.from('conductores').update(updates).eq('id', id)
-    if (error) throw error
-    await fetch()
-  }
-
-  const createCliente = async (nombre) => {
-    const { data, error } = await supabase.from('clientes').insert({ nombre }).select().single()
-    if (error) throw error
-    await fetch()
-    return data
-  }
-  const createLugar = async (nombre) => {
-    const { data, error } = await supabase.from('lugares').insert({ nombre }).select().single()
-    if (error) throw error
-    await fetch()
-    return data
-  }
-  const createResponsable = async (nombre) => {
-    const { data, error } = await supabase.from('responsables').insert({ nombre }).select().single()
-    if (error) throw error
-    await fetch()
-    return data
-  }
-  const createVehiculo = async (placa) => {
-    const { data, error } = await supabase.from('vehiculos').insert({ placa }).select().single()
-    if (error) throw error
-    await fetch()
-    return data
-  }
-
-  const createRemolque = async (placa) => {
-    const { data, error } = await supabase.from('remolques').insert({ placa }).select().single()
-    if (error) throw error
-    await fetch()
-    return data
-  }
-
-  return { catalogos, loading, createConductor, updateConductor, createCliente, createLugar, createResponsable, createVehiculo, createRemolque }
 }

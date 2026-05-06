@@ -1,34 +1,33 @@
 import { useState } from 'react'
-
-const PASS = import.meta.env.VITE_APP_PASSWORD
+import { supabase } from '../lib/supabase'
 
 const BG   = '#FFFFFF'
 const BDR  = '#E2E8F0'
 const TICK = '#0F172A'
 const BLUE = '#1E6FBF'
-const GOLD = '#C9A84C'
 const MUTED = '#64748B'
 
-export default function PasswordGate({ children }) {
-  const [authed, setAuthed] = useState(
-    () => sessionStorage.getItem('altrans_auth') === '1'
-  )
-  const [input, setInput] = useState('')
-  const [error, setError] = useState(false)
+export default function LoginGate({ children }) {
+  const [input, setInput]     = useState({ email: '', password: '' })
+  const [error, setError]     = useState('')
+  const [loading, setLoading] = useState(false)
   const [visible, setVisible] = useState(false)
 
-  if (authed) return children
-
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault()
-    if (PASS && input === PASS) {
-      sessionStorage.setItem('altrans_auth', '1')
-      setAuthed(true)
-    } else {
-      setError(true)
-      setInput('')
-      setTimeout(() => setError(false), 2000)
+    setLoading(true)
+    setError('')
+
+    const { error: err } = await supabase.auth.signInWithPassword({
+      email:    input.email.trim(),
+      password: input.password,
+    })
+
+    if (err) {
+      setError('Correo o contraseña incorrectos')
+      setLoading(false)
     }
+    // Si hay éxito, onAuthStateChange en App.jsx actualiza la sesión automáticamente
   }
 
   return (
@@ -37,7 +36,7 @@ export default function PasswordGate({ children }) {
       <div className="w-full max-w-sm flex flex-col gap-6"
         style={{ background: BG, border: `1px solid ${BDR}`, borderRadius: 16, padding: 32 }}>
 
-        {/* Logo / título */}
+        {/* Logo */}
         <div className="flex flex-col items-center gap-2 pb-2">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-1"
             style={{ background: BLUE + '22', border: `1px solid ${BLUE}44` }}>
@@ -49,23 +48,29 @@ export default function PasswordGate({ children }) {
             </svg>
           </div>
           <p className="text-lg font-bold tracking-wide" style={{ color: TICK }}>Altrans</p>
-          <p className="text-xs" style={{ color: MUTED }}>Ingresa la contraseña para continuar</p>
+          <p className="text-xs" style={{ color: MUTED }}>Ingresa tus credenciales para continuar</p>
         </div>
 
         {/* Form */}
         <form onSubmit={submit} className="flex flex-col gap-3">
+          <input
+            type="email"
+            value={input.email}
+            autoFocus
+            placeholder="Correo electrónico"
+            onChange={e => setInput(p => ({ ...p, email: e.target.value }))}
+            className="w-full rounded-md border px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#1E6FBF] transition-colors bg-transparent"
+            style={{ borderColor: error ? '#ef4444' : BDR, color: TICK }}
+          />
+
           <div className="relative">
             <input
               type={visible ? 'text' : 'password'}
-              value={input}
-              autoFocus
+              value={input.password}
               placeholder="Contraseña"
-              onChange={e => setInput(e.target.value)}
+              onChange={e => setInput(p => ({ ...p, password: e.target.value }))}
               className="w-full rounded-md border px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#1E6FBF] transition-colors bg-transparent pr-10"
-              style={{
-                borderColor: error ? '#ef4444' : BDR,
-                color: TICK,
-              }}
+              style={{ borderColor: error ? '#ef4444' : BDR, color: TICK }}
             />
             <button
               type="button"
@@ -77,17 +82,15 @@ export default function PasswordGate({ children }) {
           </div>
 
           {error && (
-            <p className="text-xs text-center" style={{ color: '#DC2626' }}>
-              Contraseña incorrecta
-            </p>
+            <p className="text-xs text-center" style={{ color: '#DC2626' }}>{error}</p>
           )}
 
           <button
             type="submit"
-            disabled={!input}
+            disabled={!input.email || !input.password || loading}
             className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-40"
             style={{ background: BLUE, color: '#FFFFFF' }}>
-            Entrar
+            {loading ? 'Ingresando...' : 'Entrar'}
           </button>
         </form>
 
