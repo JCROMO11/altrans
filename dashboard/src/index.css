@@ -48,34 +48,34 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Paleta corporativa Altrans (dark-only) */
+/* Paleta corporativa Altrans */
 :root {
-    --background:           #0D1B2A;
-    --foreground:           #F0F4F8;
-    --card:                 #1B2B3B;
-    --card-foreground:      #F0F4F8;
-    --popover:              #1B2B3B;
-    --popover-foreground:   #F0F4F8;
+    --background:           #F1F5F9;
+    --foreground:           #0F172A;
+    --card:                 #FFFFFF;
+    --card-foreground:      #0F172A;
+    --popover:              #FFFFFF;
+    --popover-foreground:   #0F172A;
     --primary:              #1E6FBF;
-    --primary-foreground:   #F0F4F8;
-    --secondary:            #2A3F52;
-    --secondary-foreground: #F0F4F8;
-    --muted:                #162232;
-    --muted-foreground:     #8FA3B1;
-    --accent:               #2A3F52;
-    --accent-foreground:    #F0F4F8;
-    --destructive:          #E05252;
-    --border:               #2A3F52;
-    --input:                #2A3F52;
+    --primary-foreground:   #FFFFFF;
+    --secondary:            #F1F5F9;
+    --secondary-foreground: #0F172A;
+    --muted:                #F1F5F9;
+    --muted-foreground:     #64748B;
+    --accent:               #F1F5F9;
+    --accent-foreground:    #0F172A;
+    --destructive:          #DC2626;
+    --border:               #E2E8F0;
+    --input:                #E2E8F0;
     --ring:                 #1E6FBF;
     --radius: 0.625rem;
-    --sidebar:              #0D1B2A;
-    --sidebar-foreground:   #F0F4F8;
+    --sidebar:              #FFFFFF;
+    --sidebar-foreground:   #0F172A;
     --sidebar-primary:      #1E6FBF;
-    --sidebar-primary-foreground: #F0F4F8;
-    --sidebar-accent:       #1B2B3B;
-    --sidebar-accent-foreground: #F0F4F8;
-    --sidebar-border:       #2A3F52;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent:       #F1F5F9;
+    --sidebar-accent-foreground: #0F172A;
+    --sidebar-border:       #E2E8F0;
     --sidebar-ring:         #1E6FBF;
 }
 
@@ -93,7 +93,7 @@
 
 /* ── Date input ─────────────────────────────────────────────────────────────── */
 input[type="date"] {
-  color-scheme: dark;
+  color-scheme: light;
 }
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(45%) sepia(70%) saturate(400%) hue-rotate(185deg) brightness(95%);

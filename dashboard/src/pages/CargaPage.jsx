@@ -2,28 +2,27 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, Plus, ArrowLeft, Save, CheckCircle, AlertCircle,
          User, MapPin, DollarSign, FileText, ClipboardList,
          ChevronDown, Check, Calendar, Pencil, Trash2, X, Clock,
-         ChevronUp, RotateCcw } from 'lucide-react'
+         ChevronUp, RotateCcw, Lock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useCatalogos } from '../hooks/useCatalogos'
 import { useManifiesto } from '../hooks/useManifiesto'
 
 // ── ENUMs ────────────────────────────────────────────────────────────────────
-const ESTADO_PAGO_OPTS     = ['PAGO A 15 DIAS','PAGO A 20 DIAS','PAGO A 30 DIAS','PAGO A 5-8 DIAS','CONTRAENTREGA','PRONTO PAGO','PAGO NORMAL','PAGO INMEDIATO','URBANO','PAGADO','ANULADO','PRIORITARIO','RNDC','OTROS']
-const CONDICION_PAGO_OPTS  = ['PAGO NORMAL','CONTRAENTREGA','PRONTO PAGO','CONTINGENCIA 20-25 DH']
-const ENTIDAD_FIN_OPTS     = ['TRANSF BANCOLOMBIA','TRANSF DAVIVIENDA','CHEQUE BANCOLOMBIA','CHEQUE DAVIVIENDA','TRANSF BANCO DE BOGOTA','CHEQUE BANCO DE BOGOTA','CHEQUE','TRANSF/CHEQUE','ANULADO','OTRO']
-const ESTADO_INTERNO_OPTS  = ['CUMPLIDO','NO SE HA CUMPLIDO','PENDIENTE FACTURA ELECTRONICA','FACTURA RECIBIDA','NOVEDAD PENDIENTE','ANULADO']
+const COMPROMISO_PAGO_OPTS   = ['PAGO A 15 DIAS','CONTRAENTREGA','PRONTO PAGO','PAGO INMEDIATO']
+const ENTIDAD_FIN_OPTS       = ['TRANSF BANCOLOMBIA','TRANSF BANCO DE BOGOTA','TRANSF DAVIVIENDA','CHEQUE BANCOLOMBIA','CHEQUE BANCO DE BOGOTA','CHEQUE DAVIVIENDA']
+const ESTADO_INTERNO_OPTS    = ['CUMPLIDO','NO SE HA CUMPLIDO','PENDIENTE FACTURA ELECTRONICA','FACTURA RECIBIDA','NOVEDAD PENDIENTE','ANULADO']
 
 // ── Theme ────────────────────────────────────────────────────────────────────
-const BG   = '#1B2B3B'
-const BDR  = '#2A3F52'
-const TICK = '#F0F4F8'
+const BG   = '#FFFFFF'
+const BDR  = '#E2E8F0'
+const TICK = '#0F172A'
 const BLUE = '#1E6FBF'
 const GOLD = '#C9A84C'
-const MUTED = '#8FA3B1'
+const MUTED = '#64748B'
 
 // ── Primitives ───────────────────────────────────────────────────────────────
 const inputCls = `w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1
-  focus:ring-[#1E6FBF] transition-colors bg-transparent text-[#F0F4F8] placeholder:text-[#8FA3B1]`
+  focus:ring-[#1E6FBF] transition-colors bg-transparent text-[#0F172A] placeholder:text-[#64748B]`
 
 function Field({ label, col = 1, children }) {
   return (
@@ -79,13 +78,13 @@ function Select({ label, col, value, onChange, options, placeholder = 'Seleccion
         </button>
         {open && (
           <div className="absolute z-50 w-full mt-1 rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto"
-            style={{ background: '#0f1e2b', border: `1px solid ${BDR}` }}>
+            style={{ background: '#F8FAFC', border: `1px solid ${BDR}` }}>
             <button type="button" onMouseDown={() => { onChange(''); setOpen(false) }}
-              className="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-white/5"
+              className="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-black/5"
               style={{ color: MUTED }}>{placeholder}</button>
             {options.map(o => (
               <button key={o} type="button" onMouseDown={() => { onChange(o); setOpen(false) }}
-                className="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-white/5 flex items-center justify-between"
+                className="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-black/5 flex items-center justify-between"
                 style={{ color: TICK }}>
                 <span>{o}</span>
                 {value === o && <Check size={11} style={{ color: BLUE, flexShrink: 0 }} />}
@@ -111,13 +110,11 @@ function DateInput({ label, col, value, onChange }) {
   )
 }
 
-function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, placeholder, extraFields }) {
-  const [query, setQuery]         = useState(displayValue || '')
-  const [open, setOpen]           = useState(false)
-  const [saving, setSaving]       = useState(false)
-  const [showExtra, setShowExtra] = useState(false)
-  const [extras, setExtras]       = useState({})
-  const containerRef              = useRef(null)
+function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, placeholder }) {
+  const [query, setQuery] = useState(displayValue || '')
+  const [open,  setOpen]  = useState(false)
+  const [saving, setSaving] = useState(false)
+  const containerRef = useRef(null)
 
   useEffect(() => { setQuery(displayValue || '') }, [displayValue])
 
@@ -129,20 +126,16 @@ function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, p
   const showCreate = onCreate && query.trim().length >= 2 && !exactMatch
 
   const handleCreate = async () => {
-    if (extraFields?.length && !showExtra) { setShowExtra(true); return }
     setSaving(true)
     try {
-      const created = await onCreate(query.trim(), extras)
-      if (created) onSelect({ id: created.id ?? created.placa, label: query.trim() })
-      setOpen(false); setShowExtra(false); setExtras({})
+      const created = await onCreate(query.trim())
+      if (created) onSelect({ id: created.id ?? created.nombre ?? created.placa, label: query.trim() })
+      setOpen(false)
     } finally { setSaving(false) }
   }
 
-  // Only close when focus leaves the whole container
   const handleBlur = () => setTimeout(() => {
-    if (!containerRef.current?.contains(document.activeElement)) {
-      setOpen(false); setShowExtra(false); setExtras({})
-    }
+    if (!containerRef.current?.contains(document.activeElement)) setOpen(false)
   }, 150)
 
   return (
@@ -150,50 +143,31 @@ function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, p
       <div className="relative" ref={containerRef}>
         <input value={query} autoComplete="off" placeholder={placeholder}
           className={inputCls} style={{ borderColor: BDR }}
-          onChange={e => { setQuery(e.target.value); setOpen(true); setShowExtra(false) }}
+          onChange={e => { setQuery(e.target.value); setOpen(true) }}
           onFocus={() => setOpen(true)}
           onBlur={handleBlur}
         />
         {open && (filtered.length > 0 || showCreate) && (
           <div className="absolute z-50 w-full mt-1 rounded-xl shadow-xl overflow-hidden"
-            style={{ background: '#0f1e2b', border: `1px solid ${BDR}` }}>
-            {!showExtra && (
-              <div className="max-h-52 overflow-y-auto">
-                {filtered.map(o => (
-                  <button key={o.id} type="button" onMouseDown={() => { onSelect(o); setQuery(o.label); setOpen(false) }}
-                    className="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-white/5 flex items-center gap-2"
-                    style={{ color: TICK }}>
-                    <span>{o.label}</span>
-                    {o.sub && <span className="text-xs opacity-40">{o.sub}</span>}
-                  </button>
-                ))}
-                {showCreate && (
-                  <button type="button" disabled={saving} onMouseDown={handleCreate}
-                    className="w-full text-left px-3 py-2 text-sm border-t transition-colors hover:bg-white/5 flex items-center gap-2"
-                    style={{ color: BLUE, borderColor: BDR }}>
-                    <Plus size={12} />
-                    {`Crear "${query.trim()}"${extraFields?.length ? ' →' : ''}`}
-                  </button>
-                )}
-              </div>
-            )}
-            {showExtra && (
-              <div className="p-3 flex flex-col gap-2">
-                <p className="text-xs font-semibold mb-1" style={{ color: TICK }}>
-                  Nuevo: <span style={{ color: BLUE }}>{query.trim()}</span>
-                </p>
-                {extraFields.map(f => (
-                  <input key={f.key} placeholder={f.label} value={extras[f.key] || ''}
-                    onChange={e => setExtras(p => ({ ...p, [f.key]: e.target.value }))}
-                    className={inputCls} style={{ borderColor: BDR, fontSize: '12px', padding: '6px 10px' }} />
-                ))}
-                <button type="button" disabled={saving} onMouseDown={handleCreate}
-                  className="w-full py-1.5 rounded-lg text-xs font-semibold mt-1 disabled:opacity-50 transition-opacity"
-                  style={{ background: BLUE, color: TICK }}>
-                  {saving ? 'Creando...' : 'Confirmar'}
+            style={{ background: '#F8FAFC', border: `1px solid ${BDR}` }}>
+            <div className="max-h-52 overflow-y-auto">
+              {filtered.map(o => (
+                <button key={o.id} type="button" onMouseDown={() => { onSelect(o); setQuery(o.label); setOpen(false) }}
+                  className="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-black/5 flex items-center gap-2"
+                  style={{ color: TICK }}>
+                  <span>{o.label}</span>
+                  {o.sub && <span className="text-xs opacity-40">{o.sub}</span>}
                 </button>
-              </div>
-            )}
+              ))}
+              {showCreate && (
+                <button type="button" disabled={saving} onMouseDown={handleCreate}
+                  className="w-full text-left px-3 py-2 text-sm border-t transition-colors hover:bg-black/5 flex items-center gap-2"
+                  style={{ color: BLUE, borderColor: BDR }}>
+                  <Plus size={12} />
+                  {`Usar "${query.trim()}"`}
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -208,7 +182,7 @@ function SectionCard({ icon: Icon, title, children, cols = 3 }) {
         <Icon size={13} color={BLUE} />
         <p className="text-xs font-bold uppercase tracking-widest" style={{ color: TICK }}>{title}</p>
       </div>
-      <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+      <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
         {children}
       </div>
     </div>
@@ -223,7 +197,7 @@ function Toast({ msg, onClose }) {
   const ok = msg.type === 'success'
   return (
     <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl text-sm font-medium"
-      style={{ background: ok ? '#0f2e1a' : '#2e0f0f', border: `1px solid ${ok ? '#22c55e' : '#ef4444'}`, color: ok ? '#86efac' : '#fca5a5' }}>
+      style={{ background: ok ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${ok ? '#86EFAC' : '#FECACA'}`, color: ok ? '#166534' : '#DC2626' }}>
       {ok ? <CheckCircle size={15} /> : <AlertCircle size={15} />}
       {msg.text}
     </div>
@@ -233,111 +207,149 @@ function Toast({ msg, onClose }) {
 // ── Form initial state ───────────────────────────────────────────────────────
 const NUEVO_INIT = {
   manifiesto: '', fecha_despacho: '',
-  conductor_id: null, conductor_nombre: '',
-  conductor_cedula: '', conductor_celular: '',
-  placa: '', placa_remolque: '',
-  cliente_id: null, cliente_nombre: '',
-  origen_id: null, origen_nombre: '',
-  destino_id: null, destino_nombre: '',
-  agencia_id: null,
-  responsable_id: null, responsable_nombre: '',
+  conductor: '', cedula_conductor: '', celular: '',
+  placa: '', tipo_vehiculo: '', propietario: '',
+  cliente: '', origen: '', destino: '',
+  agencia_despachadora: '', nombre_responsable: '',
   valor_remesa: '', flete_conductor: '', anticipo: '',
   remesas: '',
 }
 
-const PAGOS_INIT = {
-  fecha_cumplido: '', estado: '', condicion_pago: '',
-  novedades: '', fecha_pago: '', valor_pagado: '',
-  entidad_financiera: '', responsable_id: null, responsable_nombre: '',
+const SEGUIMIENTO_INIT = {
+  fecha_cumplido: '', compromiso_pago: 'PAGO A 15 DIAS', novedades: '',
+  estado_interno: '', responsable_estado_interno: '',
+  novedad_conductor: '', novedad_empresa: '',
+  ajuste_positivo_flete: '', ajuste_negativo_flete: '',
+}
+
+const TESORERIA_INIT = {
+  fecha_pago: '', valor_pagado: '', entidad_financiera: '', responsable: '',
 }
 
 const FACT_INIT = {
-  factura_no: '', fecha_factura: '', factura_electronica: '',
-  dias_para_facturar: '', mes_facturacion: '',
-  estado_interno: '', responsable_id: null, responsable_nombre: '',
+  factura_no: '', fecha_factura: '', factura_electronica: '', mes_facturacion: '',
 }
 
 // ── Main Page ────────────────────────────────────────────────────────────────
-export default function CargaPage({ target, clearTarget }) {
+export default function CargaPage({ target, clearTarget, user }) {
+  const rol = user?.app_metadata?.role || ''
+  const canEditDespacho   = ['digitador', 'admin'].includes(rol)
+  const canEditOperativo  = ['operativo',  'admin'].includes(rol)
+  const canEditTesoreria  = ['tesoreria',  'admin'].includes(rol)
+  const canEditFinanciero = ['financiero', 'admin'].includes(rol)
+
   const [query,  setQuery]  = useState('')
   const [view,   setView]   = useState('inicio')
   const [ficha,  setFicha]  = useState(null)
   const [tab,    setTab]    = useState('despacho')
   const [formNuevo, setFN]  = useState(NUEVO_INIT)
-  const [formPagos, setFP]  = useState(PAGOS_INIT)
+  const [formSeg,   setFS]  = useState(SEGUIMIENTO_INIT)
+  const [formTes,   setFT]  = useState(TESORERIA_INIT)
   const [formFact,  setFF]  = useState(FACT_INIT)
   const [formEdit,  setFE]  = useState({})
   const [editMode,  setEditMode]    = useState(false)
-  const [confirmDel, setConfirmDel] = useState(false)
+  const [confirmDel, setConfirmDel]     = useState(false)
+  const [deleteText, setDeleteText]     = useState('')
   const [recientes,  setRecientes]  = useState([])
   const [recentesOpen, setRecentesOpen] = useState(false)
   const [sessionIds, setSessionIds] = useState(new Set())
   const [busy,   setBusy]   = useState(false)
   const [msg,    setMsg]    = useState(null)
 
-  // ── Deferred catalog creation ─────────────────────────────────────────────
-  // New catalog entries (conductor, cliente, etc.) are NOT saved to DB until
-  // the manifiesto form is submitted, preventing orphan records.
-  const [pendingEntries, setPendingEntries] = useState({})
-  const tempCounterRef = useRef(0)
+  const { catalogos } = useCatalogos()
+  const { search, create, update, remove, updateSeguimiento, updateTesoreria, updateFacturacion } = useManifiesto()
 
-  const stageEntry = useCallback((type, nombre, extras = {}) => {
-    const tempId = `__tmp__${++tempCounterRef.current}`
-    setPendingEntries(prev => ({ ...prev, [tempId]: { type, nombre, extras } }))
-    return { id: tempId, nombre, placa: nombre }
-  }, [])
+  // ── Catalog options ─────────────────────────────────────────────────────────
+  const optConductores = catalogos.conductores.map(c => ({ id: c.nombre, label: c.nombre, sub: c.cedula }))
+  const optClientes    = catalogos.clientes.map(c => ({ id: c.nombre, label: c.nombre }))
+  const optLugares     = catalogos.lugares.map(l => ({ id: l.nombre, label: l.nombre }))
+  const optResponsables = catalogos.responsables.map(r => ({ id: r.nombre, label: r.nombre }))
+  const optVehiculos   = catalogos.vehiculos.map(v => ({ id: v.placa, label: v.placa }))
+  const optRemolques   = catalogos.remolques.map(r => ({ id: r.placa, label: r.placa }))
+  const optAgencias    = catalogos.agencias.map(a => ({ id: a.nombre, label: a.nombre }))
+  const optPropietarios = catalogos.propietarios.map(p => ({ id: p.nombre, label: p.nombre }))
 
-  const clearPending = useCallback(() => {
-    setPendingEntries({})
-    tempCounterRef.current = 0
-  }, [])
+  const newText = (nombre) => ({ id: nombre, nombre, label: nombre, placa: nombre })
 
-  const pendingByType = (type) =>
-    Object.entries(pendingEntries)
-      .filter(([, e]) => e.type === type)
-      .map(([id, e]) => ({ id, label: e.nombre, sub: e.extras?.cedula }))
+  // ── Load ficha ──────────────────────────────────────────────────────────────
+  const userName = user?.app_metadata?.nombre || user?.email || ''
 
-  const { catalogos, loading: catLoading, createConductor, updateConductor,
-          createCliente, createLugar, createResponsable, createVehiculo, createRemolque } = useCatalogos()
-  const { search, create, update, remove, updatePagos, updateFacturacion } = useManifiesto()
+  const loadFicha = (data) => {
+    setFicha(data)
+    setTab('despacho')
+    setEditMode(false)
+    setConfirmDel(false)
+    setFE({
+      fecha_despacho:       data.fecha_despacho          || '',
+      conductor:            data.conductor               || '',
+      cedula_conductor:     data.cedula_conductor        || '',
+      celular:              data.celular                 || '',
+      placa:                data.placa                   || '',
+      tipo_vehiculo:        data.tipo_vehiculo           || '',
+      propietario:          data.propietario             || '',
+      cliente:              data.cliente                 || '',
+      origen:               data.origen                 || '',
+      destino:              data.destino                || '',
+      agencia_despachadora: data.agencia_despachadora   || '',
+      nombre_responsable:   data.nombre_responsable      || '',
+      valor_remesa:         data.valor_remesa            ?? '',
+      flete_conductor:      data.flete_conductor         ?? '',
+      anticipo:             data.anticipo               ?? '',
+      remesas:              data.remesas                || '',
+    })
+    setFS({
+      fecha_cumplido:              data.fecha_cumplido              || '',
+      compromiso_pago:             data.compromiso_pago             || 'PAGO A 15 DIAS',
+      novedades:                   data.novedades                   || '',
+      estado_interno:              data.estado_interno              || '',
+      responsable_estado_interno:  userName,
+      novedad_conductor:           data.novedad_conductor           || '',
+      novedad_empresa:             data.novedad_empresa             || '',
+      ajuste_positivo_flete:       data.ajuste_positivo_flete       ?? '',
+      ajuste_negativo_flete:       data.ajuste_negativo_flete       ?? '',
+    })
+    setFT({
+      fecha_pago:         data.fecha_pago         || '',
+      valor_pagado:       data.valor_pagado        ?? '',
+      entidad_financiera: data.entidad_financiera  || '',
+      responsable:        userName, // siempre el usuario actual al editar
+    })
+    setFF({
+      factura_no:          data.factura_no          || '',
+      fecha_factura:       data.fecha_factura        || '',
+      factura_electronica: data.factura_electronica  || '',
+      mes_facturacion:     data.mes_facturacion      ?? '',
+    })
+  }
 
-  const flushPending = useCallback(async () => {
-    const idMap = {}
-    for (const [tempId, entry] of Object.entries(pendingEntries)) {
-      let real
-      switch (entry.type) {
-        case 'conductor':   real = await createConductor(entry.nombre, entry.extras); break
-        case 'cliente':     real = await createCliente(entry.nombre); break
-        case 'lugar':       real = await createLugar(entry.nombre); break
-        case 'responsable': real = await createResponsable(entry.nombre); break
-        case 'vehiculo':    real = await createVehiculo(entry.nombre); break
-        case 'remolque':    real = await createRemolque(entry.nombre); break
-      }
-      idMap[tempId] = real?.id ?? real?.placa
-    }
-    setPendingEntries({})
-    return idMap
-  }, [pendingEntries, createConductor, createCliente, createLugar, createResponsable, createVehiculo, createRemolque])
-
-  const isTemp = id => typeof id === 'string' && String(id).startsWith('__tmp__')
-  const remapIds = (form, idMap) => {
-    const remap = id => (isTemp(id) ? (idMap[id] ?? id) : id)
-    return {
-      ...form,
-      conductor_id:   remap(form.conductor_id),
-      cliente_id:     remap(form.cliente_id),
-      origen_id:      remap(form.origen_id),
-      destino_id:     remap(form.destino_id),
-      agencia_id:     remap(form.agencia_id),
-      responsable_id: remap(form.responsable_id),
-    }
+  const revertEdit = () => {
+    if (!ficha) return
+    setFE({
+      fecha_despacho:       ficha.fecha_despacho          || '',
+      conductor:            ficha.conductor               || '',
+      cedula_conductor:     ficha.cedula_conductor        || '',
+      celular:              ficha.celular                 || '',
+      placa:                ficha.placa                   || '',
+      tipo_vehiculo:        ficha.tipo_vehiculo           || '',
+      propietario:          ficha.propietario             || '',
+      cliente:              ficha.cliente                 || '',
+      origen:               ficha.origen                 || '',
+      destino:              ficha.destino                || '',
+      agencia_despachadora: ficha.agencia_despachadora   || '',
+      nombre_responsable:   ficha.nombre_responsable      || '',
+      valor_remesa:         ficha.valor_remesa            ?? '',
+      flete_conductor:      ficha.flete_conductor         ?? '',
+      anticipo:             ficha.anticipo               ?? '',
+      remesas:              ficha.remesas                || '',
+    })
+    toast('success', 'Campos restaurados a los valores guardados.')
   }
 
   const fetchRecientes = useCallback(async () => {
     const { data } = await supabase
-      .from('manifiestos')
-      .select('manifiesto, fecha_despacho, mes, año, conductor:conductores(nombre), origen:lugares!origen_id(nombre), destino:lugares!destino_id(nombre)')
-      .order('manifiesto', { ascending: false })
+      .from('manifiestos_flat')
+      .select('manifiesto, fecha_despacho, mes, año, conductor, origen, destino')
+      .order('actualizado_en', { ascending: false })
       .limit(8)
     setRecientes(data ?? [])
   }, [])
@@ -357,118 +369,18 @@ export default function CargaPage({ target, clearTarget }) {
 
   const toast = (type, text) => setMsg({ type, text })
 
-  const notAnulado = (nombre) => nombre && nombre.toUpperCase() !== 'ANULADO'
-
-  const optConductores = [
-    ...catalogos.conductores.filter(c => notAnulado(c.nombre)).map(c => ({ id: c.id, label: c.nombre, sub: c.cedula })),
-    ...pendingByType('conductor'),
-  ]
-  const optClientes = [
-    ...catalogos.clientes.filter(c => notAnulado(c.nombre)).map(c => ({ id: c.id, label: c.nombre })),
-    ...pendingByType('cliente'),
-  ]
-  const optLugares = [
-    ...catalogos.lugares.filter(l => notAnulado(l.nombre)).map(l => ({ id: l.id, label: l.nombre })),
-    ...pendingByType('lugar'),
-  ]
-  const optResponsables = [
-    ...catalogos.responsables.filter(r => notAnulado(r.nombre)).map(r => ({ id: r.id, label: r.nombre })),
-    ...pendingByType('responsable'),
-  ]
-  const optVehiculos = [
-    ...catalogos.vehiculos.filter(v => notAnulado(v.placa)).map(v => ({ id: v.placa, label: v.placa })),
-    ...pendingByType('vehiculo'),
-  ]
-  const optRemolques = [
-    ...catalogos.remolques.filter(r => notAnulado(r.placa)).map(r => ({ id: r.placa, label: r.placa })),
-    ...pendingByType('remolque'),
-  ]
-  const optAgencias = catalogos.agencias.filter(a => notAnulado(a.nombre)).map(a => ({ id: a.id, label: a.nombre }))
-
-  const loadFicha = (data) => {
-    setFicha(data)
-    setTab('despacho')
-    setEditMode(false)
-    setConfirmDel(false)
-    const cond = catalogos.conductores.find(c => c.id === data.conductor?.id)
-    setFE({
-      fecha_despacho:     data.fecha_despacho || '',
-      conductor_id:       data.conductor?.id  ?? null,
-      conductor_nombre:   data.conductor?.nombre || '',
-      conductor_cedula:   cond?.cedula  ?? data.conductor?.cedula  ?? '',
-      conductor_celular:  cond?.celular ?? data.conductor?.celular ?? '',
-      placa:              data.placa           || '',
-      placa_remolque:     data.placa_remolque  || '',
-      cliente_id:         data.cliente?.id   ?? null,
-      cliente_nombre:     data.cliente?.nombre || '',
-      origen_id:          data.origen?.id    ?? null,
-      origen_nombre:      data.origen?.nombre || '',
-      destino_id:         data.destino?.id   ?? null,
-      destino_nombre:     data.destino?.nombre || '',
-      agencia_id:         data.agencia_id    ?? null,
-      responsable_id:     data.responsable?.id ?? null,
-      responsable_nombre: data.responsable?.nombre || '',
-      valor_remesa:       data.valor_remesa    ?? '',
-      flete_conductor:    data.flete_conductor ?? '',
-      anticipo:           data.anticipo        ?? '',
-      remesas:            data.remesas?.map(r => r.codigo_remesa).join('; ') || '',
-    })
-    const p = data.pagos_conductor?.[0] ?? {}
-    const f = data.facturacion?.[0]    ?? {}
-    const resolveResp = (id) => catalogos.responsables.find(r => r.id === id)?.nombre || ''
-    setFP({
-      fecha_cumplido: p.fecha_cumplido || '',
-      estado: p.estado || '',
-      condicion_pago: p.condicion_pago || '',
-      novedades: p.novedades || '',
-      fecha_pago: p.fecha_pago || '',
-      valor_pagado: p.valor_pagado ?? '',
-      entidad_financiera: p.entidad_financiera || '',
-      responsable_id: p.responsable_id || null,
-      responsable_nombre: resolveResp(p.responsable_id),
-    })
-    setFF({
-      factura_no: f.factura_no || '',
-      fecha_factura: f.fecha_factura || '',
-      factura_electronica: f.factura_electronica || '',
-      dias_para_facturar: f.dias_para_facturar ?? '',
-      mes_facturacion: f.mes_facturacion ?? '',
-      estado_interno: f.estado_interno || '',
-      responsable_id: f.responsable_id || null,
-      responsable_nombre: resolveResp(f.responsable_id),
-    })
+  // ── Conductor select helpers ─────────────────────────────────────────────
+  const fillConductor = (nombreCond, setter) => {
+    const cond = catalogos.conductores.find(c => c.nombre === nombreCond)
+    setter(p => ({
+      ...p,
+      conductor:        nombreCond,
+      cedula_conductor: cond?.cedula  ?? p.cedula_conductor,
+      celular:          cond?.celular ?? p.celular,
+    }))
   }
 
-  // Revert edit fields to last saved ficha state (without exiting edit mode)
-  const revertEdit = () => {
-    if (!ficha) return
-    const cond = catalogos.conductores.find(c => c.id === ficha.conductor?.id)
-    setFE({
-      fecha_despacho:     ficha.fecha_despacho || '',
-      conductor_id:       ficha.conductor?.id  ?? null,
-      conductor_nombre:   ficha.conductor?.nombre || '',
-      conductor_cedula:   cond?.cedula  ?? ficha.conductor?.cedula  ?? '',
-      conductor_celular:  cond?.celular ?? ficha.conductor?.celular ?? '',
-      placa:              ficha.placa           || '',
-      placa_remolque:     ficha.placa_remolque  || '',
-      cliente_id:         ficha.cliente?.id   ?? null,
-      cliente_nombre:     ficha.cliente?.nombre || '',
-      origen_id:          ficha.origen?.id    ?? null,
-      origen_nombre:      ficha.origen?.nombre || '',
-      destino_id:         ficha.destino?.id   ?? null,
-      destino_nombre:     ficha.destino?.nombre || '',
-      agencia_id:         ficha.agencia_id    ?? null,
-      responsable_id:     ficha.responsable?.id ?? null,
-      responsable_nombre: ficha.responsable?.nombre || '',
-      valor_remesa:       ficha.valor_remesa    ?? '',
-      flete_conductor:    ficha.flete_conductor ?? '',
-      anticipo:           ficha.anticipo        ?? '',
-      remesas:            ficha.remesas?.map(r => r.codigo_remesa).join('; ') || '',
-    })
-    clearPending()
-    toast('success', 'Campos restaurados a los valores guardados.')
-  }
-
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleSearch = async (e) => {
     e.preventDefault()
     if (!query.trim()) return
@@ -479,7 +391,7 @@ export default function CargaPage({ target, clearTarget }) {
         loadFicha(data)
         setView('ficha')
       } else {
-        setFN({ ...NUEVO_INIT, manifiesto: query.trim() })
+        setFN({ ...NUEVO_INIT, manifiesto: query.trim(), nombre_responsable: userName })
         setView('nuevo')
         toast('error', `Manifiesto ${query.trim()} no encontrado — completá el formulario para crearlo.`)
       }
@@ -490,32 +402,17 @@ export default function CargaPage({ target, clearTarget }) {
 
   const handleCrear = async (e) => {
     e.preventDefault()
-    if (!formNuevo.manifiesto || !formNuevo.conductor_id || !formNuevo.cliente_id ||
-        !formNuevo.origen_id  || !formNuevo.destino_id  || !formNuevo.fecha_despacho) {
+    if (!formNuevo.manifiesto || !formNuevo.conductor || !formNuevo.cliente ||
+        !formNuevo.origen     || !formNuevo.destino   || !formNuevo.fecha_despacho) {
       toast('error', 'Completá los campos obligatorios (*)'); return
     }
     setBusy(true)
     try {
-      // 1. Create any staged catalog entries
-      const idMap = await flushPending()
-      const resolvedForm = remapIds(formNuevo, idMap)
-
-      // 2. Update conductor cedula/celular if they changed
-      const conductorId = resolvedForm.conductor_id
-      if (conductorId && !isTemp(conductorId)) {
-        const existing = catalogos.conductores.find(c => c.id === conductorId)
-        const updates = {}
-        if (formNuevo.conductor_cedula  && formNuevo.conductor_cedula  !== existing?.cedula)  updates.cedula  = formNuevo.conductor_cedula
-        if (formNuevo.conductor_celular && formNuevo.conductor_celular !== existing?.celular) updates.celular = formNuevo.conductor_celular
-        if (Object.keys(updates).length) await updateConductor(conductorId, updates)
-      }
-
-      // 3. Create manifiesto
-      await create(resolvedForm)
-      const num = Number(resolvedForm.manifiesto)
+      await create(formNuevo)
+      const num = Number(formNuevo.manifiesto)
       setSessionIds(prev => new Set([...prev, num]))
-      toast('success', `Manifiesto ${resolvedForm.manifiesto} creado correctamente.`)
-      setQuery(resolvedForm.manifiesto)
+      toast('success', `Manifiesto ${formNuevo.manifiesto} creado correctamente.`)
+      setQuery(formNuevo.manifiesto)
       const data = await search(num)
       loadFicha(data)
       setView('ficha')
@@ -527,26 +424,13 @@ export default function CargaPage({ target, clearTarget }) {
 
   const handleUpdate = async (e) => {
     e.preventDefault()
-    if (!formEdit.conductor_id || !formEdit.cliente_id ||
-        !formEdit.origen_id   || !formEdit.destino_id || !formEdit.fecha_despacho) {
+    if (!formEdit.conductor || !formEdit.cliente ||
+        !formEdit.origen    || !formEdit.destino || !formEdit.fecha_despacho) {
       toast('error', 'Completá los campos obligatorios (*)'); return
     }
     setBusy(true)
     try {
-      const idMap = await flushPending()
-      const resolvedForm = remapIds(formEdit, idMap)
-
-      // Update conductor cedula/celular if changed
-      const conductorId = resolvedForm.conductor_id
-      if (conductorId && !isTemp(conductorId)) {
-        const existing = catalogos.conductores.find(c => c.id === conductorId)
-        const updates = {}
-        if (formEdit.conductor_cedula  !== undefined && formEdit.conductor_cedula  !== existing?.cedula)  updates.cedula  = formEdit.conductor_cedula  || null
-        if (formEdit.conductor_celular !== undefined && formEdit.conductor_celular !== existing?.celular) updates.celular = formEdit.conductor_celular || null
-        if (Object.keys(updates).length) await updateConductor(conductorId, updates)
-      }
-
-      await update(ficha.manifiesto, resolvedForm)
+      await update(ficha.manifiesto, formEdit)
       toast('success', 'Manifiesto actualizado correctamente.')
       const data = await search(ficha.manifiesto)
       loadFicha(data)
@@ -570,55 +454,52 @@ export default function CargaPage({ target, clearTarget }) {
     } finally { setBusy(false) }
   }
 
-  const handleSavePagos = async (e) => {
+  const handleSaveSeg = async (e) => {
     e.preventDefault()
     setBusy(true)
     try {
-      await updatePagos(ficha.manifiesto, formPagos)
-      toast('success', 'Pagos actualizados correctamente.')
+      await updateSeguimiento(ficha.manifiesto, formSeg)
+      toast('success', 'Seguimiento actualizado correctamente.')
+      const data = await search(ficha.manifiesto)
+      loadFicha(data)
+    } catch (err) { toast('error', err.message ?? 'Error al guardar') }
+    finally { setBusy(false) }
+  }
+
+  const handleSaveTes = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    try {
+      await updateTesoreria(ficha.manifiesto, formTes)
+      toast('success', 'Tesorería actualizada correctamente.')
+      const data = await search(ficha.manifiesto)
+      loadFicha(data)
     } catch (err) { toast('error', err.message ?? 'Error al guardar') }
     finally { setBusy(false) }
   }
 
   const handleSaveFact = async (e) => {
     e.preventDefault()
+    if (formFact.fecha_factura && (!formFact.factura_no || !formFact.factura_electronica)) {
+      toast('error', 'Si ingresas la fecha de emisión, debes completar también el N° de factura y la factura electrónica.')
+      return
+    }
     setBusy(true)
     try {
       await updateFacturacion(ficha.manifiesto, formFact)
       toast('success', 'Facturación actualizada correctamente.')
+      const data = await search(ficha.manifiesto)
+      loadFicha(data)
     } catch (err) { toast('error', err.message ?? 'Error al guardar') }
     finally { setBusy(false) }
   }
 
-  const volver = () => {
-    setView('inicio'); setFicha(null); setQuery('')
-    setEditMode(false); setConfirmDel(false)
-    clearPending()
-  }
+  const volver = () => { setView('inicio'); setFicha(null); setQuery(''); setEditMode(false); setConfirmDel(false); setDeleteText('') }
   const fn = (key) => (val) => setFN(p => ({ ...p, [key]: val }))
-  const fp = (key) => (val) => setFP(p => ({ ...p, [key]: val }))
+  const fs = (key) => (val) => setFS(p => ({ ...p, [key]: val }))
+  const ft = (key) => (val) => setFT(p => ({ ...p, [key]: val }))
   const ff = (key) => (val) => setFF(p => ({ ...p, [key]: val }))
   const fe = (key) => (val) => setFE(p => ({ ...p, [key]: val }))
-
-  // Helper to fill conductor cedula/celular from catalog when a conductor is selected
-  const selectConductorNuevo = (o) => {
-    const cond = catalogos.conductores.find(c => c.id === o.id)
-    setFN(p => ({
-      ...p,
-      conductor_id: o.id, conductor_nombre: o.label,
-      conductor_cedula:  cond?.cedula  ?? p.conductor_cedula,
-      conductor_celular: cond?.celular ?? p.conductor_celular,
-    }))
-  }
-  const selectConductorEdit = (o) => {
-    const cond = catalogos.conductores.find(c => c.id === o.id)
-    setFE(p => ({
-      ...p,
-      conductor_id: o.id, conductor_nombre: o.label,
-      conductor_cedula:  cond?.cedula  ?? p.conductor_cedula,
-      conductor_celular: cond?.celular ?? p.conductor_celular,
-    }))
-  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -635,13 +516,13 @@ export default function CargaPage({ target, clearTarget }) {
         </div>
         <button type="submit" disabled={busy || !query.trim()}
           className="px-4 py-2 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50"
-          style={{ background: BLUE, color: TICK }}>
+          style={{ background: BLUE, color: '#FFFFFF' }}>
           Buscar
         </button>
-        {view !== 'nuevo' && (
-          <button type="button" onClick={() => { setFN(NUEVO_INIT); clearPending(); setView('nuevo') }}
+        {view !== 'nuevo' && canEditDespacho && (
+          <button type="button" onClick={() => { setFN({ ...NUEVO_INIT, nombre_responsable: userName }); setView('nuevo') }}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors hover:opacity-80"
-            style={{ background: '#0f2e1a', color: '#86efac', border: '1px solid #166534' }}>
+            style={{ background: '#DCFCE7', color: '#166534', border: '1px solid #86EFAC' }}>
             <Plus size={14} /> Nuevo
           </button>
         )}
@@ -665,63 +546,48 @@ export default function CargaPage({ target, clearTarget }) {
             <ArrowLeft size={13} /> Volver
           </button>
 
-          {Object.keys(pendingEntries).length > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
-              style={{ background: '#1a2a0a', border: '1px solid #3a5a1a', color: '#a3e635' }}>
-              <span>⏳ {Object.keys(pendingEntries).length} entrada(s) nueva(s) se guardarán al crear el manifiesto.</span>
-            </div>
-          )}
-
           <SectionCard icon={FileText} title="Identificación" cols={3}>
             <Input label="N° Manifiesto *" type="number" placeholder="12345"
               value={formNuevo.manifiesto} onChange={e => fn('manifiesto')(e.target.value)} />
             <DateInput label="Fecha despacho *"
               value={formNuevo.fecha_despacho} onChange={e => fn('fecha_despacho')(e.target.value)} />
-            <Select label="Agencia" value={formNuevo.agencia_id
-                ? optAgencias.find(a => a.id === formNuevo.agencia_id)?.label : ''}
-              onChange={v => {
-                const ag = optAgencias.find(a => a.label === v)
-                setFN(p => ({ ...p, agencia_id: ag?.id ?? null }))
-              }} options={optAgencias.map(a => a.label)} />
+            <Autocomplete label="Agencia" displayValue={formNuevo.agencia_despachadora}
+              placeholder="Agencia despachadora" options={optAgencias} onCreate={newText}
+              onSelect={o => setFN(p => ({ ...p, agencia_despachadora: o.label }))} />
           </SectionCard>
 
           <SectionCard icon={User} title="Personal" cols={3}>
-            <Autocomplete label="Conductor *" displayValue={formNuevo.conductor_nombre}
-              placeholder="Nombre del conductor"
-              options={optConductores}
-              onCreate={(nombre, extras) => stageEntry('conductor', nombre, extras)}
-              onSelect={selectConductorNuevo} />
+            <Autocomplete label="Conductor *" displayValue={formNuevo.conductor}
+              placeholder="Nombre del conductor" options={optConductores} onCreate={newText}
+              onSelect={o => fillConductor(o.label, setFN)} />
             <Input label="Cédula conductor" placeholder="Número de cédula"
-              value={formNuevo.conductor_cedula} onChange={e => fn('conductor_cedula')(e.target.value)} />
+              value={formNuevo.cedula_conductor} onChange={e => fn('cedula_conductor')(e.target.value)} />
             <Input label="Celular conductor" placeholder="Número de celular"
-              value={formNuevo.conductor_celular} onChange={e => fn('conductor_celular')(e.target.value)} />
-            <Autocomplete label="Cliente *" displayValue={formNuevo.cliente_nombre}
-              placeholder="Nombre del cliente"
-              options={optClientes} onCreate={(nombre) => stageEntry('cliente', nombre)}
-              onSelect={o => setFN(p => ({ ...p, cliente_id: o.id, cliente_nombre: o.label }))} />
-            <Autocomplete label="Responsable" displayValue={formNuevo.responsable_nombre}
-              placeholder="Nombre del responsable"
-              options={optResponsables} onCreate={(nombre) => stageEntry('responsable', nombre)}
-              onSelect={o => setFN(p => ({ ...p, responsable_id: o.id, responsable_nombre: o.label }))} />
+              value={formNuevo.celular} onChange={e => fn('celular')(e.target.value)} />
+            <Autocomplete label="Cliente *" displayValue={formNuevo.cliente}
+              placeholder="Nombre del cliente" options={optClientes} onCreate={newText}
+              onSelect={o => setFN(p => ({ ...p, cliente: o.label }))} />
+            <Autocomplete label="Responsable despacho" displayValue={formNuevo.nombre_responsable}
+              placeholder="Nombre del responsable" options={optResponsables} onCreate={newText}
+              onSelect={o => setFN(p => ({ ...p, nombre_responsable: o.label }))} />
           </SectionCard>
 
           <SectionCard icon={MapPin} title="Ruta" cols={3}>
-            <Autocomplete label="Origen *" displayValue={formNuevo.origen_nombre}
-              placeholder="Ciudad de origen"
-              options={optLugares} onCreate={(nombre) => stageEntry('lugar', nombre)}
-              onSelect={o => setFN(p => ({ ...p, origen_id: o.id, origen_nombre: o.label }))} />
-            <Autocomplete label="Destino *" displayValue={formNuevo.destino_nombre}
-              placeholder="Ciudad de destino"
-              options={optLugares} onCreate={(nombre) => stageEntry('lugar', nombre)}
-              onSelect={o => setFN(p => ({ ...p, destino_id: o.id, destino_nombre: o.label }))} />
-            <Autocomplete label="Placa" displayValue={formNuevo.placa}
-              placeholder="Placa del vehículo"
-              options={optVehiculos} onCreate={(placa) => stageEntry('vehiculo', placa)}
+            <Autocomplete label="Origen *" displayValue={formNuevo.origen}
+              placeholder="Ciudad de origen" options={optLugares} onCreate={newText}
+              onSelect={o => setFN(p => ({ ...p, origen: o.label }))} />
+            <Autocomplete label="Destino *" displayValue={formNuevo.destino}
+              placeholder="Ciudad de destino" options={optLugares} onCreate={newText}
+              onSelect={o => setFN(p => ({ ...p, destino: o.label }))} />
+            <Autocomplete label="Placa vehículo" displayValue={formNuevo.placa}
+              placeholder="Placa del vehículo" options={optVehiculos} onCreate={newText}
               onSelect={o => setFN(p => ({ ...p, placa: o.label }))} />
-            <Autocomplete label="Placa remolque" displayValue={formNuevo.placa_remolque}
-              placeholder="Placa del remolque"
-              options={optRemolques} onCreate={(placa) => stageEntry('remolque', placa)}
-              onSelect={o => setFN(p => ({ ...p, placa_remolque: o.label }))} />
+            <Autocomplete label="Placa remolque" displayValue={formNuevo.tipo_vehiculo}
+              placeholder="Placa del remolque" options={optRemolques} onCreate={newText}
+              onSelect={o => setFN(p => ({ ...p, tipo_vehiculo: o.label }))} />
+            <Autocomplete label="Propietario vehículo" displayValue={formNuevo.propietario}
+              placeholder="Nombre del propietario" options={optPropietarios} onCreate={newText}
+              onSelect={o => setFN(p => ({ ...p, propietario: o.label }))} />
           </SectionCard>
 
           <SectionCard icon={DollarSign} title="Financiero" cols={3}>
@@ -744,7 +610,7 @@ export default function CargaPage({ target, clearTarget }) {
           <div className="flex justify-end">
             <button type="submit" disabled={busy}
               className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-opacity"
-              style={{ background: BLUE, color: TICK }}>
+              style={{ background: BLUE, color: '#FFFFFF' }}>
               <Save size={14} />
               {busy ? 'Guardando...' : 'Crear manifiesto'}
             </button>
@@ -765,37 +631,55 @@ export default function CargaPage({ target, clearTarget }) {
             <div className="h-4 w-px" style={{ background: BDR }} />
             <p className="text-sm font-bold" style={{ color: TICK }}>Manifiesto {ficha.manifiesto}</p>
             <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-              style={{ background: '#0d1f2d', color: GOLD, border: `1px solid ${BDR}` }}>
+              style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}55` }}>
               {ficha.mes} {ficha.año}
             </span>
             <div className="flex-1" />
             {!confirmDel && (
               <>
-                <button type="button" onClick={() => { setEditMode(v => !v); setTab('despacho') }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                  style={editMode
-                    ? { background: '#162232', color: MUTED, border: `1px solid ${BDR}` }
-                    : { background: '#0d1f35', color: BLUE,  border: `1px solid ${BLUE}` }}>
-                  {editMode ? <><X size={12} /> Cancelar</> : <><Pencil size={12} /> Editar</>}
-                </button>
-                <button type="button" onClick={() => setConfirmDel(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                  style={{ background: '#2e0f0f', color: '#fca5a5', border: '1px solid #7f1d1d' }}>
-                  <Trash2 size={12} /> Eliminar
-                </button>
+                {tab === 'despacho' && canEditDespacho && (
+                  <button type="button" onClick={() => setEditMode(v => !v)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                    style={editMode
+                      ? { background: '#F1F5F9', color: MUTED, border: `1px solid ${BDR}` }
+                      : { background: BLUE + '15', color: BLUE, border: `1px solid ${BLUE}` }}>
+                    {editMode ? <><X size={12} /> Cancelar</> : <><Pencil size={12} /> Editar</>}
+                  </button>
+                )}
+                {rol === 'admin' && (
+                  <button type="button" onClick={() => setConfirmDel(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                    style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }}>
+                    <Trash2 size={12} /> Eliminar
+                  </button>
+                )}
               </>
             )}
             {confirmDel && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-                style={{ background: '#2e0f0f', border: '1px solid #7f1d1d', color: '#fca5a5' }}>
-                <span>¿Eliminar manifiesto {ficha.manifiesto}? No se puede deshacer.</span>
-                <button type="button" disabled={busy} onClick={handleDelete}
-                  className="px-2 py-0.5 rounded font-bold transition-opacity disabled:opacity-50"
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg flex-wrap"
+                style={{ background: '#FEF2F2', border: '1px solid #FECACA' }}>
+                <span className="text-xs font-medium" style={{ color: '#DC2626' }}>
+                  Escribe <strong>{ficha.manifiesto}</strong> para confirmar la eliminación:
+                </span>
+                <input
+                  autoFocus
+                  type="number"
+                  value={deleteText}
+                  onChange={e => setDeleteText(e.target.value)}
+                  placeholder={String(ficha.manifiesto)}
+                  className="w-28 rounded-md border px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-red-400"
+                  style={{ borderColor: '#FECACA', color: '#DC2626', background: '#fff' }}
+                />
+                <button type="button"
+                  disabled={busy || String(deleteText).trim() !== String(ficha.manifiesto)}
+                  onClick={handleDelete}
+                  className="px-2.5 py-0.5 rounded font-bold text-xs transition-opacity disabled:opacity-30"
                   style={{ background: '#ef4444', color: '#fff' }}>
-                  {busy ? '...' : 'Confirmar'}
+                  {busy ? '...' : 'Eliminar'}
                 </button>
-                <button type="button" onClick={() => setConfirmDel(false)}
-                  className="px-2 py-0.5 rounded font-semibold hover:opacity-70"
+                <button type="button"
+                  onClick={() => { setConfirmDel(false); setDeleteText('') }}
+                  className="px-2 py-0.5 rounded text-xs font-semibold hover:opacity-70"
                   style={{ color: MUTED }}>
                   Cancelar
                 </button>
@@ -806,10 +690,10 @@ export default function CargaPage({ target, clearTarget }) {
           {/* Resumen rápido */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { l: 'Conductor', v: ficha.conductor?.nombre ?? '—' },
-              { l: 'Ruta',      v: ficha.origen?.nombre && ficha.destino?.nombre ? `${ficha.origen.nombre} → ${ficha.destino.nombre}` : '—' },
-              { l: 'Cliente',   v: ficha.cliente?.nombre ?? '—' },
-              { l: 'Agencia',   v: ficha.agencia?.nombre ?? '—' },
+              { l: 'Conductor', v: ficha.conductor ?? '—' },
+              { l: 'Ruta',      v: ficha.origen && ficha.destino ? `${ficha.origen} → ${ficha.destino}` : '—' },
+              { l: 'Cliente',   v: ficha.cliente ?? '—' },
+              { l: 'Agencia',   v: ficha.agencia_despachadora ?? '—' },
             ].map(({ l, v }) => (
               <div key={l} className="rounded-lg px-4 py-3" style={{ background: BG, border: `1px solid ${BDR}` }}>
                 <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>{l}</p>
@@ -822,12 +706,13 @@ export default function CargaPage({ target, clearTarget }) {
           <div className="flex gap-1 rounded-lg p-1" style={{ background: BG, border: `1px solid ${BDR}`, width: 'fit-content' }}>
             {[
               { id: 'despacho',    label: 'Despacho' },
-              { id: 'pagos',       label: 'Pagos' },
+              { id: 'seguimiento', label: 'Seguimiento' },
+              { id: 'tesoreria',   label: 'Tesorería' },
               { id: 'facturacion', label: 'Facturación' },
             ].map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)}
+              <button key={t.id} onClick={() => { setTab(t.id); setEditMode(false) }}
                 className="px-4 py-1.5 rounded-md text-xs font-semibold transition-all"
-                style={tab === t.id ? { background: BLUE, color: TICK } : { color: MUTED }}>
+                style={tab === t.id ? { background: BLUE, color: '#FFFFFF' } : { color: MUTED }}>
                 {t.label}
               </button>
             ))}
@@ -835,12 +720,10 @@ export default function CargaPage({ target, clearTarget }) {
 
           {/* Tab: Despacho — readonly */}
           {tab === 'despacho' && !editMode && (() => {
-            const p = ficha.pagos_conductor?.[0] ?? {}
-            const f = ficha.facturacion?.[0]    ?? {}
             const estadoColor = {
               'PAGADO': '#22c55e', 'ANULADO': '#ef4444',
               'PRIORITARIO': '#f97316', 'RNDC': '#a855f7',
-            }[p.estado] ?? TICK
+            }[ficha.compromiso_pago] ?? TICK
             return (
               <div className="flex flex-col gap-4">
                 <div>
@@ -850,20 +733,22 @@ export default function CargaPage({ target, clearTarget }) {
                       { l: 'Manifiesto',      v: ficha.manifiesto },
                       { l: 'Fecha despacho',  v: ficha.fecha_despacho },
                       { l: 'Mes / Año',       v: `${ficha.mes} ${ficha.año}` },
-                      { l: 'Conductor',       v: ficha.conductor?.nombre },
-                      { l: 'Cédula',          v: ficha.conductor?.cedula },
-                      { l: 'Celular',         v: ficha.conductor?.celular },
+                      { l: 'Conductor',       v: ficha.conductor },
+                      { l: 'Cédula',          v: ficha.cedula_conductor },
+                      { l: 'Celular',         v: ficha.celular },
                       { l: 'Placa',           v: ficha.placa },
-                      { l: 'Placa remolque',  v: ficha.placa_remolque },
-                      { l: 'Cliente',         v: ficha.cliente?.nombre },
-                      { l: 'Origen',          v: ficha.origen?.nombre },
-                      { l: 'Destino',         v: ficha.destino?.nombre },
-                      { l: 'Agencia',         v: ficha.agencia?.nombre },
-                      { l: 'Responsable',     v: ficha.responsable?.nombre },
-                      { l: 'Valor remesa',    v: ficha.valor_remesa    != null ? `$${Number(ficha.valor_remesa).toLocaleString('es-CO')}` : null },
-                      { l: 'Flete conductor', v: ficha.flete_conductor != null ? `$${Number(ficha.flete_conductor).toLocaleString('es-CO')}` : null },
-                      { l: 'Anticipo',        v: ficha.anticipo        != null ? `$${Number(ficha.anticipo).toLocaleString('es-CO')}` : null },
-                      { l: 'Remesas',         v: ficha.remesas?.map(r => r.codigo_remesa).join('; ') || null, col: 2 },
+                      { l: 'Tipo vehículo',   v: ficha.tipo_vehiculo },
+                      { l: 'Propietario',     v: ficha.propietario },
+                      { l: 'Cliente',         v: ficha.cliente },
+                      { l: 'Origen',          v: ficha.origen },
+                      { l: 'Destino',         v: ficha.destino },
+                      { l: 'Agencia',         v: ficha.agencia_despachadora },
+                      { l: 'Responsable',     v: ficha.nombre_responsable },
+                      { l: 'Valor remesa',        v: ficha.valor_remesa         != null ? `$${Number(ficha.valor_remesa).toLocaleString('es-CO')}` : null },
+                      { l: 'Flete conductor',     v: ficha.flete_conductor      != null ? `$${Number(ficha.flete_conductor).toLocaleString('es-CO')}` : null },
+                      { l: 'Flete neto conductor',v: ficha.flete_neto_conductor != null ? `$${Number(ficha.flete_neto_conductor).toLocaleString('es-CO')}` : null },
+                      { l: 'Anticipo',            v: ficha.anticipo             != null ? `$${Number(ficha.anticipo).toLocaleString('es-CO')}` : null },
+                      { l: 'Remesas',         v: ficha.remesas || null, col: 2 },
                     ].map(({ l, v, col }) => (
                       <div key={l} className="rounded-lg px-3 py-2.5"
                         style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
@@ -873,31 +758,46 @@ export default function CargaPage({ target, clearTarget }) {
                     ))}
                   </div>
                 </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Estado de seguimiento</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                    <div className="rounded-lg px-3 py-2.5" style={{ background: BG, border: `1px solid ${BDR}` }}>
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>Estado pago</p>
-                      <p className="text-sm font-semibold" style={{ color: p.estado ? estadoColor : MUTED }}>
-                        {p.estado ?? '—'}
-                      </p>
+                {[
+                  {
+                    title: 'Seguimiento',
+                    items: [
+                      { l: 'Compromiso pago',   v: ficha.compromiso_pago, color: estadoColor },
+                      { l: 'Fecha cumplido',    v: ficha.fecha_cumplido },
+                      { l: 'Estado interno',    v: ficha.estado_interno },
+                      { l: 'Novedades',         v: ficha.novedades, col: 2 },
+                    ],
+                  },
+                  {
+                    title: 'Tesorería',
+                    items: [
+                      { l: 'Fecha pago',        v: ficha.fecha_pago },
+                      { l: 'Valor pagado',      v: ficha.valor_pagado != null ? `$${Number(ficha.valor_pagado).toLocaleString('es-CO')}` : null },
+                      { l: 'Entidad financiera',v: ficha.entidad_financiera },
+                    ],
+                  },
+                  {
+                    title: 'Facturación',
+                    items: [
+                      { l: 'N° Factura',                   v: ficha.factura_no },
+                      { l: 'Fecha de emisión de factura',  v: ficha.fecha_factura },
+                      { l: 'Mes facturación',   v: ficha.mes_facturacion },
+                    ],
+                  },
+                ].map(({ title, items }) => (
+                  <div key={title}>
+                    <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>{title}</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {items.map(({ l, v, col, color }) => (
+                        <div key={l} className="rounded-lg px-3 py-2.5"
+                          style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
+                          <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>{l}</p>
+                          <p className="text-sm font-semibold" style={{ color: color ?? (v ? TICK : MUTED) }}>{v ?? '—'}</p>
+                        </div>
+                      ))}
                     </div>
-                    {[
-                      { l: 'Condición pago',    v: p.condicion_pago },
-                      { l: 'Fecha cumplido',    v: p.fecha_cumplido },
-                      { l: 'Fecha pago',        v: p.fecha_pago },
-                      { l: 'Valor pagado',      v: p.valor_pagado != null ? `$${Number(p.valor_pagado).toLocaleString('es-CO')}` : null },
-                      { l: 'Entidad financiera',v: p.entidad_financiera },
-                      { l: 'N° Factura',        v: f.factura_no },
-                      { l: 'Estado interno',    v: f.estado_interno },
-                    ].map(({ l, v }) => (
-                      <div key={l} className="rounded-lg px-3 py-2.5" style={{ background: BG, border: `1px solid ${BDR}` }}>
-                        <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>{l}</p>
-                        <p className="text-sm" style={{ color: v ? TICK : MUTED }}>{v ?? '—'}</p>
-                      </div>
-                    ))}
                   </div>
-                </div>
+                ))}
               </div>
             )
           })()}
@@ -905,51 +805,46 @@ export default function CargaPage({ target, clearTarget }) {
           {/* Tab: Despacho — edit mode */}
           {tab === 'despacho' && editMode && (
             <form onSubmit={handleUpdate} className="flex flex-col gap-4">
-              {Object.keys(pendingEntries).length > 0 && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
-                  style={{ background: '#1a2a0a', border: '1px solid #3a5a1a', color: '#a3e635' }}>
-                  <span>⏳ {Object.keys(pendingEntries).length} entrada(s) nueva(s) se guardarán al actualizar.</span>
-                </div>
-              )}
               <SectionCard icon={FileText} title="Identificación" cols={3}>
                 <Input label="N° Manifiesto" value={ficha.manifiesto} readOnly
                   style={{ borderColor: BDR, opacity: 0.5, cursor: 'not-allowed' }} />
                 <DateInput label="Fecha despacho *"
                   value={formEdit.fecha_despacho} onChange={e => fe('fecha_despacho')(e.target.value)} />
-                <Select label="Agencia"
-                  value={formEdit.agencia_id ? optAgencias.find(a => a.id === formEdit.agencia_id)?.label : ''}
-                  onChange={v => { const ag = optAgencias.find(a => a.label === v); setFE(p => ({ ...p, agencia_id: ag?.id ?? null })) }}
-                  options={optAgencias.map(a => a.label)} />
+                <Autocomplete label="Agencia" displayValue={formEdit.agencia_despachadora}
+                  placeholder="Agencia despachadora" options={optAgencias} onCreate={newText}
+                  onSelect={o => setFE(p => ({ ...p, agencia_despachadora: o.label }))} />
               </SectionCard>
               <SectionCard icon={User} title="Personal" cols={3}>
-                <Autocomplete label="Conductor *" displayValue={formEdit.conductor_nombre}
-                  placeholder="Nombre del conductor" options={optConductores}
-                  onCreate={(nombre, extras) => stageEntry('conductor', nombre, extras)}
-                  onSelect={selectConductorEdit} />
+                <Autocomplete label="Conductor *" displayValue={formEdit.conductor}
+                  placeholder="Nombre del conductor" options={optConductores} onCreate={newText}
+                  onSelect={o => fillConductor(o.label, setFE)} />
                 <Input label="Cédula conductor" placeholder="Número de cédula"
-                  value={formEdit.conductor_cedula ?? ''} onChange={e => fe('conductor_cedula')(e.target.value)} />
+                  value={formEdit.cedula_conductor ?? ''} onChange={e => fe('cedula_conductor')(e.target.value)} />
                 <Input label="Celular conductor" placeholder="Número de celular"
-                  value={formEdit.conductor_celular ?? ''} onChange={e => fe('conductor_celular')(e.target.value)} />
-                <Autocomplete label="Cliente *" displayValue={formEdit.cliente_nombre}
-                  placeholder="Nombre del cliente" options={optClientes} onCreate={(n) => stageEntry('cliente', n)}
-                  onSelect={o => setFE(p => ({ ...p, cliente_id: o.id, cliente_nombre: o.label }))} />
-                <Autocomplete label="Responsable" displayValue={formEdit.responsable_nombre}
-                  placeholder="Responsable" options={optResponsables} onCreate={(n) => stageEntry('responsable', n)}
-                  onSelect={o => setFE(p => ({ ...p, responsable_id: o.id, responsable_nombre: o.label }))} />
+                  value={formEdit.celular ?? ''} onChange={e => fe('celular')(e.target.value)} />
+                <Autocomplete label="Cliente *" displayValue={formEdit.cliente}
+                  placeholder="Nombre del cliente" options={optClientes} onCreate={newText}
+                  onSelect={o => setFE(p => ({ ...p, cliente: o.label }))} />
+                <Autocomplete label="Responsable despacho" displayValue={formEdit.nombre_responsable}
+                  placeholder="Responsable" options={optResponsables} onCreate={newText}
+                  onSelect={o => setFE(p => ({ ...p, nombre_responsable: o.label }))} />
               </SectionCard>
               <SectionCard icon={MapPin} title="Ruta" cols={3}>
-                <Autocomplete label="Origen *" displayValue={formEdit.origen_nombre}
-                  placeholder="Ciudad de origen" options={optLugares} onCreate={(n) => stageEntry('lugar', n)}
-                  onSelect={o => setFE(p => ({ ...p, origen_id: o.id, origen_nombre: o.label }))} />
-                <Autocomplete label="Destino *" displayValue={formEdit.destino_nombre}
-                  placeholder="Ciudad de destino" options={optLugares} onCreate={(n) => stageEntry('lugar', n)}
-                  onSelect={o => setFE(p => ({ ...p, destino_id: o.id, destino_nombre: o.label }))} />
-                <Autocomplete label="Placa" displayValue={formEdit.placa}
-                  placeholder="Placa del vehículo" options={optVehiculos} onCreate={(n) => stageEntry('vehiculo', n)}
+                <Autocomplete label="Origen *" displayValue={formEdit.origen}
+                  placeholder="Ciudad de origen" options={optLugares} onCreate={newText}
+                  onSelect={o => setFE(p => ({ ...p, origen: o.label }))} />
+                <Autocomplete label="Destino *" displayValue={formEdit.destino}
+                  placeholder="Ciudad de destino" options={optLugares} onCreate={newText}
+                  onSelect={o => setFE(p => ({ ...p, destino: o.label }))} />
+                <Autocomplete label="Placa vehículo" displayValue={formEdit.placa}
+                  placeholder="Placa del vehículo" options={optVehiculos} onCreate={newText}
                   onSelect={o => setFE(p => ({ ...p, placa: o.label }))} />
-                <Autocomplete label="Placa remolque" displayValue={formEdit.placa_remolque}
-                  placeholder="Placa del remolque" options={optRemolques} onCreate={(n) => stageEntry('remolque', n)}
-                  onSelect={o => setFE(p => ({ ...p, placa_remolque: o.label }))} />
+                <Autocomplete label="Placa remolque" displayValue={formEdit.tipo_vehiculo}
+                  placeholder="Placa del remolque" options={optRemolques} onCreate={newText}
+                  onSelect={o => setFE(p => ({ ...p, tipo_vehiculo: o.label }))} />
+                <Autocomplete label="Propietario vehículo" displayValue={formEdit.propietario ?? ''}
+                  placeholder="Nombre del propietario" options={optPropietarios} onCreate={newText}
+                  onSelect={o => setFE(p => ({ ...p, propietario: o.label }))} />
               </SectionCard>
               <SectionCard icon={DollarSign} title="Financiero" cols={3}>
                 <MoneyInput label="Valor remesa"
@@ -969,77 +864,194 @@ export default function CargaPage({ target, clearTarget }) {
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={revertEdit}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
-                  style={{ background: '#162232', color: GOLD, border: `1px solid ${GOLD}44` }}>
+                  style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
                   <RotateCcw size={13} /> Restablecer
                 </button>
                 <button type="button" onClick={() => setEditMode(false)}
                   className="px-4 py-2 rounded-lg text-sm font-semibold"
-                  style={{ background: '#162232', color: MUTED, border: `1px solid ${BDR}` }}>
+                  style={{ background: '#F1F5F9', color: MUTED, border: `1px solid ${BDR}` }}>
                   Cancelar
                 </button>
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                  style={{ background: BLUE, color: TICK }}>
+                  style={{ background: BLUE, color: '#FFFFFF' }}>
                   <Save size={14} /> {busy ? 'Guardando...' : 'Guardar cambios'}
                 </button>
               </div>
             </form>
           )}
 
-          {/* Tab: Pagos */}
-          {tab === 'pagos' && (
-            <form onSubmit={handleSavePagos} className="flex flex-col gap-4">
-              <SectionCard icon={DollarSign} title="Estado del pago" cols={3}>
-                <Select label="Estado" value={formPagos.estado} onChange={fp('estado')} options={ESTADO_PAGO_OPTS} />
-                <Select label="Condición de pago" value={formPagos.condicion_pago} onChange={fp('condicion_pago')} options={CONDICION_PAGO_OPTS} />
-                <Autocomplete label="Responsable" displayValue={formPagos.responsable_nombre}
-                  placeholder="Responsable del pago"
-                  options={optResponsables} onCreate={(n) => stageEntry('responsable', n)}
-                  onSelect={o => setFP(p => ({ ...p, responsable_id: o.id, responsable_nombre: o.label }))} />
+          {/* Tab: Seguimiento — lectura para roles sin permiso */}
+          {tab === 'seguimiento' && !canEditOperativo && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Seguimiento operativo</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {[
+                    { l: 'Fecha cumplido',          v: ficha.fecha_cumplido },
+                    { l: 'Compromiso pago',          v: ficha.compromiso_pago },
+                    { l: 'Estado interno',           v: ficha.estado_interno },
+                    { l: 'Responsable estado int.',  v: ficha.responsable_estado_interno },
+                    { l: 'Novedades',                v: ficha.novedades, col: 4 },
+                    { l: 'Novedad del conductor',    v: ficha.novedad_conductor, col: 2 },
+                    { l: 'Novedad de la empresa',    v: ficha.novedad_empresa, col: 2 },
+                    { l: 'Ajuste positivo al flete', v: ficha.ajuste_positivo_flete != null ? `$ ${Number(ficha.ajuste_positivo_flete).toLocaleString('es-CO')}` : null },
+                    { l: 'Ajuste negativo al flete', v: ficha.ajuste_negativo_flete != null ? `$ ${Number(ficha.ajuste_negativo_flete).toLocaleString('es-CO')}` : null },
+                  ].map(({ l, v, col }) => (
+                    <div key={l} className="rounded-lg px-3 py-2.5"
+                      style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>{l}</p>
+                      <p className="text-sm" style={{ color: v ? TICK : MUTED }}>{v ?? '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs" style={{ color: MUTED }}>Solo el equipo operativo puede editar esta sección.</p>
+            </div>
+          )}
+
+          {/* Tab: Seguimiento — edición para operativo/admin */}
+          {tab === 'seguimiento' && canEditOperativo && (
+            <form onSubmit={handleSaveSeg} className="flex flex-col gap-4">
+              <SectionCard icon={ClipboardList} title="Seguimiento operativo" cols={3}>
                 <DateInput label="Fecha cumplido"
-                  value={formPagos.fecha_cumplido} onChange={e => fp('fecha_cumplido')(e.target.value)} />
-                <DateInput label="Fecha pago"
-                  value={formPagos.fecha_pago} onChange={e => fp('fecha_pago')(e.target.value)} />
-                <MoneyInput label="Valor pagado"
-                  value={formPagos.valor_pagado} onChange={e => fp('valor_pagado')(e.target.value)} />
-                <Select label="Entidad financiera" value={formPagos.entidad_financiera}
-                  onChange={fp('entidad_financiera')} options={ENTIDAD_FIN_OPTS} />
+                  value={formSeg.fecha_cumplido} onChange={e => fs('fecha_cumplido')(e.target.value)} />
+                <Select label="Compromiso de pago" value={formSeg.compromiso_pago}
+                  onChange={fs('compromiso_pago')} options={COMPROMISO_PAGO_OPTS} />
+                <Select label="Estado interno" value={formSeg.estado_interno}
+                  onChange={fs('estado_interno')} options={ESTADO_INTERNO_OPTS} />
+                <Field label="Responsable estado interno">
+                  <div className="flex items-center justify-between h-9 px-3 text-sm rounded-md border"
+                    style={{ borderColor: BDR, background: '#F8FAFC', color: TICK }}>
+                    <span>{userName}</span>
+                    <Lock size={11} style={{ color: MUTED }} />
+                  </div>
+                </Field>
               </SectionCard>
               <SectionCard icon={ClipboardList} title="Novedades" cols={1}>
-                <Field label="Novedades" col={1}>
+                <Field label="Novedades generales" col={1}>
                   <textarea rows={3} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
                     placeholder="Observaciones o novedades del viaje..."
-                    value={formPagos.novedades} onChange={e => fp('novedades')(e.target.value)} />
+                    value={formSeg.novedades} onChange={e => fs('novedades')(e.target.value)} />
                 </Field>
+              </SectionCard>
+              <SectionCard icon={ClipboardList} title="Ajuste al flete" cols={2}>
+                <Field label="Novedad del conductor" col={2}>
+                  <textarea rows={2} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
+                    placeholder="Ej. demora en descargue, costos adicionales reconocidos al conductor..."
+                    value={formSeg.novedad_conductor} onChange={e => fs('novedad_conductor')(e.target.value)} />
+                </Field>
+                <Field label="Novedad de la empresa" col={2}>
+                  <textarea rows={2} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
+                    placeholder="Ej. daño de mercancía, incumplimiento del conductor..."
+                    value={formSeg.novedad_empresa} onChange={e => fs('novedad_empresa')(e.target.value)} />
+                </Field>
+                <MoneyInput label="Ajuste positivo al flete"
+                  value={formSeg.ajuste_positivo_flete}
+                  onChange={e => fs('ajuste_positivo_flete')(e.target.value)} />
+                <MoneyInput label="Ajuste negativo al flete"
+                  value={formSeg.ajuste_negativo_flete}
+                  onChange={e => fs('ajuste_negativo_flete')(e.target.value)} />
               </SectionCard>
               <div className="flex justify-end">
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                  style={{ background: BLUE, color: TICK }}>
-                  <Save size={14} /> {busy ? 'Guardando...' : 'Guardar pagos'}
+                  style={{ background: BLUE, color: '#FFFFFF' }}>
+                  <Save size={14} /> {busy ? 'Guardando...' : 'Guardar seguimiento'}
                 </button>
               </div>
             </form>
           )}
 
-          {/* Tab: Facturación */}
-          {tab === 'facturacion' && (
+          {/* Tab: Tesorería — lectura para roles sin permiso */}
+          {tab === 'tesoreria' && !canEditTesoreria && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Pago conductor</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {[
+                    { l: 'Fecha pago',         v: ficha.fecha_pago },
+                    { l: 'Valor pagado',        v: ficha.valor_pagado != null ? `$${Number(ficha.valor_pagado).toLocaleString('es-CO')}` : null },
+                    { l: 'Entidad financiera',  v: ficha.entidad_financiera },
+                    { l: 'Responsable pago',    v: ficha.responsable },
+                  ].map(({ l, v }) => (
+                    <div key={l} className="rounded-lg px-3 py-2.5"
+                      style={{ background: BG, border: `1px solid ${BDR}` }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>{l}</p>
+                      <p className="text-sm" style={{ color: v ? TICK : MUTED }}>{v ?? '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs" style={{ color: MUTED }}>Solo tesorería puede editar esta sección.</p>
+            </div>
+          )}
+
+          {/* Tab: Tesorería — edición para tesoreria/admin */}
+          {tab === 'tesoreria' && canEditTesoreria && (
+            <form onSubmit={handleSaveTes} className="flex flex-col gap-4">
+              <SectionCard icon={DollarSign} title="Pago conductor" cols={3}>
+                <DateInput label="Fecha pago"
+                  value={formTes.fecha_pago} onChange={e => ft('fecha_pago')(e.target.value)} />
+                <MoneyInput label="Valor pagado"
+                  value={formTes.valor_pagado} onChange={e => ft('valor_pagado')(e.target.value)} />
+                <Select label="Entidad financiera" value={formTes.entidad_financiera}
+                  onChange={ft('entidad_financiera')} options={ENTIDAD_FIN_OPTS} />
+                <Field label="Responsable pago">
+                  <div className="flex items-center justify-between h-9 px-3 text-sm rounded-md border"
+                    style={{ borderColor: BDR, background: '#F8FAFC', color: TICK }}>
+                    <span>{userName}</span>
+                    <Lock size={11} style={{ color: MUTED }} />
+                  </div>
+                </Field>
+              </SectionCard>
+              <div className="flex justify-end">
+                <button type="submit" disabled={busy}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
+                  style={{ background: BLUE, color: '#FFFFFF' }}>
+                  <Save size={14} /> {busy ? 'Guardando...' : 'Guardar tesorería'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Tab: Facturación — lectura para roles sin permiso */}
+          {tab === 'facturacion' && !canEditFinanciero && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Facturación</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {[
+                    { l: 'N° Factura',                    v: ficha.factura_no },
+                    { l: 'Fecha de emisión de factura',   v: ficha.fecha_factura },
+                    { l: 'Mes facturación',       v: ficha.mes_facturacion },
+                    { l: 'Factura electrónica',   v: ficha.factura_electronica, col: 2 },
+                  ].map(({ l, v, col }) => (
+                    <div key={l} className="rounded-lg px-3 py-2.5"
+                      style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>{l}</p>
+                      <p className="text-sm" style={{ color: v ? TICK : MUTED }}>{v ?? '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs" style={{ color: MUTED }}>Solo el equipo financiero puede editar esta sección.</p>
+            </div>
+          )}
+
+          {/* Tab: Facturación — edición para financiero/admin (mes_facturacion calculado, no visible) */}
+          {tab === 'facturacion' && canEditFinanciero && (
             <form onSubmit={handleSaveFact} className="flex flex-col gap-4">
-              <SectionCard icon={FileText} title="Facturación" cols={3}>
+              <SectionCard icon={FileText} title="Facturación" cols={2}>
                 <Input label="N° Factura" placeholder="FE-0001"
                   value={formFact.factura_no} onChange={e => ff('factura_no')(e.target.value)} />
-                <DateInput label="Fecha factura"
-                  value={formFact.fecha_factura} onChange={e => ff('fecha_factura')(e.target.value)} />
-                <Input label="Días para facturar" type="number" placeholder="0"
-                  value={formFact.dias_para_facturar} onChange={e => ff('dias_para_facturar')(e.target.value)} />
-                <Input label="Mes facturación (1-12)" type="number" min={1} max={12}
-                  value={formFact.mes_facturacion} onChange={e => ff('mes_facturacion')(e.target.value)} />
-                <Select label="Estado interno" value={formFact.estado_interno}
-                  onChange={ff('estado_interno')} options={ESTADO_INTERNO_OPTS} />
-                <Autocomplete label="Responsable" displayValue={formFact.responsable_nombre}
-                  placeholder="Responsable de facturación"
-                  options={optResponsables} onCreate={(n) => stageEntry('responsable', n)}
-                  onSelect={o => setFF(p => ({ ...p, responsable_id: o.id, responsable_nombre: o.label }))} />
+                <DateInput label="Fecha de emisión de factura"
+                  value={formFact.fecha_factura}
+                  onChange={e => {
+                    const v = e.target.value
+                    const mes = v ? new Date(v + 'T12:00:00').getMonth() + 1 : ''
+                    setFF(p => ({ ...p, fecha_factura: v, mes_facturacion: mes !== '' ? mes : '' }))
+                  }} />
               </SectionCard>
               <SectionCard icon={ClipboardList} title="Factura electrónica" cols={1}>
                 <Field label="N° Factura electrónica / Propietario vehículo" col={1}>
@@ -1052,7 +1064,7 @@ export default function CargaPage({ target, clearTarget }) {
               <div className="flex justify-end">
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                  style={{ background: BLUE, color: TICK }}>
+                  style={{ background: BLUE, color: '#FFFFFF' }}>
                   <Save size={14} /> {busy ? 'Guardando...' : 'Guardar facturación'}
                 </button>
               </div>
@@ -1064,11 +1076,8 @@ export default function CargaPage({ target, clearTarget }) {
       {/* ── RECIENTES ─────────────────────────────────────────────────────── */}
       {recientes.length > 0 && (
         <div className="flex flex-col gap-3 pt-2 border-t" style={{ borderColor: BDR }}>
-          <button
-            type="button"
-            onClick={() => setRecentesOpen(v => !v)}
-            className="flex items-center gap-2 w-fit transition-opacity hover:opacity-70"
-          >
+          <button type="button" onClick={() => setRecentesOpen(v => !v)}
+            className="flex items-center gap-2 w-fit transition-opacity hover:opacity-70">
             <Clock size={12} style={{ color: MUTED }} />
             <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: MUTED }}>
               Últimos manifiestos
@@ -1079,19 +1088,15 @@ export default function CargaPage({ target, clearTarget }) {
                 ★ esta sesión
               </span>
             )}
-            {recentesOpen
-              ? <ChevronUp size={12} style={{ color: MUTED }} />
-              : <ChevronDown size={12} style={{ color: MUTED }} />
-            }
+            {recentesOpen ? <ChevronUp size={12} style={{ color: MUTED }} /> : <ChevronDown size={12} style={{ color: MUTED }} />}
           </button>
 
           {recentesOpen && (
             <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${BDR}` }}>
               <div className="grid grid-cols-[80px_110px_1fr_1fr_100px] px-4 py-2"
-                style={{ background: '#0D1B2A', borderBottom: `1px solid ${BDR}` }}>
+                style={{ background: '#F1F5F9', borderBottom: `1px solid ${BDR}` }}>
                 {['N°', 'Fecha', 'Conductor', 'Ruta', 'Período'].map(h => (
-                  <span key={h} className="text-[10px] font-bold uppercase tracking-widest"
-                    style={{ color: MUTED }}>{h}</span>
+                  <span key={h} className="text-[10px] font-bold uppercase tracking-widest" style={{ color: MUTED }}>{h}</span>
                 ))}
               </div>
               {recientes.map((r, i) => {
@@ -1102,23 +1107,20 @@ export default function CargaPage({ target, clearTarget }) {
                       setQuery(String(r.manifiesto))
                       search(r.manifiesto).then(data => { if (data) { loadFicha(data); setView('ficha') } })
                     }}
-                    className="grid grid-cols-[80px_110px_1fr_1fr_100px] w-full px-4 py-2.5 text-left transition-colors hover:bg-white/5"
+                    className="grid grid-cols-[80px_110px_1fr_1fr_100px] w-full px-4 py-2.5 text-left transition-colors hover:bg-black/5"
                     style={{
                       background: esMio ? 'rgba(201,168,76,0.06)' : i % 2 === 0 ? BG : 'transparent',
                       borderTop: i > 0 ? `1px solid ${BDR}` : 'none',
                     }}>
                     <span className="text-sm font-bold" style={{ color: esMio ? GOLD : BLUE }}>
-                      {r.manifiesto}
-                      {esMio && <span className="ml-1 text-[9px]">★</span>}
+                      {r.manifiesto}{esMio && <span className="ml-1 text-[9px]">★</span>}
                     </span>
                     <span className="text-xs" style={{ color: MUTED }}>{r.fecha_despacho}</span>
-                    <span className="text-xs truncate pr-2" style={{ color: TICK }}>{r.conductor?.nombre ?? '—'}</span>
+                    <span className="text-xs truncate pr-2" style={{ color: TICK }}>{r.conductor ?? '—'}</span>
                     <span className="text-xs truncate pr-2" style={{ color: MUTED }}>
-                      {r.origen?.nombre && r.destino?.nombre ? `${r.origen.nombre} → ${r.destino.nombre}` : '—'}
+                      {r.origen && r.destino ? `${r.origen} → ${r.destino}` : '—'}
                     </span>
-                    <span className="text-xs" style={{ color: esMio ? GOLD : MUTED }}>
-                      {r.mes} {r.año}
-                    </span>
+                    <span className="text-xs" style={{ color: esMio ? GOLD : MUTED }}>{r.mes} {r.año}</span>
                   </button>
                 )
               })}

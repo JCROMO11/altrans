@@ -1,5 +1,6 @@
-import { LayoutDashboard, Upload, Search, PanelLeftClose, PanelLeftOpen, Truck } from 'lucide-react'
+import { LayoutDashboard, Upload, Search, PanelLeftClose, PanelLeftOpen, Truck, LogOut } from 'lucide-react'
 import { useState } from 'react'
+import { supabase } from '../lib/supabase'
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', id: 'dashboard' },
@@ -13,8 +14,44 @@ const pageTitle = {
   consulta:  'Consulta',
 }
 
-export default function Layout({ children, page, setPage }) {
+const ROL_CONFIG = {
+  digitador:  { label: 'Digitador',  color: '#1E6FBF' },
+  operativo:  { label: 'Operativo',  color: '#16A34A' },
+  tesoreria:  { label: 'Tesorería',  color: '#7C3AED' },
+  financiero: { label: 'Financiero', color: '#D97706' },
+  admin:      { label: 'Admin',      color: '#C9A84C' },
+}
+
+function RolBadge({ rol, size = 'md' }) {
+  if (!rol) return null
+  const cfg = ROL_CONFIG[rol] || { label: rol, color: '#64748B' }
+  const px  = size === 'sm' ? '6px' : '10px'
+  const py  = size === 'sm' ? '1px' : '3px'
+  const fs  = size === 'sm' ? '9px' : '10px'
+  return (
+    <span style={{
+      display:       'inline-block',
+      padding:       `${py} ${px}`,
+      borderRadius:  '9999px',
+      fontSize:      fs,
+      fontWeight:    700,
+      letterSpacing: '0.04em',
+      background:    cfg.color + '1A',
+      color:         cfg.color,
+      border:        `1px solid ${cfg.color}55`,
+      lineHeight:    1.4,
+      whiteSpace:    'nowrap',
+    }}>
+      {cfg.label}
+    </span>
+  )
+}
+
+export default function Layout({ children, page, setPage, user }) {
   const [collapsed, setCollapsed] = useState(false)
+
+  const nombre = user?.app_metadata?.nombre || user?.email?.split('@')[0] || 'Usuario'
+  const rol    = user?.app_metadata?.role   || ''
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -64,12 +101,17 @@ export default function Layout({ children, page, setPage }) {
           })}
         </nav>
 
-        {/* Footer */}
+        {/* Footer sidebar */}
         <div className={`border-t p-3 flex ${collapsed ? 'justify-center' : 'items-center justify-between'}`}>
-          {!collapsed && <p className="text-[11px] text-muted-foreground/70">v1.0.0</p>}
+          {!collapsed && (
+            <div className="min-w-0 flex flex-col gap-1">
+              <p className="text-[11px] font-medium text-foreground truncate">{nombre}</p>
+              <RolBadge rol={rol} size="sm" />
+            </div>
+          )}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+            className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
             title={collapsed ? 'Expandir' : 'Colapsar'}
           >
             {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
@@ -87,9 +129,23 @@ export default function Layout({ children, page, setPage }) {
             <div className="w-1 h-5 rounded-full bg-primary" />
             <h1 className="text-sm font-semibold">{pageTitle[page]}</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-green-500" />
-            <span className="text-xs text-muted-foreground">Conectado</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="text-xs text-muted-foreground">Conectado</span>
+            </div>
+            <div className="w-px h-4 bg-border" />
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-medium leading-none">{nombre}</p>
+              <RolBadge rol={rol} size="md" />
+            </div>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              title="Cerrar sesión"
+            >
+              <LogOut size={15} />
+            </button>
           </div>
         </header>
 

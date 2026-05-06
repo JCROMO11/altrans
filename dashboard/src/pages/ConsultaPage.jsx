@@ -1,47 +1,66 @@
-import { useState, useRef, useCallback } from 'react'
-import { Search, ChevronDown, Check, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Search, ChevronDown, Check, ChevronLeft, ChevronRight, ExternalLink, AlertTriangle } from 'lucide-react'
 import { useCatalogos } from '../hooks/useCatalogos'
 import { useConsulta }  from '../hooks/useConsulta'
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
-const BG    = '#1B2B3B'
-const BDR   = '#2A3F52'
-const TICK  = '#F0F4F8'
+const BG    = '#FFFFFF'
+const BDR   = '#E2E8F0'
+const TICK  = '#0F172A'
 const BLUE  = '#1E6FBF'
 const GOLD  = '#C9A84C'
-const MUTED = '#8FA3B1'
-const RED   = '#E05252'
-const GREEN = '#4CAF7D'
+const MUTED = '#64748B'
+const RED   = '#DC2626'
+const GREEN = '#16A34A'
 
-// ── Estado colours ────────────────────────────────────────────────────────────
-const ESTADO_PAGO_COLOR = {
-  'PAGADO': GREEN, 'ANULADO': RED, 'PRIORITARIO': GOLD,
-}
+const ESTADO_PAGO_COLOR = { 'PAGADO': GREEN, 'ANULADO': RED, 'PRIORITARIO': GOLD }
 const ESTADO_INTERNO_COLOR = {
   'CUMPLIDO': GREEN, 'ANULADO': RED,
   'NOVEDAD PENDIENTE': GOLD, 'PENDIENTE FACTURA ELECTRONICA': GOLD,
 }
-function estadoPagoColor(v)    { return ESTADO_PAGO_COLOR[v]    ?? MUTED }
-function estadoInternoColor(v) { return ESTADO_INTERNO_COLOR[v] ?? MUTED }
+const estadoPagoColor    = v => ESTADO_PAGO_COLOR[v]    ?? MUTED
+const estadoInternoColor = v => ESTADO_INTERNO_COLOR[v] ?? MUTED
 
-// ── ENUMs ─────────────────────────────────────────────────────────────────────
+const SIDEBAR_COLOR = {
+  'CUMPLIDO':                       '#FFFF00',
+  'ANULADO':                        '#00FF00',
+  'PENDIENTE FACTURA ELECTRONICA':  '#00FFFF',
+  'FACTURA RECIBIDA':               '#FF00FF',
+  'NOVEDAD PENDIENTE':              '#D5A6BD',
+}
+
+const MESES_OPTS = [
+  'ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
+  'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE',
+]
+const AÑOS_OPTS = ['2023','2024','2025','2026','2027','2028','2029','2030',
+  '2031','2032','2033','2034','2035','2036','2037','2038','2039','2040',
+  '2041','2042','2043','2044','2045']
 const ESTADO_PAGO_OPTS    = ['PAGO A 15 DIAS','PAGO A 20 DIAS','PAGO A 30 DIAS','PAGO A 5-8 DIAS',
   'CONTRAENTREGA','PRONTO PAGO','PAGO NORMAL','PAGO INMEDIATO','URBANO','PAGADO','ANULADO','PRIORITARIO','RNDC','OTROS']
 const ESTADO_INTERNO_OPTS = ['CUMPLIDO','NO SE HA CUMPLIDO','PENDIENTE FACTURA ELECTRONICA',
   'FACTURA RECIBIDA','NOVEDAD PENDIENTE','ANULADO']
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const fmt = (n) => n == null ? '—' : Number(n).toLocaleString('es-CO', { minimumFractionDigits: 0 })
-const fmtDate = (d) => {
+// Mezcla un color hex con blanco para simular transparencia (evita fondo transparente en sticky)
+function blendOnWhite(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgb(${Math.round(r * alpha + 255 * (1 - alpha))},${Math.round(g * alpha + 255 * (1 - alpha))},${Math.round(b * alpha + 255 * (1 - alpha))})`
+}
+
+const fmt     = n  => n == null ? '—' : Number(n).toLocaleString('es-CO', { minimumFractionDigits: 0 })
+const fmtDate = d  => {
   if (!d) return '—'
   const [y, m, day] = d.split('-')
   return `${day}/${m}/${y}`
 }
+const money = n => n == null ? '—' : `$${fmt(n)}`
+
+const inputCls = `w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1
+  focus:ring-[#1E6FBF] transition-colors bg-transparent text-[#0F172A] placeholder:text-[#64748B]`
 
 // ── Primitives ────────────────────────────────────────────────────────────────
-const inputCls = `w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1
-  focus:ring-[#1E6FBF] transition-colors bg-transparent text-[#F0F4F8] placeholder:text-[#8FA3B1]`
-
 function Field({ label, children }) {
   return (
     <div>
@@ -57,8 +76,7 @@ function FilterSelect({ label, value, onChange, options, placeholder = 'Todos' }
   return (
     <Field label={label}>
       <div className="relative">
-        <button
-          type="button"
+        <button type="button"
           onClick={() => setOpen(v => !v)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           className="w-full flex items-center justify-between px-3 py-2 text-sm rounded-md border focus:outline-none focus:ring-1 focus:ring-[#1E6FBF] transition-colors"
@@ -66,19 +84,18 @@ function FilterSelect({ label, value, onChange, options, placeholder = 'Todos' }
           <span className="truncate">{value || placeholder}</span>
           <ChevronDown size={13} style={{
             color: MUTED, flexShrink: 0,
-            transform: open ? 'rotate(180deg)' : 'none',
-            transition: 'transform 0.2s',
+            transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s',
           }} />
         </button>
         {open && (
           <div className="absolute z-50 w-full mt-1 rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto"
-            style={{ background: '#0f1e2b', border: `1px solid ${BDR}` }}>
+            style={{ background: '#FFFFFF', border: `1px solid ${BDR}` }}>
             <button type="button" onMouseDown={() => { onChange(''); setOpen(false) }}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+              className="w-full text-left px-3 py-2 text-sm hover:bg-black/5"
               style={{ color: MUTED }}>{placeholder}</button>
             {options.map(o => (
               <button key={o} type="button" onMouseDown={() => { onChange(o); setOpen(false) }}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 flex items-center justify-between"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-black/5 flex items-center justify-between"
                 style={{ color: TICK }}>
                 <span>{o}</span>
                 {value === o && <Check size={11} style={{ color: BLUE, flexShrink: 0 }} />}
@@ -98,46 +115,37 @@ function FilterAutocomplete({ label, items, labelKey = 'nombre', idKey = 'id', v
 
   const selected = items.find(i => i[idKey] === value)
   const display  = selected ? selected[labelKey] : ''
-
   const filtered = query.length < 1
     ? items.slice(0, 60)
     : items.filter(i => i[labelKey].toLowerCase().includes(query.toLowerCase())).slice(0, 60)
 
-  const pick = (item) => {
-    onChange(item ? item[idKey] : null)
-    setQuery('')
-    setOpen(false)
-  }
+  const pick = item => { onChange(item ? item[idKey] : null); setQuery(''); setOpen(false) }
 
   return (
     <Field label={label}>
       <div className="relative">
         <div className="relative flex items-center">
-          <input
-            ref={inputRef}
-            className={inputCls}
+          <input ref={inputRef} className={inputCls}
             style={{ borderColor: BDR, paddingRight: display ? '2rem' : '0.75rem' }}
             placeholder={display || placeholder}
             value={open ? query : (display || '')}
             onFocus={() => { setQuery(''); setOpen(true) }}
             onChange={e => setQuery(e.target.value)}
-            onBlur={() => setTimeout(() => setOpen(false), 150)}
-          />
+            onBlur={() => setTimeout(() => setOpen(false), 150)} />
           {display && !open && (
             <button type="button" onMouseDown={() => pick(null)}
-              className="absolute right-2 text-xs"
-              style={{ color: MUTED }}>✕</button>
+              className="absolute right-2 text-xs" style={{ color: MUTED }}>✕</button>
           )}
         </div>
         {open && (
           <div className="absolute z-50 w-full mt-1 rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto"
-            style={{ background: '#0f1e2b', border: `1px solid ${BDR}` }}>
+            style={{ background: '#FFFFFF', border: `1px solid ${BDR}` }}>
             <button type="button" onMouseDown={() => pick(null)}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+              className="w-full text-left px-3 py-2 text-sm hover:bg-black/5"
               style={{ color: MUTED }}>{placeholder}</button>
             {filtered.map(item => (
               <button key={item[idKey]} type="button" onMouseDown={() => pick(item)}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 flex items-center justify-between"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-black/5 flex items-center justify-between"
                 style={{ color: TICK }}>
                 <span>{item[labelKey]}</span>
                 {item[idKey] === value && <Check size={11} style={{ color: BLUE, flexShrink: 0 }} />}
@@ -150,40 +158,75 @@ function FilterAutocomplete({ label, items, labelKey = 'nombre', idKey = 'id', v
   )
 }
 
-function KpiBox({ label, value, color }) {
+function EstadoBadge({ value, colorFn }) {
+  if (!value) return <span style={{ color: MUTED }}>—</span>
+  const color = colorFn(value)
   return (
-    <div className="rounded-xl p-4 flex flex-col gap-1" style={{ background: '#0f1e2b', border: `1px solid ${BDR}` }}>
-      <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>{label}</span>
-      <span className="text-lg font-bold tabular-nums" style={{ color: color ?? TICK }}>{value}</span>
-    </div>
+    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+      style={{ background: color + '22', color, border: `1px solid ${color}55` }}>
+      {value}
+    </span>
   )
 }
 
-function EstadoBadge({ value, colorFn }) {
-  if (!value) return <span style={{ color: MUTED }}>—</span>
+function PlazoBadge({ diasCumplidos, fechaPago }) {
+  if (!diasCumplidos || fechaPago) return null
+  if (diasCumplidos <= 20) return null
   return (
-    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-      style={{ background: colorFn(value) + '22', color: colorFn(value), border: `1px solid ${colorFn(value)}55` }}>
-      {value}
+    <span className="animate-pulse" title={`Pago extemporáneo · ${diasCumplidos} días`}>
+      <AlertTriangle size={13} style={{ color: RED }} />
     </span>
+  )
+}
+
+// ── Celda de tabla ────────────────────────────────────────────────────────────
+function Td({ children, right, mono, muted, nowrap = true, highlight, sticky, bg, style: extraStyle }) {
+  return (
+    <td className={`px-3 py-2 text-xs${nowrap ? ' whitespace-nowrap' : ''}${right ? ' text-right' : ''}${mono ? ' font-mono tabular-nums' : ''}${sticky ? ' sticky left-0 z-10' : ''}`}
+      style={{
+        color: highlight ?? (muted ? MUTED : TICK),
+        borderRight: `1px solid #CBD5E1`,
+        ...(bg ? { background: bg } : {}),
+        ...(sticky ? { boxShadow: '2px 0 4px rgba(0,0,0,0.06)' } : {}),
+        ...extraStyle,
+      }}>
+      {children}
+    </td>
+  )
+}
+
+// ── Encabezado de columna ─────────────────────────────────────────────────────
+function Th({ children, right, sticky }) {
+  return (
+    <th className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap${right ? ' text-right' : ' text-left'}${sticky ? ' sticky left-0' : ''}`}
+      style={{
+        color: MUTED,
+        background: '#F1F5F9',
+        borderBottom: `1px solid #CBD5E1`,
+        borderRight: `1px solid #CBD5E1`,
+        zIndex: sticky ? 25 : undefined,
+        ...(sticky ? { boxShadow: '2px 0 4px rgba(0,0,0,0.06)' } : {}),
+      }}>
+      {children}
+    </th>
   )
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function ConsultaPage({ openEnCarga }) {
   const { catalogos } = useCatalogos()
-  const { rows, totals, loading, page, hasMore, buscar, nextPage, prevPage } = useConsulta()
+  const { rows, loading, page, hasMore, buscar } = useConsulta()
 
   const [filters, setFilters] = useState({
     manifiesto: '', fecha_desde: '', fecha_hasta: '',
-    conductor_id: null, cliente_id: null, origen_id: null, destino_id: null,
-    estado_pago: '', estado_interno: '',
+    conductor: null, cliente: null, origen: null, destino: null,
+    compromiso_pago: '', estado_interno: '', placa: '', mes: '', año: '',
   })
   const [searched, setSearched] = useState(false)
 
   const set = (k, v) => setFilters(f => ({ ...f, [k]: v }))
 
-  const handleSearch = (e) => {
+  const handleSearch = e => {
     e?.preventDefault()
     setSearched(true)
     buscar(filters, 0)
@@ -193,12 +236,11 @@ export default function ConsultaPage({ openEnCarga }) {
   const handlePrev = () => { buscar(filters, page - 1) }
 
   const clearAll = () => {
-    const empty = {
+    setFilters({
       manifiesto: '', fecha_desde: '', fecha_hasta: '',
-      conductor_id: null, cliente_id: null, origen_id: null, destino_id: null,
-      estado_pago: '', estado_interno: '',
-    }
-    setFilters(empty)
+      conductor: null, cliente: null, origen: null, destino: null,
+      compromiso_pago: '', estado_interno: '', placa: '', mes: '', año: '',
+    })
   }
 
   return (
@@ -213,6 +255,7 @@ export default function ConsultaPage({ openEnCarga }) {
             className="text-xs hover:opacity-80" style={{ color: MUTED }}>Limpiar todo</button>
         </div>
 
+        {/* Fila 1 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           <Field label="Manifiesto">
             <input className={inputCls} style={{ borderColor: BDR }}
@@ -220,83 +263,46 @@ export default function ConsultaPage({ openEnCarga }) {
               value={filters.manifiesto}
               onChange={e => set('manifiesto', e.target.value)} />
           </Field>
-
+          <FilterAutocomplete label="Placa" items={catalogos.vehiculos} labelKey="nombre" idKey="id"
+            value={filters.placa || null} onChange={v => set('placa', v ?? '')} />
           <Field label="Fecha desde">
             <input className={inputCls} style={{ borderColor: BDR }}
               type="date" value={filters.fecha_desde}
               onChange={e => set('fecha_desde', e.target.value)} />
           </Field>
-
           <Field label="Fecha hasta">
             <input className={inputCls} style={{ borderColor: BDR }}
               type="date" value={filters.fecha_hasta}
               onChange={e => set('fecha_hasta', e.target.value)} />
           </Field>
-
-          <FilterSelect
-            label="Estado pago"
-            value={filters.estado_pago}
-            onChange={v => set('estado_pago', v)}
-            options={ESTADO_PAGO_OPTS}
-          />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-          <FilterAutocomplete
-            label="Conductor"
-            items={catalogos.conductores}
-            value={filters.conductor_id}
-            onChange={v => set('conductor_id', v)}
-          />
-          <FilterAutocomplete
-            label="Cliente"
-            items={catalogos.clientes}
-            value={filters.cliente_id}
-            onChange={v => set('cliente_id', v)}
-          />
-          <FilterAutocomplete
-            label="Origen"
-            items={catalogos.lugares}
-            value={filters.origen_id}
-            onChange={v => set('origen_id', v)}
-          />
-          <FilterAutocomplete
-            label="Destino"
-            items={catalogos.lugares}
-            value={filters.destino_id}
-            onChange={v => set('destino_id', v)}
-          />
+        {/* Fila 2 */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+          <FilterSelect label="Mes" value={filters.mes} onChange={v => set('mes', v)} options={MESES_OPTS} />
+          <FilterSelect label="Año" value={filters.año} onChange={v => set('año', v)} options={AÑOS_OPTS} />
+          <FilterSelect label="Compromiso de pago" value={filters.compromiso_pago} onChange={v => set('compromiso_pago', v)} options={ESTADO_PAGO_OPTS} />
+          <FilterSelect label="Estado interno" value={filters.estado_interno} onChange={v => set('estado_interno', v)} options={ESTADO_INTERNO_OPTS} />
+          <FilterAutocomplete label="Conductor" items={catalogos.conductores}
+            value={filters.conductor} onChange={v => set('conductor', v)} />
         </div>
 
+        {/* Fila 3 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-          <FilterSelect
-            label="Estado interno"
-            value={filters.estado_interno}
-            onChange={v => set('estado_interno', v)}
-            options={ESTADO_INTERNO_OPTS}
-          />
+          <FilterAutocomplete label="Cliente" items={catalogos.clientes}
+            value={filters.cliente} onChange={v => set('cliente', v)} />
+          <FilterAutocomplete label="Origen" items={catalogos.lugares}
+            value={filters.origen} onChange={v => set('origen', v)} />
+          <FilterAutocomplete label="Destino" items={catalogos.lugares}
+            value={filters.destino} onChange={v => set('destino', v)} />
         </div>
 
         <button type="submit"
           className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
           style={{ background: BLUE, color: '#fff' }}>
-          <Search size={14} />
-          Consultar
+          <Search size={14} /> Consultar
         </button>
       </form>
-
-      {/* KPI bar */}
-      {searched && totals && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <KpiBox label="Manifiestos"    value={fmt(totals.total_manifiestos)} />
-          <KpiBox label="Suma remesas"   value={`$${fmt(totals.suma_remesas)}`} />
-          <KpiBox label="Suma fletes"    value={`$${fmt(totals.suma_fletes)}`} />
-          <KpiBox label="Suma anticipos" value={`$${fmt(totals.suma_anticipos)}`} />
-          <KpiBox label="Suma pagado"    value={`$${fmt(totals.suma_pagado)}`} color={GREEN} />
-          <KpiBox label="Pendiente"      value={`$${fmt(totals.pendiente_pagar)}`}
-            color={Number(totals.pendiente_pagar) > 0 ? GOLD : GREEN} />
-        </div>
-      )}
 
       {/* Results table */}
       {searched && (
@@ -310,62 +316,139 @@ export default function ConsultaPage({ openEnCarga }) {
               <span className="text-sm" style={{ color: MUTED }}>Sin resultados para los filtros seleccionados.</span>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr style={{ background: '#0D1B2A' }}>
-                    {['Manifiesto','Fecha','Conductor','Vehículo','Cliente','Origen','Destino',
-                      'Remesa','Flete','Anticipo','Pagado','Est. Pago','Est. Interno','Factura',''].map(h => (
-                      <th key={h} className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
-                        style={{ color: MUTED, borderBottom: `1px solid ${BDR}` }}>{h}</th>
-                    ))}
+            <div style={{ maxHeight: '68vh', overflow: 'auto' }}>
+              <table className="text-sm border-collapse" style={{ minWidth: '2900px' }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
+                  <tr style={{ background: '#F1F5F9' }}>
+                    <Th sticky>Manifiesto</Th>
+                    <Th>Remesas</Th>
+                    <Th>F. Despacho</Th>
+                    <Th>Origen</Th>
+                    <Th>Dpto. Origen</Th>
+                    <Th>Destino</Th>
+                    <Th>Dpto. Destino</Th>
+                    <Th>Cliente</Th>
+                    <Th right>Valor Remesa</Th>
+                    <Th right>Flete Neto</Th>
+                    <Th right>Anticipo</Th>
+                    <Th>Placa</Th>
+                    <Th>Tipo Veh.</Th>
+                    <Th>Conductor</Th>
+                    <Th>Celular</Th>
+                    <Th>Cédula</Th>
+                    <Th>Propietario</Th>
+                    <Th>Agencia</Th>
+                    <Th>Responsable</Th>
+                    <Th>F. Cumplido</Th>
+                    <Th right>Días</Th>
+                    <Th>Compromiso Pago</Th>
+                    <Th>Novedades</Th>
+                    <Th>Novedad Conductor</Th>
+                    <Th>Novedad Empresa</Th>
+                    <Th right>Aj. Positivo Flete</Th>
+                    <Th right>Aj. Negativo Flete</Th>
+                    <Th>Estado Interno</Th>
+                    <Th>Resp. Estado Int.</Th>
+                    <Th>F. Pago</Th>
+                    <Th right>Valor Pagado</Th>
+                    <Th>Entidad</Th>
+                    <Th>Responsable Pago</Th>
+                    <Th>Factura No</Th>
+                    <Th>Fecha Emisión Factura</Th>
+                    <Th>Mes</Th>
+                    <Th>Factura Electrónica</Th>
+                    <Th right>Días Fact.</Th>
+                    <Th></Th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={r.manifiesto}
-                      style={{ background: i % 2 === 0 ? BG : '#162333' }}>
-                      <td className="px-3 py-2 font-mono font-semibold whitespace-nowrap"
-                        style={{ color: GOLD }}>{r.manifiesto}</td>
-                      <td className="px-3 py-2 whitespace-nowrap" style={{ color: TICK }}>{fmtDate(r.fecha_despacho)}</td>
-                      <td className="px-3 py-2" style={{ color: TICK }}>{r.conductor_nombre ?? '—'}</td>
-                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs" style={{ color: MUTED }}>
-                        {r.placa ?? '—'}
-                        {r.placa_remolque && <span className="ml-1 opacity-60">/ {r.placa_remolque}</span>}
-                      </td>
-                      <td className="px-3 py-2" style={{ color: TICK }}>{r.cliente_nombre ?? '—'}</td>
-                      <td className="px-3 py-2 whitespace-nowrap" style={{ color: TICK }}>{r.origen_nombre ?? '—'}</td>
-                      <td className="px-3 py-2 whitespace-nowrap" style={{ color: TICK }}>{r.destino_nombre ?? '—'}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums whitespace-nowrap"
-                        style={{ color: TICK }}>${fmt(r.valor_remesa)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums whitespace-nowrap"
-                        style={{ color: TICK }}>${fmt(r.flete_conductor)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums whitespace-nowrap"
-                        style={{ color: MUTED }}>${fmt(r.anticipo)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums whitespace-nowrap"
-                        style={{ color: GREEN }}>${fmt(r.valor_pagado)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <EstadoBadge value={r.estado_pago} colorFn={estadoPagoColor} />
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <EstadoBadge value={r.estado_interno} colorFn={estadoInternoColor} />
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs" style={{ color: MUTED }}>
-                        {r.factura_no ?? '—'}
-                      </td>
-                      <td className="px-3 py-2">
-                        {openEnCarga && (
-                          <button type="button"
-                            onClick={() => openEnCarga(r.manifiesto)}
-                            className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-opacity hover:opacity-80"
-                            style={{ background: BLUE + '22', color: BLUE, border: `1px solid ${BLUE}44` }}>
-                            <ExternalLink size={10} />
-                            Ver
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {rows.map((r, i) => {
+                    const plazoVencido = r.dias_cumplido > 20 && !r.fecha_pago
+                    const sidebarColor = SIDEBAR_COLOR[r.estado_interno]
+                    const rowBg = sidebarColor
+                      ? sidebarColor + '66'
+                      : i % 2 === 0 ? BG : '#F8FAFC'
+                    // Fondo opaco para la celda sticky (sin transparencia que deje ver texto debajo)
+                    const stickyBg = sidebarColor ? blendOnWhite(sidebarColor, 0.4) : rowBg
+                    return (
+                      <tr key={r.manifiesto} style={{ background: rowBg }}>
+                        <Td mono highlight={GOLD} sticky bg={stickyBg}>{r.manifiesto}</Td>
+                        <Td muted>{r.remesas || '—'}</Td>
+                        <Td>{fmtDate(r.fecha_despacho)}</Td>
+                        <Td>{r.origen ?? '—'}</Td>
+                        <Td muted>{r.departamento_origen ?? '—'}</Td>
+                        <Td>{r.destino ?? '—'}</Td>
+                        <Td muted>{r.departamento_destino ?? '—'}</Td>
+                        <Td>{r.cliente ?? '—'}</Td>
+                        <Td right mono>{money(r.valor_remesa)}</Td>
+                        <Td right mono>{money(r.flete_neto_conductor ?? r.flete_conductor)}</Td>
+                        <Td right mono muted>{money(r.anticipo)}</Td>
+                        <Td mono muted>{r.placa ?? '—'}</Td>
+                        <Td muted>{r.tipo_vehiculo ?? '—'}</Td>
+                        <Td>{r.conductor ?? '—'}</Td>
+                        <Td muted>{r.celular ?? '—'}</Td>
+                        <Td muted>{r.cedula_conductor ?? '—'}</Td>
+                        <Td muted>{r.propietario ?? '—'}</Td>
+                        <Td muted>{r.agencia_despachadora ?? '—'}</Td>
+                        <Td muted>{r.nombre_responsable ?? '—'}</Td>
+                        <Td>{fmtDate(r.fecha_cumplido)}</Td>
+                        <td className="px-3 py-2 text-xs text-right whitespace-nowrap">
+                          {r.dias_cumplido != null ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span style={{ color: plazoVencido ? RED : TICK }}>{r.dias_cumplido}</span>
+                              <PlazoBadge diasCumplidos={r.dias_cumplido} fechaPago={r.fecha_pago} />
+                            </div>
+                          ) : <span style={{ color: MUTED }}>—</span>}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <EstadoBadge value={r.compromiso_pago} colorFn={estadoPagoColor} />
+                        </td>
+                        <td className="px-3 py-2 text-xs max-w-45"
+                          style={{ color: MUTED, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                          {r.novedades || '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs max-w-45"
+                          style={{ color: MUTED, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                          {r.novedad_conductor || '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs max-w-45"
+                          style={{ color: MUTED, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                          {r.novedad_empresa || '—'}
+                        </td>
+                        <Td right mono>{r.ajuste_positivo_flete != null ? money(r.ajuste_positivo_flete) : '—'}</Td>
+                        <Td right mono>{r.ajuste_negativo_flete != null ? money(r.ajuste_negativo_flete) : '—'}</Td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <EstadoBadge value={r.estado_interno} colorFn={estadoInternoColor} />
+                        </td>
+                        <Td muted>{r.responsable_estado_interno ?? '—'}</Td>
+                        <Td>{fmtDate(r.fecha_pago)}</Td>
+                        <Td right mono highlight={GREEN}>{money(r.valor_pagado)}</Td>
+                        <Td muted>{r.entidad_financiera ?? '—'}</Td>
+                        <Td muted>{r.responsable ?? '—'}</Td>
+                        <Td mono muted>{r.factura_no ?? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                            style={{ background: GOLD + '22', color: GOLD, border: `1px solid ${GOLD}44` }}>
+                            Sin factura
+                          </span>
+                        )}</Td>
+                        <Td muted>{fmtDate(r.fecha_factura)}</Td>
+                        <Td muted>{r.mes ?? '—'}</Td>
+                        <Td muted>{r.factura_electronica ?? '—'}</Td>
+                        <Td right mono muted>{r.dias_para_facturar ?? '—'}</Td>
+                        <td className="px-3 py-2 sticky right-0"
+                          style={{ background: stickyBg, boxShadow: '-2px 0 4px rgba(0,0,0,0.06)' }}>
+                          {openEnCarga && (
+                            <button type="button"
+                              onClick={() => openEnCarga(r.manifiesto)}
+                              className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-opacity hover:opacity-80"
+                              style={{ background: BLUE + '22', color: BLUE, border: `1px solid ${BLUE}44` }}>
+                              <ExternalLink size={10} /> Ver
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -374,10 +457,9 @@ export default function ConsultaPage({ openEnCarga }) {
           {/* Pagination */}
           {!loading && rows.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3"
-              style={{ borderTop: `1px solid ${BDR}`, background: '#0D1B2A' }}>
+              style={{ borderTop: `1px solid ${BDR}`, background: '#F1F5F9' }}>
               <span className="text-xs" style={{ color: MUTED }}>
-                Página {page + 1}{hasMore ? '+' : ''}
-                {' · '}{rows.length} resultados
+                Página {page + 1}{hasMore ? '+' : ''} · {rows.length} resultados
               </span>
               <div className="flex gap-2">
                 <button type="button" onClick={handlePrev} disabled={page === 0}
