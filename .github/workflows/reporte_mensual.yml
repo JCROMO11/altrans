@@ -1,0 +1,34 @@
+name: Reporte mensual Altrans
+
+on:
+  # Primer día de cada mes a las 8:00 AM UTC-5 (13:00 UTC)
+  schedule:
+    - cron: '0 13 1 * *'
+  # Permite ejecutar manualmente desde GitHub Actions
+  workflow_dispatch:
+
+jobs:
+  enviar-reporte:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: |
+          pip install pandas openpyxl sqlalchemy psycopg2-binary python-dotenv
+
+      - name: Generar y enviar reporte
+        env:
+          DATABASE_URL:          ${{ secrets.DATABASE_URL }}
+          REPORT_EMAIL_FROM:     ${{ secrets.REPORT_EMAIL_FROM }}
+          REPORT_EMAIL_PASSWORD: ${{ secrets.REPORT_EMAIL_PASSWORD }}
+          REPORT_EMAIL_TO:       ${{ secrets.REPORT_EMAIL_TO }}
+        run: |
+          python -m etl_individual.email_report

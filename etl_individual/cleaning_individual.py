@@ -144,7 +144,8 @@ RENAME_MAP = {
     "factura electronica del mc / propietario vehiculo": "factura_electronica",
     "factura electronica del mc":                        "factura_electronica",
     "dias tomados para facturar":                        "dias_para_facturar",
-    "condicion de pago":                                 "condicion_pago",
+    "condicion de pago":                                 "compromiso_pago",
+    "compromiso de pago":                                "compromiso_pago",
     "estado interno":                                    "estado_interno",
     "responsable estado interno":                        "responsable_estado_interno",
     "remesa":                                            "remesas",
@@ -689,7 +690,7 @@ def _clean_dias(val) -> float | None:
         return None
 
 
-CONDICION_PAGO_RULES = [
+COMPROMISO_PAGO_RULES = [
     # C. CONTRAENTREGA, C.CONTRAENTREGA, etc.
     (r'^c\.?\s*contra', "CONTRAENTREGA"),
     # CONTING: 20-25 DH / CONTIG. PAGO 20-25 DIAS HABIL.
@@ -701,7 +702,7 @@ CONDICION_PAGO_RULES = [
 ]
 
 
-def _clean_condicion_pago(val) -> str | None:
+def _clean_compromiso_pago(val) -> str | None:
     """Normaliza condicion_pago: elimina numéricos sueltos y estandariza variantes."""
     if pd.isna(val):
         return None
@@ -711,7 +712,7 @@ def _clean_condicion_pago(val) -> str | None:
     if re.fullmatch(r'\d+', s):   # número suelto → dato de otra columna
         return None
     s_norm = _strip_accents(re.sub(r'\s+', ' ', s.lower()))
-    for pattern, canonical in CONDICION_PAGO_RULES:
+    for pattern, canonical in COMPROMISO_PAGO_RULES:
         if re.search(pattern, s_norm, re.IGNORECASE):
             return canonical
     return s.upper()
@@ -986,6 +987,25 @@ def _cedula(val) -> str | None:
         return digits if digits else None
 
 
+def _clean_tipo_vehiculo(val) -> tuple[str | None, str | None]:
+    """
+    Placa de remolque o descriptor de tipo de vehículo.
+    Valores con letras+dígitos (placas) → se conservan.
+    Descriptores de tipo (MULA, TURBO, SENCILLO, etc.) → NULL + nota en novedades.
+    ANULADO y similares → NULL sin nota.
+    """
+    if pd.isna(val):
+        return None, None
+    s = str(val).strip().upper()
+    if not s:
+        return None, None
+    if _PERSON_ANULADO_RE.match(_strip_accents(s.lower())):
+        return None, None
+    if re.search(r'\d', s):
+        return s, None
+    return None, f"[TIPO VEHICULO: {s}]"
+
+
 def _clean_celular(val) -> tuple[str | None, str | None]:
     """10 dígitos exactos → válido. Resto → NULL + nota."""
     base = _cedula(val)
@@ -1020,10 +1040,13 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
-    # 1. Fechas
+    # 1. Fechas — format='mixed' necesario porque distintos sheets usan
+    #    formatos distintos ('2024-07-01' vs '2026-02-01 00:00:00') y
+    #    pandas >=2.0 infiere el formato del primer valor y falla silenciosamente
+    #    con los demás cuando no coincide.
     for col in DATE_COLS:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce").dt.date
+            df[col] = pd.to_datetime(df[col], errors="coerce", format="mixed").dt.date
 
     # 2. Monetarios
     for col in MONEY_COLS:
@@ -1060,9 +1083,17 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
                 + notas_estado[concat_mask].astype(str)
             )
 
-    # 6. Condición de pago
-    if "condicion_pago" in df.columns:
-        df["condicion_pago"] = df["condicion_pago"].apply(_clean_condicion_pago)
+    # 6. Compromiso de pago
+    if "compromiso_pago" in df.columns:
+        df["compromiso_pago"] = df["compromiso_pago"].apply(_clean_compromiso_pago)
+
+    # 6a. Fusión estado → compromiso_pago (columnas mutuamente exclusivas por período)
+    if "estado" in df.columns:
+        if "compromiso_pago" not in df.columns:
+            df = df.rename(columns={"estado": "compromiso_pago"})
+        else:
+            df["compromiso_pago"] = df["compromiso_pago"].fillna(df["estado"])
+            df = df.drop(columns=["estado"])
 
     # 6b. Agencia despachadora: ANULADO, LETRAS+NÚMEROS, lista negra
     if "agencia_despachadora" in df.columns:
@@ -1096,6 +1127,12 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
     if "cedula_conductor" in df.columns:
         parsed = df["cedula_conductor"].apply(_clean_cedula_conductor)
         df["cedula_conductor"] = parsed.apply(lambda t: t[0])
+        df = _apply_novedades(df, parsed.apply(lambda t: t[1]))
+
+    # 6i. Tipo vehículo: descriptores sin placa → NULL + nota en novedades
+    if "tipo_vehiculo" in df.columns:
+        parsed = df["tipo_vehiculo"].apply(_clean_tipo_vehiculo)
+        df["tipo_vehiculo"] = parsed.apply(lambda t: t[0])
         df = _apply_novedades(df, parsed.apply(lambda t: t[1]))
 
     # 6d. Columnas de departamento junto a origen y destino
@@ -1344,15 +1381,15 @@ if __name__ == "__main__":
 
     otros_report = pd.DataFrame()
     if "_estado_original" in combined.columns:
-        otros_mask = combined["estado"] == "OTROS"
+        otros_mask = combined["compromiso_pago"] == "OTROS"
         if otros_mask.any():
             cols = [c for c in [
                 "manifiesto", "archivo_origen", "mes", "año",
                 "fecha_despacho", "cliente", "origen", "destino",
-                "_estado_original", "estado",
+                "_estado_original", "compromiso_pago",
             ] if c in combined.columns]
             otros_report = combined[otros_mask][cols].rename(
-                columns={"_estado_original": "estado_original"}
+                columns={"_estado_original": "estado_original", "compromiso_pago": "estado"}
             )
         combined = combined.drop(columns=["_estado_original"])
 
