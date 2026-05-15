@@ -1,11 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, Plus, ArrowLeft, Save, CheckCircle, AlertCircle,
+import { useState, useEffect, useRef } from 'react'
+import * as XLSX from 'xlsx'
+import { Search, ArrowLeft, Save, CheckCircle, AlertCircle,
          User, MapPin, DollarSign, FileText, ClipboardList,
-         ChevronDown, Check, Calendar, Pencil, Trash2, X, Clock,
-         ChevronUp, RotateCcw, Lock } from 'lucide-react'
+         ChevronDown, Check, Calendar, Pencil, Trash2, X,
+         ChevronUp, RotateCcw, Lock, Upload, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useCatalogos } from '../hooks/useCatalogos'
 import { useManifiesto } from '../hooks/useManifiesto'
+import { normalizeVal } from '../lib/normalize'
+import { buildPayload } from '../lib/excel-upload'
 
 // ── ENUMs ────────────────────────────────────────────────────────────────────
 const COMPROMISO_PAGO_OPTS   = ['PAGO A 15 DIAS','CONTRAENTREGA','PRONTO PAGO','PAGO INMEDIATO']
@@ -163,8 +166,7 @@ function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, p
                 <button type="button" disabled={saving} onMouseDown={handleCreate}
                   className="w-full text-left px-3 py-2 text-sm border-t transition-colors hover:bg-black/5 flex items-center gap-2"
                   style={{ color: BLUE, borderColor: BDR }}>
-                  <Plus size={12} />
-                  {`Usar "${query.trim()}"`}
+                  <span>{`Usar "${query.trim()}"`}</span>
                 </button>
               )}
             </div>
@@ -205,21 +207,12 @@ function Toast({ msg, onClose }) {
 }
 
 // ── Form initial state ───────────────────────────────────────────────────────
-const NUEVO_INIT = {
-  manifiesto: '', fecha_despacho: '',
-  conductor: '', cedula_conductor: '', celular: '',
-  placa: '', tipo_vehiculo: '', propietario: '',
-  cliente: '', origen: '', destino: '',
-  agencia_despachadora: '', nombre_responsable: '',
-  valor_remesa: '', flete_conductor: '', anticipo: '',
-  remesas: '',
-}
-
 const SEGUIMIENTO_INIT = {
   fecha_cumplido: '', compromiso_pago: 'PAGO A 15 DIAS', novedades: '',
   estado_interno: '', responsable_estado_interno: '',
   novedad_conductor: '', novedad_empresa: '',
   ajuste_positivo_flete: '', ajuste_negativo_flete: '',
+  consignacion_a_terceros: '',
 }
 
 const TESORERIA_INIT = {
@@ -228,6 +221,479 @@ const TESORERIA_INIT = {
 
 const FACT_INIT = {
   factura_no: '', fecha_factura: '', factura_electronica: '', mes_facturacion: '',
+  valor_factura: '',
+}
+
+// ── Excel Upload Panel ───────────────────────────────────────────────────────
+// Campos comparables entre payload y DB para detectar cambios
+const DB_FIELDS = [
+  'fecha_despacho','origen','destino','conductor','cedula_conductor','celular',
+  'placa','tipo_vehiculo','propietario','agencia_despachadora','nombre_responsable',
+  'valor_remesa','flete_conductor','anticipo','remesas',
+]
+const FIELD_LABELS = {
+  fecha_despacho:'Fecha despacho', origen:'Origen', destino:'Destino',
+  conductor:'Conductor', cedula_conductor:'Cédula', celular:'Celular',
+  placa:'Placa', tipo_vehiculo:'Remolque', propietario:'Propietario',
+  agencia_despachadora:'Agencia Despachadora', nombre_responsable:'Responsable',
+  valor_remesa:'Valor remesa', flete_conductor:'Flete', anticipo:'Anticipo',
+  remesas:'Remesas',
+}
+const PAYLOAD_KEY = {
+  fecha_despacho:'p_fecha_despacho', origen:'p_origen', destino:'p_destino',
+  conductor:'p_conductor', cedula_conductor:'p_cedula_conductor', celular:'p_celular',
+  placa:'p_placa', tipo_vehiculo:'p_tipo_vehiculo', propietario:'p_propietario',
+  agencia_despachadora:'p_agencia_despachadora', nombre_responsable:'p_nombre_responsable',
+  valor_remesa:'p_valor_remesa', flete_conductor:'p_flete_conductor',
+  anticipo:'p_anticipo', remesas:'p_remesas',
+}
+
+const UPLOAD_BATCH = 20
+
+function ExcelUploadPanel({ onDone }) {
+  const RED = '#DC2626'
+
+  const [dragging,      setDragging]      = useState(false)
+  const [preview,       setPreview]       = useState(null)
+  const [revision,      setRevision]      = useState(null)  // { nuevos, sinCambios, conCambios, invalid }
+  const [seleccionados, setSeleccionados] = useState(new Set())
+  const [expandidos,    setExpandidos]    = useState(new Set())
+  const [result,        setResult]        = useState(null)
+  const [busy,          setBusy]          = useState(false)
+  const [progress,      setProgress]      = useState(0)
+  const inputRef = useRef(null)
+
+  // Paso 1: parsear archivo → mostrar preview
+  const parseFile = async (file) => {
+    if (!file) return
+    setResult(null); setPreview(null); setRevision(null)
+    try {
+      const buf  = await file.arrayBuffer()
+      const wb   = XLSX.read(buf, { type: 'array', cellDates: false })
+      const ws   = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: null })
+
+      if (rows.length === 0) {
+        setResult({ ok: 0, actualizados: 0, omitidos: 0, errores: [{ fila: '-', msg: 'El archivo está vacío o no tiene datos.' }] })
+        return
+      }
+
+      const payloads    = rows.map((r, i) => buildPayload(r, i))
+      const valid       = payloads.filter(p => p.payload)
+      const invalid     = payloads.filter(p => p.error)
+      const previewRows = valid.slice(0, 5).map(p => ({
+        manifiesto: p.payload.p_manifiesto,
+        fecha:      p.payload.p_fecha_despacho ?? '—',
+        conductor:  p.payload.p_conductor      ?? '—',
+        origen:     p.payload.p_origen         ?? '—',
+        destino:    p.payload.p_destino        ?? '—',
+        cliente:    p.payload.p_cliente        ?? '—',
+      }))
+      setPreview({ fileName: file.name, valid, invalid, previewRows })
+    } catch (err) {
+      setResult({ ok: 0, actualizados: 0, omitidos: 0, errores: [{ fila: '-', msg: err.message }] })
+    }
+  }
+
+  // Paso 2: consultar DB y categorizar cambios
+  const verificarCambios = async () => {
+    if (!preview) return
+    setBusy(true)
+    try {
+      const { valid, invalid } = preview
+      const numeros  = valid.map(p => p.payload.p_manifiesto)
+      const dbSelect = DB_FIELDS.join(',') + ',manifiesto'
+      const { data: dbRows, error } = await supabase
+        .from('manifiestos_flat').select(dbSelect).in('manifiesto', numeros)
+      if (error) throw error
+
+      const dbMap      = new Map((dbRows ?? []).map(r => [r.manifiesto, r]))
+      const nuevos     = []
+      const sinCambios = []
+      const conCambios = []
+
+      for (const p of valid) {
+        const num   = p.payload.p_manifiesto
+        const dbRow = dbMap.get(num)
+        if (!dbRow) { nuevos.push(p); continue }
+        const diffs = DB_FIELDS
+          .map(f => ({ field: f, valDB: normalizeVal(dbRow[f], f), valNew: normalizeVal(p.payload[PAYLOAD_KEY[f]], f) }))
+          .filter(d => d.valDB !== d.valNew)
+        if (diffs.length === 0) sinCambios.push(p)
+        else conCambios.push({ ...p, diffs })
+      }
+
+      if (conCambios.length === 0) {
+        await ejecutarCarga(nuevos, [], sinCambios.length, invalid)
+      } else {
+        setRevision({ nuevos, sinCambios, conCambios, invalid })
+        setSeleccionados(new Set(conCambios.map(p => p.payload.p_manifiesto)))
+        setExpandidos(new Set())
+        setBusy(false)
+      }
+    } catch (err) {
+      setResult({ ok: 0, actualizados: 0, omitidos: 0, errores: [{ fila: '-', msg: err.message }] })
+      setBusy(false)
+    }
+  }
+
+  // Paso 3: ejecutar la carga real
+  const ejecutarCarga = async (nuevos, aceptados, nSinCambios, invalid) => {
+    setBusy(true); setProgress(0); setRevision(null); setPreview(null)
+    const errores  = (invalid || []).map(p => ({ fila: p.fila, msg: p.error }))
+    let ok = 0; let actualizados = 0
+    const toUpload = [
+      ...nuevos.map(p => ({ ...p, _isNuevo: true })),
+      ...aceptados.map(p => ({ ...p, _isNuevo: false })),
+    ]
+    for (let i = 0; i < toUpload.length; i += UPLOAD_BATCH) {
+      const chunk = toUpload.slice(i, i + UPLOAD_BATCH)
+      const res   = await Promise.all(chunk.map(p => supabase.rpc('guardar_digitador', p.payload)))
+      res.forEach((r, j) => {
+        if (r.error) errores.push({ fila: chunk[j].fila, msg: r.error.message })
+        else if (chunk[j]._isNuevo) ok++
+        else actualizados++
+      })
+      setProgress(Math.round(((i + chunk.length) / Math.max(toUpload.length, 1)) * 100))
+    }
+    setResult({ ok, actualizados, omitidos: nSinCambios, errores })
+    setBusy(false)
+    if (ok > 0 || actualizados > 0) onDone?.()
+  }
+
+  const confirmarRevision = () => {
+    if (!revision) return
+    const aceptados = revision.conCambios.filter(p => seleccionados.has(p.payload.p_manifiesto))
+    const rechazados = revision.conCambios.length - aceptados.length
+    ejecutarCarga(revision.nuevos, aceptados, revision.sinCambios.length + rechazados, revision.invalid)
+  }
+
+  const cancelar = () => { setPreview(null); setResult(null); setRevision(null) }
+
+  const toggleSeleccionado = (num) => setSeleccionados(prev => {
+    const next = new Set(prev); next.has(num) ? next.delete(num) : next.add(num); return next
+  })
+  const toggleExpandido = (num) => setExpandidos(prev => {
+    const next = new Set(prev); next.has(num) ? next.delete(num) : next.add(num); return next
+  })
+
+  const onDrop = (e) => {
+    e.preventDefault(); setDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) parseFile(file)
+  }
+
+  const totalImportar = revision ? revision.nuevos.length + seleccionados.size : 0
+
+  return (
+    <div className="flex flex-col gap-4">
+
+      {/* Drop zone */}
+      {!preview && !result && !revision && (
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          onClick={() => inputRef.current?.click()}
+          className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed py-14 cursor-pointer transition-colors"
+          style={{ borderColor: dragging ? BLUE : BDR, background: dragging ? BLUE + '08' : '#FAFBFC' }}>
+          <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden"
+            onChange={e => { if (e.target.files[0]) parseFile(e.target.files[0]) }} />
+          <Upload size={28} style={{ color: dragging ? BLUE : MUTED }} />
+          <p className="text-sm font-medium" style={{ color: TICK }}>Arrastre el archivo Excel aquí o haga clic para seleccionarlo</p>
+          <p className="text-xs" style={{ color: MUTED }}>.xlsx · .xls · Una hoja por archivo</p>
+        </div>
+      )}
+
+      {/* Panel de preview */}
+      {preview && !busy && !revision && (
+        <div className="flex flex-col gap-4 rounded-xl p-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
+          <div>
+            <p className="text-sm font-semibold" style={{ color: TICK }}>{preview.fileName}</p>
+            <p className="text-xs mt-0.5" style={{ color: MUTED }}>
+              {preview.valid.length} registros válidos
+              {preview.invalid.length > 0 && <span style={{ color: RED }}> · {preview.invalid.length} con error</span>}
+            </p>
+          </div>
+
+          <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${BDR}` }}>
+            <div className="grid grid-cols-[80px_90px_1fr_1fr_1fr_1fr] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider"
+              style={{ background: '#F1F5F9', color: MUTED, borderBottom: `1px solid ${BDR}` }}>
+              <span>Manifiesto</span><span>Fecha</span><span>Conductor</span>
+              <span>Origen</span><span>Destino</span><span>Cliente</span>
+            </div>
+            {preview.previewRows.map((r, i) => (
+              <div key={i} className="grid grid-cols-[80px_90px_1fr_1fr_1fr_1fr] px-3 py-1.5 text-xs border-t"
+                style={{ borderColor: BDR, color: TICK, background: i % 2 === 0 ? BG : '#F8FAFC' }}>
+                <span className="font-mono" style={{ color: GOLD }}>{r.manifiesto}</span>
+                <span style={{ color: MUTED }}>{r.fecha}</span>
+                <span className="truncate">{r.conductor}</span>
+                <span className="truncate" style={{ color: MUTED }}>{r.origen}</span>
+                <span className="truncate" style={{ color: MUTED }}>{r.destino}</span>
+                <span className="truncate">{r.cliente}</span>
+              </div>
+            ))}
+            {preview.valid.length > 5 && (
+              <div className="px-3 py-1.5 text-xs border-t" style={{ borderColor: BDR, color: MUTED, background: '#F8FAFC' }}>
+                ...y {preview.valid.length - 5} registros más
+              </div>
+            )}
+          </div>
+
+          {preview.invalid.length > 0 && (
+            <div className="rounded-lg overflow-hidden" style={{ border: `1px solid #FECACA` }}>
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider"
+                style={{ background: '#FEF2F2', color: RED }}>Filas con error (no se importarán)</div>
+              {preview.invalid.slice(0, 5).map((e, i) => (
+                <div key={i} className="grid grid-cols-[60px_1fr] px-3 py-1.5 text-xs border-t"
+                  style={{ borderColor: '#FECACA', color: TICK }}>
+                  <span style={{ color: MUTED }}>{e.fila}</span><span>{e.error}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button type="button" onClick={verificarCambios}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
+              style={{ background: BLUE, color: '#fff' }}>
+              <Upload size={14} /> Verificar e importar
+            </button>
+            <button type="button" onClick={cancelar}
+              className="px-4 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80"
+              style={{ background: BDR, color: TICK }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Panel de revisión — manifiestos con cambios */}
+      {revision && !busy && (
+        <div className="flex flex-col gap-4 rounded-xl p-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
+
+          {/* Resumen del archivo */}
+          <div className="flex flex-col gap-3 pb-3" style={{ borderBottom: `1px solid ${BDR}` }}>
+            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>
+              Resumen del archivo
+            </p>
+
+            {/* Pill del total detectado — neutral */}
+            <div className="self-start inline-flex items-baseline gap-2 rounded-full px-4 py-2"
+                 style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
+              <span className="text-2xl font-bold leading-none" style={{ color: TICK }}>
+                {revision.nuevos.length + revision.conCambios.length + revision.sinCambios.length + revision.invalid.length}
+              </span>
+              <span className="text-xs font-medium" style={{ color: MUTED }}>
+                manifiestos detectados en el Excel
+              </span>
+            </div>
+
+            {/* Pills por categoría */}
+            <div className="flex flex-wrap gap-2">
+              {/* Nuevos — azul llamativo */}
+              <div className="inline-flex items-center gap-2 rounded-full pl-3 pr-4 py-1.5"
+                   style={{ background: '#DBEAFE', border: '1px solid #93C5FD' }}>
+                <span className="inline-flex items-center justify-center text-sm font-bold rounded-full px-2 py-0.5"
+                      style={{ background: '#2563EB', color: '#FFFFFF', minWidth: 24 }}>
+                  {revision.nuevos.length}
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#1E3A8A' }}>
+                  Nuevos
+                </span>
+              </div>
+
+              {/* Requieren revisión — amarillo llamativo */}
+              <div className="inline-flex items-center gap-2 rounded-full pl-3 pr-4 py-1.5"
+                   style={{ background: '#FEF3C7', border: '1px solid #FCD34D' }}>
+                <span className="inline-flex items-center justify-center text-sm font-bold rounded-full px-2 py-0.5"
+                      style={{ background: '#D97706', color: '#FFFFFF', minWidth: 24 }}>
+                  {revision.conCambios.length}
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#78350F' }}>
+                  Requieren revisión
+                </span>
+              </div>
+
+              {/* Sin cambios — gris sutil */}
+              <div className="inline-flex items-center gap-2 rounded-full pl-3 pr-4 py-1.5"
+                   style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
+                <span className="inline-flex items-center justify-center text-sm font-bold rounded-full px-2 py-0.5"
+                      style={{ background: '#94A3B8', color: '#FFFFFF', minWidth: 24 }}>
+                  {revision.sinCambios.length}
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: MUTED }}>
+                  Sin cambios
+                </span>
+              </div>
+
+              {/* Con error — rojo sutil */}
+              {revision.invalid.length > 0 && (
+                <div className="inline-flex items-center gap-2 rounded-full pl-3 pr-4 py-1.5"
+                     style={{ background: '#FEE2E2', border: '1px solid #FCA5A5' }}>
+                  <span className="inline-flex items-center justify-center text-sm font-bold rounded-full px-2 py-0.5"
+                        style={{ background: '#DC2626', color: '#FFFFFF', minWidth: 24 }}>
+                    {revision.invalid.length}
+                  </span>
+                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#7F1D1D' }}>
+                    Con error
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Aviso de los registros a revisar */}
+          <div className="flex items-start gap-3 rounded-lg px-4 py-3"
+               style={{ background: BLUE + '0D', border: `1px solid ${BLUE}33` }}>
+            <AlertTriangle size={18} style={{ color: BLUE, flexShrink: 0, marginTop: 1 }} />
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-semibold" style={{ color: TICK }}>
+                {revision.conCambios.length} manifiesto{revision.conCambios.length !== 1 ? 's' : ''} requiere{revision.conCambios.length !== 1 ? 'n' : ''} revisión
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: MUTED }}>
+                Estos registros ya existen en el sistema con información distinta a la del Excel.
+                Seleccione cuáles desea actualizar con los nuevos valores. Los no seleccionados conservarán
+                su información actual.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <button type="button"
+              onClick={() => setSeleccionados(new Set(revision.conCambios.map(p => p.payload.p_manifiesto)))}
+              className="text-xs font-semibold hover:opacity-70" style={{ color: BLUE }}>
+              Seleccionar todos
+            </button>
+            <button type="button"
+              onClick={() => setSeleccionados(new Set())}
+              className="text-xs font-semibold hover:opacity-70" style={{ color: MUTED }}>
+              Deseleccionar todos
+            </button>
+          </div>
+
+          {/* Lista de manifiestos con cambios */}
+          <div className="flex flex-col gap-2">
+            {revision.conCambios.map((p) => {
+              const num      = p.payload.p_manifiesto
+              const checked  = seleccionados.has(num)
+              const expanded = expandidos.has(num)
+              return (
+                <div key={num} className="rounded-lg overflow-hidden" style={{ border: `1px solid ${checked ? BLUE + '55' : BDR}` }}>
+                  <div className="flex items-center gap-3 px-3 py-2.5"
+                    style={{ background: checked ? BLUE + '08' : '#F8FAFC' }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleSeleccionado(num)}
+                      style={{ accentColor: BLUE, width: 14, height: 14, flexShrink: 0 }} />
+                    <span className="text-sm font-bold font-mono" style={{ color: GOLD }}>{num}</span>
+                    <span className="text-xs" style={{ color: MUTED }}>
+                      {p.diffs.length} campo{p.diffs.length !== 1 ? 's' : ''} cambiado{p.diffs.length !== 1 ? 's' : ''}
+                    </span>
+                    <div className="flex-1" />
+                    <button type="button" onClick={() => toggleExpandido(num)}
+                      className="flex items-center gap-1 text-xs hover:opacity-70" style={{ color: MUTED }}>
+                      {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                      {expanded ? 'Ocultar' : 'Ver cambios'}
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div className="border-t" style={{ borderColor: BDR }}>
+                      <div className="grid grid-cols-[140px_1fr_1fr] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider"
+                        style={{ background: '#F1F5F9', color: MUTED }}>
+                        <span>Campo</span><span>Valor actual (DB)</span><span>Valor nuevo (Excel)</span>
+                      </div>
+                      {p.diffs.map(({ field, valDB, valNew }) => (
+                        <div key={field} className="grid grid-cols-[140px_1fr_1fr] px-3 py-1.5 text-xs border-t"
+                          style={{ borderColor: BDR }}>
+                          <span className="font-medium" style={{ color: MUTED }}>{FIELD_LABELS[field]}</span>
+                          <span style={{ color: RED }}>{valDB ?? '—'}</span>
+                          <span style={{ color: '#166534' }}>{valNew ?? '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={confirmarRevision}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
+              style={{ background: BLUE, color: '#fff' }}>
+              <Upload size={14} /> Importar ({totalImportar} registro{totalImportar !== 1 ? 's' : ''})
+            </button>
+            <button type="button" onClick={cancelar}
+              className="px-4 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80"
+              style={{ background: BDR, color: TICK }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Progreso durante la carga */}
+      {busy && (
+        <div className="flex flex-col gap-3 rounded-xl p-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
+          <p className="text-sm font-medium" style={{ color: BLUE }}>Importando registros... {progress}%</p>
+          <div className="rounded-full overflow-hidden h-2" style={{ background: BDR }}>
+            <div className="h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%`, background: BLUE }} />
+          </div>
+        </div>
+      )}
+
+      {/* Resultado final */}
+      {result && (
+        <div className="flex flex-col gap-3 rounded-xl p-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
+          <div className="flex gap-4 flex-wrap">
+            {result.ok > 0 && (
+              <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: '#166534' }}>
+                <CheckCircle size={14} /> {result.ok} nuevos importados
+              </span>
+            )}
+            {result.actualizados > 0 && (
+              <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: BLUE }}>
+                <CheckCircle size={14} /> {result.actualizados} actualizados
+              </span>
+            )}
+            {result.omitidos > 0 && (
+              <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: MUTED }}>
+                <AlertTriangle size={14} /> {result.omitidos} omitidos
+              </span>
+            )}
+            {result.errores.length > 0 && (
+              <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: RED }}>
+                <AlertCircle size={14} /> {result.errores.length} errores
+              </span>
+            )}
+          </div>
+          {result.errores.length > 0 && (
+            <div className="rounded-lg overflow-hidden" style={{ border: `1px solid #FECACA` }}>
+              <div className="grid grid-cols-[60px_1fr] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider"
+                style={{ background: '#FEF2F2', color: RED }}>
+                <span>Fila</span><span>Error</span>
+              </div>
+              {result.errores.slice(0, 10).map((e, i) => (
+                <div key={i} className="grid grid-cols-[60px_1fr] px-3 py-1.5 text-xs border-t"
+                  style={{ borderColor: '#FECACA', color: TICK }}>
+                  <span style={{ color: MUTED }}>{e.fila}</span>
+                  <span>{e.msg}</span>
+                </div>
+              ))}
+              {result.errores.length > 10 && (
+                <p className="px-3 py-1.5 text-xs border-t" style={{ borderColor: '#FECACA', color: MUTED }}>
+                  ...y {result.errores.length - 10} errores más
+                </p>
+              )}
+            </div>
+          )}
+          <button type="button" onClick={cancelar}
+            className="self-start text-xs hover:opacity-80" style={{ color: MUTED }}>
+            Importar otro archivo
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Main Page ────────────────────────────────────────────────────────────────
@@ -237,12 +703,12 @@ export default function CargaPage({ target, clearTarget, user }) {
   const canEditOperativo  = ['operativo',  'admin'].includes(rol)
   const canEditTesoreria  = ['tesoreria',  'admin'].includes(rol)
   const canEditFinanciero = ['financiero', 'admin'].includes(rol)
+  const canUploadExcel    = ['digitador',  'admin'].includes(rol)
 
   const [query,  setQuery]  = useState('')
   const [view,   setView]   = useState('inicio')
   const [ficha,  setFicha]  = useState(null)
   const [tab,    setTab]    = useState('despacho')
-  const [formNuevo, setFN]  = useState(NUEVO_INIT)
   const [formSeg,   setFS]  = useState(SEGUIMIENTO_INIT)
   const [formTes,   setFT]  = useState(TESORERIA_INIT)
   const [formFact,  setFF]  = useState(FACT_INIT)
@@ -250,23 +716,20 @@ export default function CargaPage({ target, clearTarget, user }) {
   const [editMode,  setEditMode]    = useState(false)
   const [confirmDel, setConfirmDel]     = useState(false)
   const [deleteText, setDeleteText]     = useState('')
-  const [recientes,  setRecientes]  = useState([])
-  const [recentesOpen, setRecentesOpen] = useState(false)
-  const [sessionIds, setSessionIds] = useState(new Set())
   const [busy,   setBusy]   = useState(false)
   const [msg,    setMsg]    = useState(null)
 
   const { catalogos } = useCatalogos()
-  const { search, create, update, remove, updateSeguimiento, updateTesoreria, updateFacturacion } = useManifiesto()
+  const { search, update, remove, updateSeguimiento, updateTesoreria, updateFacturacion } = useManifiesto()
 
   // ── Catalog options ─────────────────────────────────────────────────────────
-  const optConductores = catalogos.conductores.map(c => ({ id: c.nombre, label: c.nombre, sub: c.cedula }))
-  const optClientes    = catalogos.clientes.map(c => ({ id: c.nombre, label: c.nombre }))
-  const optLugares     = catalogos.lugares.map(l => ({ id: l.nombre, label: l.nombre }))
+  const optConductores  = catalogos.conductores.map(c => ({ id: c.nombre, label: c.nombre, sub: c.cedula }))
+  const optClientes     = catalogos.clientes.map(c => ({ id: c.nombre, label: c.nombre }))
+  const optLugares      = catalogos.lugares.map(l => ({ id: l.nombre, label: l.nombre }))
   const optResponsables = catalogos.responsables.map(r => ({ id: r.nombre, label: r.nombre }))
-  const optVehiculos   = catalogos.vehiculos.map(v => ({ id: v.placa, label: v.placa }))
-  const optRemolques   = catalogos.remolques.map(r => ({ id: r.placa, label: r.placa }))
-  const optAgencias    = catalogos.agencias.map(a => ({ id: a.nombre, label: a.nombre }))
+  const optVehiculos    = catalogos.vehiculos.map(v => ({ id: v.placa, label: v.placa }))
+  const optRemolques    = catalogos.remolques.map(r => ({ id: r.placa, label: r.placa }))
+  const optAgencias     = catalogos.agencias.map(a => ({ id: a.nombre, label: a.nombre }))
   const optPropietarios = catalogos.propietarios.map(p => ({ id: p.nombre, label: p.nombre }))
 
   const newText = (nombre) => ({ id: nombre, nombre, label: nombre, placa: nombre })
@@ -288,37 +751,39 @@ export default function CargaPage({ target, clearTarget, user }) {
       tipo_vehiculo:        data.tipo_vehiculo           || '',
       propietario:          data.propietario             || '',
       cliente:              data.cliente                 || '',
-      origen:               data.origen                 || '',
-      destino:              data.destino                || '',
-      agencia_despachadora: data.agencia_despachadora   || '',
+      origen:               data.origen                  || '',
+      destino:              data.destino                 || '',
+      agencia_despachadora: data.agencia_despachadora    || '',
       nombre_responsable:   data.nombre_responsable      || '',
       valor_remesa:         data.valor_remesa            ?? '',
       flete_conductor:      data.flete_conductor         ?? '',
-      anticipo:             data.anticipo               ?? '',
-      remesas:              data.remesas                || '',
+      anticipo:             data.anticipo                ?? '',
+      remesas:              data.remesas                 || '',
     })
     setFS({
       fecha_cumplido:              data.fecha_cumplido              || '',
       compromiso_pago:             data.compromiso_pago             || 'PAGO A 15 DIAS',
-      novedades:                   data.novedades                   || '',
+      novedades:                   data.novedades                   ?? '',
       estado_interno:              data.estado_interno              || '',
-      responsable_estado_interno:  userName,
-      novedad_conductor:           data.novedad_conductor           || '',
-      novedad_empresa:             data.novedad_empresa             || '',
+      responsable_estado_interno:  data.responsable_estado_interno  || '',
+      novedad_conductor:           data.novedad_conductor           ?? '',
+      novedad_empresa:             data.novedad_empresa             ?? '',
       ajuste_positivo_flete:       data.ajuste_positivo_flete       ?? '',
       ajuste_negativo_flete:       data.ajuste_negativo_flete       ?? '',
+      consignacion_a_terceros:     data.consignacion_a_terceros     ?? '',
     })
     setFT({
       fecha_pago:         data.fecha_pago         || '',
       valor_pagado:       data.valor_pagado        ?? '',
       entidad_financiera: data.entidad_financiera  || '',
-      responsable:        userName, // siempre el usuario actual al editar
+      responsable:        data.responsable         || '',
     })
     setFF({
       factura_no:          data.factura_no          || '',
       fecha_factura:       data.fecha_factura        || '',
       factura_electronica: data.factura_electronica  || '',
       mes_facturacion:     data.mes_facturacion      ?? '',
+      valor_factura:       data.valor_factura        ?? '',
     })
   }
 
@@ -333,28 +798,17 @@ export default function CargaPage({ target, clearTarget, user }) {
       tipo_vehiculo:        ficha.tipo_vehiculo           || '',
       propietario:          ficha.propietario             || '',
       cliente:              ficha.cliente                 || '',
-      origen:               ficha.origen                 || '',
-      destino:              ficha.destino                || '',
-      agencia_despachadora: ficha.agencia_despachadora   || '',
+      origen:               ficha.origen                  || '',
+      destino:              ficha.destino                 || '',
+      agencia_despachadora: ficha.agencia_despachadora    || '',
       nombre_responsable:   ficha.nombre_responsable      || '',
       valor_remesa:         ficha.valor_remesa            ?? '',
       flete_conductor:      ficha.flete_conductor         ?? '',
-      anticipo:             ficha.anticipo               ?? '',
-      remesas:              ficha.remesas                || '',
+      anticipo:             ficha.anticipo                ?? '',
+      remesas:              ficha.remesas                 || '',
     })
     toast('success', 'Campos restaurados a los valores guardados.')
   }
-
-  const fetchRecientes = useCallback(async () => {
-    const { data } = await supabase
-      .from('manifiestos_flat')
-      .select('manifiesto, fecha_despacho, mes, año, conductor, origen, destino')
-      .order('actualizado_en', { ascending: false })
-      .limit(8)
-    setRecientes(data ?? [])
-  }, [])
-
-  useEffect(() => { fetchRecientes() }, [fetchRecientes])
 
   useEffect(() => {
     if (!target) return
@@ -391,34 +845,10 @@ export default function CargaPage({ target, clearTarget, user }) {
         loadFicha(data)
         setView('ficha')
       } else {
-        setFN({ ...NUEVO_INIT, manifiesto: query.trim(), nombre_responsable: userName })
-        setView('nuevo')
-        toast('error', `Manifiesto ${query.trim()} no encontrado — completá el formulario para crearlo.`)
+        toast('error', `Manifiesto ${query.trim()} no encontrado.`)
       }
     } catch (err) {
       toast('error', err.message ?? 'Error al buscar')
-    } finally { setBusy(false) }
-  }
-
-  const handleCrear = async (e) => {
-    e.preventDefault()
-    if (!formNuevo.manifiesto || !formNuevo.conductor || !formNuevo.cliente ||
-        !formNuevo.origen     || !formNuevo.destino   || !formNuevo.fecha_despacho) {
-      toast('error', 'Completá los campos obligatorios (*)'); return
-    }
-    setBusy(true)
-    try {
-      await create(formNuevo)
-      const num = Number(formNuevo.manifiesto)
-      setSessionIds(prev => new Set([...prev, num]))
-      toast('success', `Manifiesto ${formNuevo.manifiesto} creado correctamente.`)
-      setQuery(formNuevo.manifiesto)
-      const data = await search(num)
-      loadFicha(data)
-      setView('ficha')
-      fetchRecientes()
-    } catch (err) {
-      toast('error', err.message ?? 'Error al crear')
     } finally { setBusy(false) }
   }
 
@@ -434,7 +864,6 @@ export default function CargaPage({ target, clearTarget, user }) {
       toast('success', 'Manifiesto actualizado correctamente.')
       const data = await search(ficha.manifiesto)
       loadFicha(data)
-      fetchRecientes()
     } catch (err) {
       toast('error', err.message ?? 'Error al actualizar')
     } finally { setBusy(false) }
@@ -446,8 +875,6 @@ export default function CargaPage({ target, clearTarget, user }) {
       const num = ficha.manifiesto
       await remove(num)
       toast('success', `Manifiesto ${num} eliminado.`)
-      setSessionIds(prev => { const s = new Set(prev); s.delete(num); return s })
-      fetchRecientes()
       volver()
     } catch (err) {
       toast('error', err.message ?? 'Error al eliminar')
@@ -458,8 +885,8 @@ export default function CargaPage({ target, clearTarget, user }) {
     e.preventDefault()
     setBusy(true)
     try {
-      await updateSeguimiento(ficha.manifiesto, formSeg)
-      toast('success', 'Seguimiento actualizado correctamente.')
+      await updateSeguimiento(ficha.manifiesto, { ...formSeg, responsable_estado_interno: userName })
+      toast('success', 'Cumplimiento actualizado correctamente.')
       const data = await search(ficha.manifiesto)
       loadFicha(data)
     } catch (err) { toast('error', err.message ?? 'Error al guardar') }
@@ -470,7 +897,7 @@ export default function CargaPage({ target, clearTarget, user }) {
     e.preventDefault()
     setBusy(true)
     try {
-      await updateTesoreria(ficha.manifiesto, formTes)
+      await updateTesoreria(ficha.manifiesto, { ...formTes, responsable: userName })
       toast('success', 'Tesorería actualizada correctamente.')
       const data = await search(ficha.manifiesto)
       loadFicha(data)
@@ -480,8 +907,12 @@ export default function CargaPage({ target, clearTarget, user }) {
 
   const handleSaveFact = async (e) => {
     e.preventDefault()
-    if (formFact.fecha_factura && (!formFact.factura_no || !formFact.factura_electronica)) {
-      toast('error', 'Si ingresas la fecha de emisión, debes completar también el N° de factura y la factura electrónica.')
+    // Los tres campos son siempre obligatorios juntos
+    const tieneFact  = !!formFact.factura_no.trim()
+    const tieneFecha = !!formFact.fecha_factura
+    const tieneValor = formFact.valor_factura !== '' && formFact.valor_factura != null
+    if (!tieneFact || !tieneFecha || !tieneValor) {
+      toast('error', 'N° factura, fecha y valor de factura son obligatorios.')
       return
     }
     setBusy(true)
@@ -495,7 +926,6 @@ export default function CargaPage({ target, clearTarget, user }) {
   }
 
   const volver = () => { setView('inicio'); setFicha(null); setQuery(''); setEditMode(false); setConfirmDel(false); setDeleteText('') }
-  const fn = (key) => (val) => setFN(p => ({ ...p, [key]: val }))
   const fs = (key) => (val) => setFS(p => ({ ...p, [key]: val }))
   const ft = (key) => (val) => setFT(p => ({ ...p, [key]: val }))
   const ff = (key) => (val) => setFF(p => ({ ...p, [key]: val }))
@@ -519,103 +949,31 @@ export default function CargaPage({ target, clearTarget, user }) {
           style={{ background: BLUE, color: '#FFFFFF' }}>
           Buscar
         </button>
-        {view !== 'nuevo' && canEditDespacho && (
-          <button type="button" onClick={() => { setFN({ ...NUEVO_INIT, nombre_responsable: userName }); setView('nuevo') }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors hover:opacity-80"
-            style={{ background: '#DCFCE7', color: '#166534', border: '1px solid #86EFAC' }}>
-            <Plus size={14} /> Nuevo
-          </button>
-        )}
       </form>
 
       {/* ── INICIO ─────────────────────────────────────────────────────────── */}
       {view === 'inicio' && (
-        <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-          <Search size={32} style={{ color: MUTED }} />
-          <p className="text-sm font-medium" style={{ color: TICK }}>Buscá un manifiesto o creá uno nuevo</p>
-          <p className="text-xs" style={{ color: MUTED }}>Ingresá el número de manifiesto para ver o editar su información</p>
+        <div className="flex flex-col gap-6">
+          {/* Upload panel para digitadores */}
+          {canUploadExcel && (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <Upload size={13} color={BLUE} />
+                <p className="text-xs font-bold uppercase tracking-widest" style={{ color: TICK }}>Importar desde Excel</p>
+              </div>
+              <ExcelUploadPanel onDone={() => {}} />
+            </div>
+          )}
+
+          {/* Placeholder cuando no hay upload */}
+          {!canUploadExcel && (
+            <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+              <Search size={32} style={{ color: MUTED }} />
+              <p className="text-sm font-medium" style={{ color: TICK }}>Buscá un manifiesto para ver o editar su información</p>
+              <p className="text-xs" style={{ color: MUTED }}>Ingresá el número de manifiesto en la barra de búsqueda</p>
+            </div>
+          )}
         </div>
-      )}
-
-      {/* ── NUEVO ──────────────────────────────────────────────────────────── */}
-      {view === 'nuevo' && (
-        <form onSubmit={handleCrear} className="flex flex-col gap-4">
-          <button type="button" onClick={volver}
-            className="flex items-center gap-1.5 text-xs w-fit transition-opacity hover:opacity-70"
-            style={{ color: MUTED }}>
-            <ArrowLeft size={13} /> Volver
-          </button>
-
-          <SectionCard icon={FileText} title="Identificación" cols={3}>
-            <Input label="N° Manifiesto *" type="number" placeholder="12345"
-              value={formNuevo.manifiesto} onChange={e => fn('manifiesto')(e.target.value)} />
-            <DateInput label="Fecha despacho *"
-              value={formNuevo.fecha_despacho} onChange={e => fn('fecha_despacho')(e.target.value)} />
-            <Autocomplete label="Agencia" displayValue={formNuevo.agencia_despachadora}
-              placeholder="Agencia despachadora" options={optAgencias} onCreate={newText}
-              onSelect={o => setFN(p => ({ ...p, agencia_despachadora: o.label }))} />
-          </SectionCard>
-
-          <SectionCard icon={User} title="Personal" cols={3}>
-            <Autocomplete label="Conductor *" displayValue={formNuevo.conductor}
-              placeholder="Nombre del conductor" options={optConductores} onCreate={newText}
-              onSelect={o => fillConductor(o.label, setFN)} />
-            <Input label="Cédula conductor" placeholder="Número de cédula"
-              value={formNuevo.cedula_conductor} onChange={e => fn('cedula_conductor')(e.target.value)} />
-            <Input label="Celular conductor" placeholder="Número de celular"
-              value={formNuevo.celular} onChange={e => fn('celular')(e.target.value)} />
-            <Autocomplete label="Cliente *" displayValue={formNuevo.cliente}
-              placeholder="Nombre del cliente" options={optClientes} onCreate={newText}
-              onSelect={o => setFN(p => ({ ...p, cliente: o.label }))} />
-            <Autocomplete label="Responsable despacho" displayValue={formNuevo.nombre_responsable}
-              placeholder="Nombre del responsable" options={optResponsables} onCreate={newText}
-              onSelect={o => setFN(p => ({ ...p, nombre_responsable: o.label }))} />
-          </SectionCard>
-
-          <SectionCard icon={MapPin} title="Ruta" cols={3}>
-            <Autocomplete label="Origen *" displayValue={formNuevo.origen}
-              placeholder="Ciudad de origen" options={optLugares} onCreate={newText}
-              onSelect={o => setFN(p => ({ ...p, origen: o.label }))} />
-            <Autocomplete label="Destino *" displayValue={formNuevo.destino}
-              placeholder="Ciudad de destino" options={optLugares} onCreate={newText}
-              onSelect={o => setFN(p => ({ ...p, destino: o.label }))} />
-            <Autocomplete label="Placa vehículo" displayValue={formNuevo.placa}
-              placeholder="Placa del vehículo" options={optVehiculos} onCreate={newText}
-              onSelect={o => setFN(p => ({ ...p, placa: o.label }))} />
-            <Autocomplete label="Placa remolque" displayValue={formNuevo.tipo_vehiculo}
-              placeholder="Placa del remolque" options={optRemolques} onCreate={newText}
-              onSelect={o => setFN(p => ({ ...p, tipo_vehiculo: o.label }))} />
-            <Autocomplete label="Propietario vehículo" displayValue={formNuevo.propietario}
-              placeholder="Nombre del propietario" options={optPropietarios} onCreate={newText}
-              onSelect={o => setFN(p => ({ ...p, propietario: o.label }))} />
-          </SectionCard>
-
-          <SectionCard icon={DollarSign} title="Financiero" cols={3}>
-            <MoneyInput label="Valor remesa"
-              value={formNuevo.valor_remesa} onChange={e => fn('valor_remesa')(e.target.value)} />
-            <MoneyInput label="Flete conductor"
-              value={formNuevo.flete_conductor} onChange={e => fn('flete_conductor')(e.target.value)} />
-            <MoneyInput label="Anticipo"
-              value={formNuevo.anticipo} onChange={e => fn('anticipo')(e.target.value)} />
-          </SectionCard>
-
-          <SectionCard icon={ClipboardList} title="Remesas" cols={1}>
-            <Field label="Códigos de remesa (separados por ;)" col={1}>
-              <input className={inputCls} style={{ borderColor: BDR }}
-                placeholder="27854; 27855; 27856"
-                value={formNuevo.remesas} onChange={e => fn('remesas')(e.target.value)} />
-            </Field>
-          </SectionCard>
-
-          <div className="flex justify-end">
-            <button type="submit" disabled={busy}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-opacity"
-              style={{ background: BLUE, color: '#FFFFFF' }}>
-              <Save size={14} />
-              {busy ? 'Guardando...' : 'Crear manifiesto'}
-            </button>
-          </div>
-        </form>
       )}
 
       {/* ── FICHA ──────────────────────────────────────────────────────────── */}
@@ -693,7 +1051,7 @@ export default function CargaPage({ target, clearTarget, user }) {
               { l: 'Conductor', v: ficha.conductor ?? '—' },
               { l: 'Ruta',      v: ficha.origen && ficha.destino ? `${ficha.origen} → ${ficha.destino}` : '—' },
               { l: 'Cliente',   v: ficha.cliente ?? '—' },
-              { l: 'Agencia',   v: ficha.agencia_despachadora ?? '—' },
+              { l: 'Agencia Despachadora', v: ficha.agencia_despachadora ?? '—' },
             ].map(({ l, v }) => (
               <div key={l} className="rounded-lg px-4 py-3" style={{ background: BG, border: `1px solid ${BDR}` }}>
                 <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>{l}</p>
@@ -706,9 +1064,9 @@ export default function CargaPage({ target, clearTarget, user }) {
           <div className="flex gap-1 rounded-lg p-1" style={{ background: BG, border: `1px solid ${BDR}`, width: 'fit-content' }}>
             {[
               { id: 'despacho',    label: 'Despacho' },
-              { id: 'seguimiento', label: 'Seguimiento' },
+              { id: 'cumplimiento', label: 'Cumplimiento' },
               { id: 'tesoreria',   label: 'Tesorería' },
-              { id: 'facturacion', label: 'Facturación' },
+              { id: 'facturacion', label: 'Facturación y Legalización' },
             ].map(t => (
               <button key={t.id} onClick={() => { setTab(t.id); setEditMode(false) }}
                 className="px-4 py-1.5 rounded-md text-xs font-semibold transition-all"
@@ -720,10 +1078,6 @@ export default function CargaPage({ target, clearTarget, user }) {
 
           {/* Tab: Despacho — readonly */}
           {tab === 'despacho' && !editMode && (() => {
-            const estadoColor = {
-              'PAGADO': '#22c55e', 'ANULADO': '#ef4444',
-              'PRIORITARIO': '#f97316', 'RNDC': '#a855f7',
-            }[ficha.compromiso_pago] ?? TICK
             return (
               <div className="flex flex-col gap-4">
                 <div>
@@ -742,7 +1096,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                       { l: 'Cliente',         v: ficha.cliente },
                       { l: 'Origen',          v: ficha.origen },
                       { l: 'Destino',         v: ficha.destino },
-                      { l: 'Agencia',         v: ficha.agencia_despachadora },
+                      { l: 'Agencia Despachadora', v: ficha.agencia_despachadora },
                       { l: 'Responsable',     v: ficha.nombre_responsable },
                       { l: 'Valor remesa',        v: ficha.valor_remesa         != null ? `$${Number(ficha.valor_remesa).toLocaleString('es-CO')}` : null },
                       { l: 'Flete conductor',     v: ficha.flete_conductor      != null ? `$${Number(ficha.flete_conductor).toLocaleString('es-CO')}` : null },
@@ -760,9 +1114,9 @@ export default function CargaPage({ target, clearTarget, user }) {
                 </div>
                 {[
                   {
-                    title: 'Seguimiento',
+                    title: 'Cumplimiento',
                     items: [
-                      { l: 'Compromiso pago',   v: ficha.compromiso_pago, color: estadoColor },
+                      { l: 'Compromiso pago',   v: ficha.compromiso_pago },
                       { l: 'Fecha cumplido',    v: ficha.fecha_cumplido },
                       { l: 'Estado interno',    v: ficha.estado_interno },
                       { l: 'Novedades',         v: ficha.novedades, col: 2 },
@@ -779,20 +1133,19 @@ export default function CargaPage({ target, clearTarget, user }) {
                   {
                     title: 'Facturación',
                     items: [
-                      { l: 'N° Factura',                   v: ficha.factura_no },
-                      { l: 'Fecha de emisión de factura',  v: ficha.fecha_factura },
-                      { l: 'Mes facturación',   v: ficha.mes_facturacion },
+                      { l: 'N° Factura',                  v: ficha.factura_no },
+                      { l: 'Fecha de emisión de factura', v: ficha.fecha_factura },
                     ],
                   },
                 ].map(({ title, items }) => (
                   <div key={title}>
                     <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>{title}</p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                      {items.map(({ l, v, col, color }) => (
+                      {items.map(({ l, v, col }) => (
                         <div key={l} className="rounded-lg px-3 py-2.5"
                           style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
                           <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>{l}</p>
-                          <p className="text-sm font-semibold" style={{ color: color ?? (v ? TICK : MUTED) }}>{v ?? '—'}</p>
+                          <p className="text-sm font-semibold" style={{ color: v ? TICK : MUTED }}>{v ?? '—'}</p>
                         </div>
                       ))}
                     </div>
@@ -810,7 +1163,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                   style={{ borderColor: BDR, opacity: 0.5, cursor: 'not-allowed' }} />
                 <DateInput label="Fecha despacho *"
                   value={formEdit.fecha_despacho} onChange={e => fe('fecha_despacho')(e.target.value)} />
-                <Autocomplete label="Agencia" displayValue={formEdit.agencia_despachadora}
+                <Autocomplete label="Agencia Despachadora" displayValue={formEdit.agencia_despachadora}
                   placeholder="Agencia despachadora" options={optAgencias} onCreate={newText}
                   onSelect={o => setFE(p => ({ ...p, agencia_despachadora: o.label }))} />
               </SectionCard>
@@ -881,11 +1234,11 @@ export default function CargaPage({ target, clearTarget, user }) {
             </form>
           )}
 
-          {/* Tab: Seguimiento — lectura para roles sin permiso */}
-          {tab === 'seguimiento' && !canEditOperativo && (
+          {/* Tab: Cumplimiento — lectura para roles sin permiso */}
+          {tab === 'cumplimiento' && !canEditOperativo && (
             <div className="flex flex-col gap-4">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Seguimiento operativo</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Cumplimiento operativo</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
                   {[
                     { l: 'Fecha cumplido',          v: ficha.fecha_cumplido },
@@ -895,8 +1248,9 @@ export default function CargaPage({ target, clearTarget, user }) {
                     { l: 'Novedades',                v: ficha.novedades, col: 4 },
                     { l: 'Novedad del conductor',    v: ficha.novedad_conductor, col: 2 },
                     { l: 'Novedad de la empresa',    v: ficha.novedad_empresa, col: 2 },
-                    { l: 'Ajuste positivo al flete', v: ficha.ajuste_positivo_flete != null ? `$ ${Number(ficha.ajuste_positivo_flete).toLocaleString('es-CO')}` : null },
-                    { l: 'Ajuste negativo al flete', v: ficha.ajuste_negativo_flete != null ? `$ ${Number(ficha.ajuste_negativo_flete).toLocaleString('es-CO')}` : null },
+                    { l: 'Reajuste',                 v: ficha.ajuste_positivo_flete != null ? `$ ${Number(ficha.ajuste_positivo_flete).toLocaleString('es-CO')}` : null },
+                    { l: 'Descuento',                v: ficha.ajuste_negativo_flete != null ? `$ ${Number(ficha.ajuste_negativo_flete).toLocaleString('es-CO')}` : null },
+                    { l: 'Consignación a terceros',  v: ficha.consignacion_a_terceros != null ? `$ ${Number(ficha.consignacion_a_terceros).toLocaleString('es-CO')}` : null },
                   ].map(({ l, v, col }) => (
                     <div key={l} className="rounded-lg px-3 py-2.5"
                       style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
@@ -910,10 +1264,10 @@ export default function CargaPage({ target, clearTarget, user }) {
             </div>
           )}
 
-          {/* Tab: Seguimiento — edición para operativo/admin */}
-          {tab === 'seguimiento' && canEditOperativo && (
+          {/* Tab: Cumplimiento — edición para operativo/admin */}
+          {tab === 'cumplimiento' && canEditOperativo && (
             <form onSubmit={handleSaveSeg} className="flex flex-col gap-4">
-              <SectionCard icon={ClipboardList} title="Seguimiento operativo" cols={3}>
+              <SectionCard icon={ClipboardList} title="Cumplimiento operativo" cols={3}>
                 <DateInput label="Fecha cumplido"
                   value={formSeg.fecha_cumplido} onChange={e => fs('fecha_cumplido')(e.target.value)} />
                 <Select label="Compromiso de pago" value={formSeg.compromiso_pago}
@@ -946,18 +1300,21 @@ export default function CargaPage({ target, clearTarget, user }) {
                     placeholder="Ej. daño de mercancía, incumplimiento del conductor..."
                     value={formSeg.novedad_empresa} onChange={e => fs('novedad_empresa')(e.target.value)} />
                 </Field>
-                <MoneyInput label="Ajuste positivo al flete"
+                <MoneyInput label="Reajuste"
                   value={formSeg.ajuste_positivo_flete}
                   onChange={e => fs('ajuste_positivo_flete')(e.target.value)} />
-                <MoneyInput label="Ajuste negativo al flete"
+                <MoneyInput label="Descuento"
                   value={formSeg.ajuste_negativo_flete}
                   onChange={e => fs('ajuste_negativo_flete')(e.target.value)} />
+                <MoneyInput label="Consignación a terceros"
+                  value={formSeg.consignacion_a_terceros}
+                  onChange={e => fs('consignacion_a_terceros')(e.target.value)} />
               </SectionCard>
               <div className="flex justify-end">
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                   style={{ background: BLUE, color: '#FFFFFF' }}>
-                  <Save size={14} /> {busy ? 'Guardando...' : 'Guardar seguimiento'}
+                  <Save size={14} /> {busy ? 'Guardando...' : 'Guardar cumplimiento'}
                 </button>
               </div>
             </form>
@@ -1024,8 +1381,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                   {[
                     { l: 'N° Factura',                    v: ficha.factura_no },
                     { l: 'Fecha de emisión de factura',   v: ficha.fecha_factura },
-                    { l: 'Mes facturación',       v: ficha.mes_facturacion },
-                    { l: 'Factura electrónica',   v: ficha.factura_electronica, col: 2 },
+                    { l: 'Legalización FE / DS',          v: ficha.factura_electronica, col: 2 },
                   ].map(({ l, v, col }) => (
                     <div key={l} className="rounded-lg px-3 py-2.5"
                       style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
@@ -1039,7 +1395,7 @@ export default function CargaPage({ target, clearTarget, user }) {
             </div>
           )}
 
-          {/* Tab: Facturación — edición para financiero/admin (mes_facturacion calculado, no visible) */}
+          {/* Tab: Facturación — edición para financiero/admin */}
           {tab === 'facturacion' && canEditFinanciero && (
             <form onSubmit={handleSaveFact} className="flex flex-col gap-4">
               <SectionCard icon={FileText} title="Facturación" cols={2}>
@@ -1052,9 +1408,12 @@ export default function CargaPage({ target, clearTarget, user }) {
                     const mes = v ? new Date(v + 'T12:00:00').getMonth() + 1 : ''
                     setFF(p => ({ ...p, fecha_factura: v, mes_facturacion: mes !== '' ? mes : '' }))
                   }} />
+                <MoneyInput label="Valor de la factura"
+                  value={formFact.valor_factura}
+                  onChange={e => ff('valor_factura')(e.target.value)} />
               </SectionCard>
-              <SectionCard icon={ClipboardList} title="Factura electrónica" cols={1}>
-                <Field label="N° Factura electrónica / Propietario vehículo" col={1}>
+              <SectionCard icon={ClipboardList} title="Legalización FE / DS" cols={1}>
+                <Field label="N° Legalización / Propietario vehículo (prefijo: FE, DS, FWP...)" col={1}>
                   <input className={inputCls} style={{ borderColor: BDR }}
                     placeholder="FE-MC-00001 / Nombre propietario"
                     value={formFact.factura_electronica}
@@ -1069,62 +1428,6 @@ export default function CargaPage({ target, clearTarget, user }) {
                 </button>
               </div>
             </form>
-          )}
-        </div>
-      )}
-
-      {/* ── RECIENTES ─────────────────────────────────────────────────────── */}
-      {recientes.length > 0 && (
-        <div className="flex flex-col gap-3 pt-2 border-t" style={{ borderColor: BDR }}>
-          <button type="button" onClick={() => setRecentesOpen(v => !v)}
-            className="flex items-center gap-2 w-fit transition-opacity hover:opacity-70">
-            <Clock size={12} style={{ color: MUTED }} />
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: MUTED }}>
-              Últimos manifiestos
-            </p>
-            {sessionIds.size > 0 && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
-                style={{ background: '#2d1f00', color: GOLD, border: `1px solid #78540a` }}>
-                ★ esta sesión
-              </span>
-            )}
-            {recentesOpen ? <ChevronUp size={12} style={{ color: MUTED }} /> : <ChevronDown size={12} style={{ color: MUTED }} />}
-          </button>
-
-          {recentesOpen && (
-            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${BDR}` }}>
-              <div className="grid grid-cols-[80px_110px_1fr_1fr_100px] px-4 py-2"
-                style={{ background: '#F1F5F9', borderBottom: `1px solid ${BDR}` }}>
-                {['N°', 'Fecha', 'Conductor', 'Ruta', 'Período'].map(h => (
-                  <span key={h} className="text-[10px] font-bold uppercase tracking-widest" style={{ color: MUTED }}>{h}</span>
-                ))}
-              </div>
-              {recientes.map((r, i) => {
-                const esMio = sessionIds.has(r.manifiesto)
-                return (
-                  <button key={r.manifiesto} type="button"
-                    onClick={() => {
-                      setQuery(String(r.manifiesto))
-                      search(r.manifiesto).then(data => { if (data) { loadFicha(data); setView('ficha') } })
-                    }}
-                    className="grid grid-cols-[80px_110px_1fr_1fr_100px] w-full px-4 py-2.5 text-left transition-colors hover:bg-black/5"
-                    style={{
-                      background: esMio ? 'rgba(201,168,76,0.06)' : i % 2 === 0 ? BG : 'transparent',
-                      borderTop: i > 0 ? `1px solid ${BDR}` : 'none',
-                    }}>
-                    <span className="text-sm font-bold" style={{ color: esMio ? GOLD : BLUE }}>
-                      {r.manifiesto}{esMio && <span className="ml-1 text-[9px]">★</span>}
-                    </span>
-                    <span className="text-xs" style={{ color: MUTED }}>{r.fecha_despacho}</span>
-                    <span className="text-xs truncate pr-2" style={{ color: TICK }}>{r.conductor ?? '—'}</span>
-                    <span className="text-xs truncate pr-2" style={{ color: MUTED }}>
-                      {r.origen && r.destino ? `${r.origen} → ${r.destino}` : '—'}
-                    </span>
-                    <span className="text-xs" style={{ color: esMio ? GOLD : MUTED }}>{r.mes} {r.año}</span>
-                  </button>
-                )
-              })}
-            </div>
           )}
         </div>
       )}

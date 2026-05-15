@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from './lib/supabase'
 import Layout from './components/Layout'
 import LoginGate from './components/LoginGate'
+import ErrorBoundary from './components/ErrorBoundary'
+import { ToastProvider } from './components/Toast'
 import DashboardPage from './pages/DashboardPage'
 import CargaPage from './pages/CargaPage'
 import ConsultaPage from './pages/ConsultaPage'
@@ -69,9 +71,17 @@ function App() {
           user={session.user}
         />
       )}
-      {page === 'consulta'  && <ConsultaPage openEnCarga={openEnCarga} />}
+      {page === 'consulta'  && <ConsultaPage openEnCarga={openEnCarga} user={session.user} />}
     </Layout>
   )
 }
 
-export default App
+export default function AppWithProviders() {
+  return (
+    <ErrorBoundary>
+      <ToastProvider>
+        <App />
+      </ToastProvider>
+    </ErrorBoundary>
+  )
+}

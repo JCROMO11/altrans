@@ -32,7 +32,7 @@ export function useDashboard(mes, año) {
           fetchAll(() => {
             let q = supabase
               .from('manifiestos_flat')
-              .select('manifiesto, conductor, cliente, agencia_despachadora, origen, destino, valor_remesa, flete_conductor, anticipo, fecha_despacho, fecha_factura, compromiso_pago, fecha_cumplido, novedades, fecha_pago, valor_pagado, estado_interno, factura_no, dias_para_facturar')
+              .select('manifiesto, conductor, cliente, agencia_despachadora, origen, destino, valor_remesa, flete_conductor, flete_neto_conductor, anticipo, fecha_despacho, fecha_factura, compromiso_pago, fecha_cumplido, novedades, fecha_pago, valor_pagado, estado_interno, factura_no, dias_para_facturar')
             if (mes) q = q.eq('mes', mes)
             if (año) q = q.eq('año', año)
             return q
@@ -43,22 +43,30 @@ export function useDashboard(mes, año) {
 
         const anualData = anualRes.data ?? []
 
-        const totalManifiestos   = rows.length
-        const anulados           = rows.filter(r => r.compromiso_pago === 'ANULADO').length
-        const conductoresActivos = new Set(rows.map(r => r.conductor).filter(Boolean)).size
-        const rutasActivas       = new Set(rows.map(r => `${r.origen}-${r.destino}`)).size
-        const totalRemesas       = rows.reduce((s, r) => s + (r.valor_remesa    ?? 0), 0)
-        const totalFletes        = rows.reduce((s, r) => s + (r.flete_conductor ?? 0), 0)
-        const totalAnticipo      = rows.reduce((s, r) => s + (r.anticipo        ?? 0), 0)
+        // ANULADO vive en `estado_interno` (no en `compromiso_pago`). Esto coincide con
+        // los queries del chatbot y los RPC SQL — fix a discrepancia previa.
+        const isAnulado = r => r.estado_interno === 'ANULADO'
+        const isPagado  = r => r.fecha_pago != null
 
+        const totalManifiestos   = rows.length
+        const anulados           = rows.filter(isAnulado).length
+        const conductoresActivos = new Set(rows.filter(r => !isAnulado(r)).map(r => r.conductor).filter(Boolean)).size
+        const rutasActivas       = new Set(rows.filter(r => !isAnulado(r)).map(r => `${r.origen}-${r.destino}`)).size
+        const totalRemesas       = rows.filter(r => !isAnulado(r)).reduce((s, r) => s + (r.valor_remesa    ?? 0), 0)
+        const totalFletes        = rows.filter(r => !isAnulado(r)).reduce((s, r) => s + (r.flete_conductor ?? 0), 0)
+        const totalAnticipo      = rows.filter(r => !isAnulado(r)).reduce((s, r) => s + (r.anticipo        ?? 0), 0)
+
+        // Pendiente por pagar: usa flete_neto (incluye ajustes + consignación)
+        // — alineado con consulta_totales en SQL.
         const pendientePagar = rows.reduce((s, r) => {
-          if (r.compromiso_pago === 'ANULADO' || r.compromiso_pago === 'PAGADO') return s
-          return s + (r.flete_conductor ?? 0) - (r.anticipo ?? 0) - (r.valor_pagado ?? 0)
+          if (isAnulado(r) || isPagado(r)) return s
+          const neto = r.flete_neto_conductor ?? r.flete_conductor ?? 0
+          return s + neto - (r.anticipo ?? 0) - (r.valor_pagado ?? 0)
         }, 0)
 
-        const sinFechaCumplido = rows.filter(r => !r.fecha_cumplido && r.compromiso_pago !== 'ANULADO').length
-        const sinFactura       = rows.filter(r => r.compromiso_pago !== 'ANULADO' && !r.factura_no).length
-        const conNovedad       = rows.filter(r => r.novedades?.trim() && r.compromiso_pago !== 'ANULADO').length
+        const sinFechaCumplido = rows.filter(r => !r.fecha_cumplido && !isAnulado(r)).length
+        const sinFactura       = rows.filter(r => !isAnulado(r) && !r.factura_no).length
+        const conNovedad       = rows.filter(r => r.novedades?.trim() && !isAnulado(r)).length
 
         const factsConDias = rows.filter(r => r.dias_para_facturar != null)
         const diasPromFacturar = factsConDias.length

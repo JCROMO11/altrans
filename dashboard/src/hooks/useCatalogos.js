@@ -5,6 +5,7 @@ export function useCatalogos() {
   const [catalogos, setCatalogos] = useState({
     conductores: [], clientes: [], lugares: [],
     responsables: [], vehiculos: [], remolques: [], agencias: [], propietarios: [],
+    compromisos_pago: [],
   })
   const [loading, setLoading] = useState(true)
 
@@ -35,6 +36,7 @@ export function useCatalogos() {
       remolques:    toList(cat.remolques).map(n => ({ id: n, placa: n, nombre: n })),
       agencias:     toList(cat.agencias).map(n => ({ id: n, nombre: n })),
       propietarios: toList(cat.propietarios).map(n => ({ id: n, nombre: n })),
+      compromisos_pago: toList(cat.compromisos_pago),
     })
     setLoading(false)
   }, [])
