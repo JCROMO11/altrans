@@ -1,37 +1,37 @@
-# Datos sensibles / generados localmente
+# Datos raw y generados localmente
 data/
 data_sheets/
 cleaned_data/
-informes/
+backups/
+snapshots/
 exports/
-supabase/migrations/
+
+# Build artifacts
+dashboard/dist/
+
+# Reportes regenerables del agente
+ai_agent/scripts/reportes/
+tests/reportes/
 
 # Binarios e instaladores
 *.deb
-
-# Herramientas locales
-.claude/
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 .venv/
+.pytest_cache/
 
 # Entorno
 .env
 .env.local
 
-# NPM environment
+# Dashboard env
 dashboard/.env
 dashboard/.env.local
 
-# Supabase
+# Supabase local
 supabase/.branches
 supabase/.temp
-
-# wrangler files
-.wrangler
-.dev.vars*
-!.dev.vars.example
-!.env.example
+supabase/migrations/
