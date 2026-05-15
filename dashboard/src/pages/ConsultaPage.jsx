@@ -1,5 +1,6 @@
-import { useState, useRef } from 'react'
-import { Search, ChevronDown, Check, ChevronLeft, ChevronRight, ExternalLink, AlertTriangle } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Search, ChevronDown, Check, ChevronLeft, ChevronRight, ExternalLink, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 import { useCatalogos } from '../hooks/useCatalogos'
 import { useConsulta }  from '../hooks/useConsulta'
 
@@ -36,12 +37,9 @@ const MESES_OPTS = [
 const AÑOS_OPTS = ['2023','2024','2025','2026','2027','2028','2029','2030',
   '2031','2032','2033','2034','2035','2036','2037','2038','2039','2040',
   '2041','2042','2043','2044','2045']
-const ESTADO_PAGO_OPTS    = ['PAGO A 15 DIAS','PAGO A 20 DIAS','PAGO A 30 DIAS','PAGO A 5-8 DIAS',
-  'CONTRAENTREGA','PRONTO PAGO','PAGO NORMAL','PAGO INMEDIATO','URBANO','PAGADO','ANULADO','PRIORITARIO','RNDC','OTROS']
 const ESTADO_INTERNO_OPTS = ['CUMPLIDO','NO SE HA CUMPLIDO','PENDIENTE FACTURA ELECTRONICA',
   'FACTURA RECIBIDA','NOVEDAD PENDIENTE','ANULADO']
 
-// Mezcla un color hex con blanco para simular transparencia (evita fondo transparente en sticky)
 function blendOnWhite(hex, alpha) {
   const r = parseInt(hex.slice(1, 3), 16)
   const g = parseInt(hex.slice(3, 5), 16)
@@ -180,12 +178,16 @@ function PlazoBadge({ diasCumplidos, fechaPago }) {
 }
 
 // ── Celda de tabla ────────────────────────────────────────────────────────────
-function Td({ children, right, mono, muted, nowrap = true, highlight, sticky, bg, style: extraStyle }) {
+function Td({ children, right, mono, muted, nowrap = true, highlight, sticky, bg, width, style: extraStyle }) {
+  const title = nowrap && typeof children === 'string' ? children : undefined
   return (
-    <td className={`px-3 py-2 text-xs${nowrap ? ' whitespace-nowrap' : ''}${right ? ' text-right' : ''}${mono ? ' font-mono tabular-nums' : ''}${sticky ? ' sticky left-0 z-10' : ''}`}
+    <td
+      title={title}
+      className={`px-3 py-2 text-xs${nowrap ? ' whitespace-nowrap' : ''}${right ? ' text-right' : ''}${mono ? ' font-mono tabular-nums' : ''}${sticky ? ' sticky left-0 z-10' : ''}`}
       style={{
         color: highlight ?? (muted ? MUTED : TICK),
         borderRight: `1px solid #CBD5E1`,
+        ...(width ? { width, minWidth: width, maxWidth: width, overflow: 'hidden', textOverflow: 'ellipsis' } : {}),
         ...(bg ? { background: bg } : {}),
         ...(sticky ? { boxShadow: '2px 0 4px rgba(0,0,0,0.06)' } : {}),
         ...extraStyle,
@@ -196,15 +198,16 @@ function Td({ children, right, mono, muted, nowrap = true, highlight, sticky, bg
 }
 
 // ── Encabezado de columna ─────────────────────────────────────────────────────
-function Th({ children, right, sticky }) {
+function Th({ children, sticky, width }) {
   return (
-    <th className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap${right ? ' text-right' : ' text-left'}${sticky ? ' sticky left-0' : ''}`}
+    <th className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-left${sticky ? ' sticky left-0' : ''}`}
       style={{
         color: MUTED,
         background: '#F1F5F9',
         borderBottom: `1px solid #CBD5E1`,
         borderRight: `1px solid #CBD5E1`,
         zIndex: sticky ? 25 : undefined,
+        ...(width ? { width, minWidth: width, maxWidth: width } : {}),
         ...(sticky ? { boxShadow: '2px 0 4px rgba(0,0,0,0.06)' } : {}),
       }}>
       {children}
@@ -212,23 +215,252 @@ function Th({ children, right, sticky }) {
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
-export default function ConsultaPage({ openEnCarga }) {
-  const { catalogos } = useCatalogos()
-  const { rows, loading, page, hasMore, buscar } = useConsulta()
+// ── Campos auditables ─────────────────────────────────────────────────────────
+const CAMPOS_OPTS = [
+  'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor',
+  'celular','placa','tipo_vehiculo','propietario','agencia_despachadora',
+  'nombre_responsable','valor_remesa','flete_conductor','anticipo','remesas',
+  'fecha_cumplido','compromiso_pago','novedades','estado_interno',
+  'responsable_estado_interno','novedad_conductor','novedad_empresa',
+  'ajuste_positivo_flete','ajuste_negativo_flete','consignacion_a_terceros',
+  'flete_neto_conductor','fecha_pago','valor_pagado','entidad_financiera',
+  'responsable','factura_no','fecha_factura','factura_electronica',
+  'mes_facturacion','valor_factura',
+]
 
+const AUDIT_PAGE = 50
+
+function AuditoriaPanel() {
   const [filters, setFilters] = useState({
-    manifiesto: '', fecha_desde: '', fecha_hasta: '',
-    conductor: null, cliente: null, origen: null, destino: null,
-    compromiso_pago: '', estado_interno: '', placa: '', mes: '', año: '',
+    manifiesto: '', campo: '', usuario: '', fecha_desde: '', fecha_hasta: '',
   })
-  const [searched, setSearched] = useState(false)
+  const [rows,      setRows]      = useState([])
+  const [loading,   setLoading]   = useState(false)
+  const [page,      setPage]      = useState(0)
+  const [hasMore,   setHasMore]   = useState(false)
+  const [error,     setError]     = useState(null)
+  const [usuarios,  setUsuarios]  = useState([])
+
+  // Carga todos los usuarios registrados con su rol
+  useEffect(() => {
+    supabase.rpc('get_usuarios').then(({ data }) => {
+      if (!data) return
+      setUsuarios(data) // [{ email, rol }]
+    })
+  }, [])
 
   const set = (k, v) => setFilters(f => ({ ...f, [k]: v }))
 
+  const buscar = useCallback(async (f, pg) => {
+    setLoading(true)
+    setError(null)
+    const from = pg * AUDIT_PAGE
+    const to   = from + AUDIT_PAGE
+
+    let q = supabase
+      .from('audit_log')
+      .select('id, manifiesto, campo, valor_anterior, valor_nuevo, usuario, ejecutado_en')
+      .order('ejecutado_en', { ascending: false })
+      .range(from, to)
+
+    if (f.manifiesto) q = q.eq('manifiesto', Number(f.manifiesto))
+    if (f.campo)      q = q.eq('campo', f.campo)
+    if (f.usuario)    q = q.eq('usuario', f.usuario)
+    if (f.fecha_desde) q = q.gte('ejecutado_en', f.fecha_desde)
+    if (f.fecha_hasta) q = q.lte('ejecutado_en', f.fecha_hasta + 'T23:59:59')
+
+    const { data, error: err } = await q
+    if (err) { setError(err.message); setLoading(false); return }
+    const fetched = data ?? []
+    setHasMore(fetched.length > AUDIT_PAGE)
+    setRows(fetched.slice(0, AUDIT_PAGE))
+    setPage(pg)
+    setLoading(false)
+  }, [])
+
+  const handleSearch = e => { e?.preventDefault(); buscar(filters, 0) }
+  const clearAll = () => {
+    const empty = { manifiesto: '', campo: '', usuario: '', fecha_desde: '', fecha_hasta: '' }
+    setFilters(empty)
+    buscar(empty, 0)
+  }
+
+  const fmtTs = ts => {
+    if (!ts) return '—'
+    const d = new Date(ts)
+    return d.toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })
+  }
+
+  const ValorCell = ({ v }) => {
+    if (v == null) return <span style={{ color: MUTED }}>null</span>
+    if (v === '')  return <span style={{ color: MUTED }}>vacío</span>
+    return <span>{v}</span>
+  }
+
+  return (
+    <div className="flex flex-col gap-6 pb-8">
+
+      {/* Filtros */}
+      <form onSubmit={handleSearch}
+        className="rounded-2xl p-5" style={{ background: BG, border: `1px solid ${BDR}` }}>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm font-semibold" style={{ color: TICK }}>Filtros de auditoría</span>
+          <button type="button" onClick={clearAll}
+            className="text-xs hover:opacity-80" style={{ color: MUTED }}>Limpiar todo</button>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+          <Field label="Manifiesto">
+            <input className={inputCls} style={{ borderColor: BDR }}
+              type="number" placeholder="Número..."
+              value={filters.manifiesto}
+              onChange={e => set('manifiesto', e.target.value)} />
+          </Field>
+          <Field label="Campo modificado">
+            <div className="relative">
+              <select
+                className={inputCls}
+                style={{ borderColor: BDR, appearance: 'none', paddingRight: '2rem' }}
+                value={filters.campo}
+                onChange={e => set('campo', e.target.value)}>
+                <option value="">Todos</option>
+                {CAMPOS_OPTS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <ChevronDown size={13} style={{ color: MUTED, position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            </div>
+          </Field>
+          <Field label="Usuario">
+            <div className="relative">
+              <select
+                className={inputCls}
+                style={{ borderColor: BDR, appearance: 'none', paddingRight: '2rem' }}
+                value={filters.usuario}
+                onChange={e => set('usuario', e.target.value)}>
+                <option value="">Todos</option>
+                {usuarios.map(u => (
+                  <option key={u.email} value={u.email}>{u.email} ({u.rol})</option>
+                ))}
+              </select>
+              <ChevronDown size={13} style={{ color: MUTED, position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            </div>
+          </Field>
+          <Field label="Fecha desde">
+            <input className={inputCls} style={{ borderColor: BDR }}
+              type="date" value={filters.fecha_desde}
+              onChange={e => set('fecha_desde', e.target.value)} />
+          </Field>
+          <Field label="Fecha hasta">
+            <input className={inputCls} style={{ borderColor: BDR }}
+              type="date" value={filters.fecha_hasta}
+              onChange={e => set('fecha_hasta', e.target.value)} />
+          </Field>
+        </div>
+        <button type="submit"
+          className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
+          style={{ background: BLUE, color: '#fff' }}>
+          <Search size={14} /> Consultar
+        </button>
+      </form>
+
+      {/* Tabla */}
+      <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${BDR}` }}>
+        {error ? (
+          <div className="flex items-center justify-center h-32">
+            <span className="text-sm" style={{ color: RED }}>{error}</span>
+          </div>
+        ) : loading ? (
+          <div className="flex items-center justify-center h-32">
+            <span className="text-sm animate-pulse" style={{ color: MUTED }}>Cargando...</span>
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex items-center justify-center h-32">
+            <span className="text-sm" style={{ color: MUTED }}>
+              Aplica filtros y presiona Consultar para ver el historial.
+            </span>
+          </div>
+        ) : (
+          <div style={{ maxHeight: '68vh', overflow: 'auto' }}>
+            <table className="text-sm border-collapse w-full">
+              <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
+                <tr style={{ background: '#F1F5F9' }}>
+                  <Th width="90px">Manifiesto</Th>
+                  <Th width="200px">Campo</Th>
+                  <Th width="220px">Valor anterior</Th>
+                  <Th width="220px">Valor nuevo</Th>
+                  <Th width="200px">Usuario</Th>
+                  <Th width="155px">Fecha / Hora</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.id} style={{ background: i % 2 === 0 ? BG : '#F8FAFC' }}>
+                    <Td mono highlight={GOLD} width="90px">{r.manifiesto}</Td>
+                    <Td mono width="200px">{r.campo}</Td>
+                    <td className="px-3 py-2 text-xs" style={{ width: '220px', minWidth: '220px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRight: '1px solid #CBD5E1', color: RED + 'CC' }}>
+                      <ValorCell v={r.valor_anterior} />
+                    </td>
+                    <td className="px-3 py-2 text-xs" style={{ width: '220px', minWidth: '220px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRight: '1px solid #CBD5E1', color: GREEN }}>
+                      <ValorCell v={r.valor_nuevo} />
+                    </td>
+                    <Td muted width="200px">{r.usuario ?? '—'}</Td>
+                    <Td muted width="155px">{fmtTs(r.ejecutado_en)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!loading && rows.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-3"
+            style={{ borderTop: `1px solid ${BDR}`, background: '#F1F5F9' }}>
+            <span className="text-xs" style={{ color: MUTED }}>
+              Página {page + 1}{hasMore ? '+' : ''} · {rows.length} registros
+            </span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => buscar(filters, page - 1)} disabled={page === 0}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-opacity disabled:opacity-30"
+                style={{ background: BG, border: `1px solid ${BDR}`, color: TICK }}>
+                <ChevronLeft size={12} /> Anterior
+              </button>
+              <button type="button" onClick={() => buscar(filters, page + 1)} disabled={!hasMore}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-opacity disabled:opacity-30"
+                style={{ background: BG, border: `1px solid ${BDR}`, color: TICK }}>
+                Siguiente <ChevronRight size={12} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function ConsultaPage({ openEnCarga, user }) {
+  const rol = user?.app_metadata?.role || ''
+  const canVerValorFactura = ['financiero', 'admin'].includes(rol)
+  const isAdmin = rol === 'admin'
+
+  const { catalogos } = useCatalogos()
+  const { rows, loading, page, hasMore, buscar } = useConsulta()
+
+  const FILTERS_INIT = {
+    manifiesto: '', fecha_desde: '', fecha_hasta: '',
+    conductor: null, cliente: null, origen: null, destino: null,
+    compromiso_pago: '', estado_interno: '', placa: '', mes: '', año: '',
+  }
+
+  const [filters,   setFilters]   = useState(FILTERS_INIT)
+  const [activeTab, setActiveTab] = useState('manifiestos')
+
+  const set = (k, v) => setFilters(f => ({ ...f, [k]: v }))
+
+  // Carga automática al abrir
+  useEffect(() => { buscar(FILTERS_INIT, 0) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSearch = e => {
     e?.preventDefault()
-    setSearched(true)
     buscar(filters, 0)
   }
 
@@ -236,15 +468,37 @@ export default function ConsultaPage({ openEnCarga }) {
   const handlePrev = () => { buscar(filters, page - 1) }
 
   const clearAll = () => {
-    setFilters({
-      manifiesto: '', fecha_desde: '', fecha_hasta: '',
-      conductor: null, cliente: null, origen: null, destino: null,
-      compromiso_pago: '', estado_interno: '', placa: '', mes: '', año: '',
-    })
+    setFilters(FILTERS_INIT)
+    buscar(FILTERS_INIT, 0)
   }
 
   return (
     <div className="flex flex-col gap-6 pb-8">
+
+      {/* Tab bar — Auditoría solo visible para admin */}
+      {isAdmin && (
+        <div className="flex gap-1 p-1 rounded-xl self-start" style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
+          {[
+            { id: 'manifiestos', label: 'Manifiestos' },
+            { id: 'auditoria',   label: 'Auditoría', icon: <ShieldCheck size={13} /> },
+          ].map(tab => (
+            <button key={tab.id} type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-lg transition-all"
+              style={{
+                background: activeTab === tab.id ? BG : 'transparent',
+                color:      activeTab === tab.id ? TICK : MUTED,
+                boxShadow:  activeTab === tab.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}>
+              {tab.icon}{tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'auditoria' && isAdmin
+        ? <AuditoriaPanel />
+        : <>
 
       {/* Filter panel */}
       <form onSubmit={handleSearch}
@@ -281,7 +535,7 @@ export default function ConsultaPage({ openEnCarga }) {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
           <FilterSelect label="Mes" value={filters.mes} onChange={v => set('mes', v)} options={MESES_OPTS} />
           <FilterSelect label="Año" value={filters.año} onChange={v => set('año', v)} options={AÑOS_OPTS} />
-          <FilterSelect label="Compromiso de pago" value={filters.compromiso_pago} onChange={v => set('compromiso_pago', v)} options={ESTADO_PAGO_OPTS} />
+          <FilterSelect label="Compromiso de pago" value={filters.compromiso_pago} onChange={v => set('compromiso_pago', v)} options={catalogos.compromisos_pago} />
           <FilterSelect label="Estado interno" value={filters.estado_interno} onChange={v => set('estado_interno', v)} options={ESTADO_INTERNO_OPTS} />
           <FilterAutocomplete label="Conductor" items={catalogos.conductores}
             value={filters.conductor} onChange={v => set('conductor', v)} />
@@ -305,178 +559,182 @@ export default function ConsultaPage({ openEnCarga }) {
       </form>
 
       {/* Results table */}
-      {searched && (
-        <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${BDR}` }}>
-          {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <span className="text-sm animate-pulse" style={{ color: MUTED }}>Cargando...</span>
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="flex items-center justify-center h-32">
-              <span className="text-sm" style={{ color: MUTED }}>Sin resultados para los filtros seleccionados.</span>
-            </div>
-          ) : (
-            <div style={{ maxHeight: '68vh', overflow: 'auto' }}>
-              <table className="text-sm border-collapse" style={{ minWidth: '2900px' }}>
-                <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
-                  <tr style={{ background: '#F1F5F9' }}>
-                    <Th sticky>Manifiesto</Th>
-                    <Th>Remesas</Th>
-                    <Th>F. Despacho</Th>
-                    <Th>Origen</Th>
-                    <Th>Dpto. Origen</Th>
-                    <Th>Destino</Th>
-                    <Th>Dpto. Destino</Th>
-                    <Th>Cliente</Th>
-                    <Th right>Valor Remesa</Th>
-                    <Th right>Flete Neto</Th>
-                    <Th right>Anticipo</Th>
-                    <Th>Placa</Th>
-                    <Th>Tipo Veh.</Th>
-                    <Th>Conductor</Th>
-                    <Th>Celular</Th>
-                    <Th>Cédula</Th>
-                    <Th>Propietario</Th>
-                    <Th>Agencia</Th>
-                    <Th>Responsable</Th>
-                    <Th>F. Cumplido</Th>
-                    <Th right>Días</Th>
-                    <Th>Compromiso Pago</Th>
-                    <Th>Novedades</Th>
-                    <Th>Novedad Conductor</Th>
-                    <Th>Novedad Empresa</Th>
-                    <Th right>Aj. Positivo Flete</Th>
-                    <Th right>Aj. Negativo Flete</Th>
-                    <Th>Estado Interno</Th>
-                    <Th>Resp. Estado Int.</Th>
-                    <Th>F. Pago</Th>
-                    <Th right>Valor Pagado</Th>
-                    <Th>Entidad</Th>
-                    <Th>Responsable Pago</Th>
-                    <Th>Factura No</Th>
-                    <Th>Fecha Emisión Factura</Th>
-                    <Th>Mes</Th>
-                    <Th>Factura Electrónica</Th>
-                    <Th right>Días Fact.</Th>
-                    <Th></Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, i) => {
-                    const plazoVencido = r.dias_cumplido > 20 && !r.fecha_pago
-                    const sidebarColor = SIDEBAR_COLOR[r.estado_interno]
-                    const rowBg = sidebarColor
-                      ? sidebarColor + '66'
-                      : i % 2 === 0 ? BG : '#F8FAFC'
-                    // Fondo opaco para la celda sticky (sin transparencia que deje ver texto debajo)
-                    const stickyBg = sidebarColor ? blendOnWhite(sidebarColor, 0.4) : rowBg
-                    return (
-                      <tr key={r.manifiesto} style={{ background: rowBg }}>
-                        <Td mono highlight={GOLD} sticky bg={stickyBg}>{r.manifiesto}</Td>
-                        <Td muted>{r.remesas || '—'}</Td>
-                        <Td>{fmtDate(r.fecha_despacho)}</Td>
-                        <Td>{r.origen ?? '—'}</Td>
-                        <Td muted>{r.departamento_origen ?? '—'}</Td>
-                        <Td>{r.destino ?? '—'}</Td>
-                        <Td muted>{r.departamento_destino ?? '—'}</Td>
-                        <Td>{r.cliente ?? '—'}</Td>
-                        <Td right mono>{money(r.valor_remesa)}</Td>
-                        <Td right mono>{money(r.flete_neto_conductor ?? r.flete_conductor)}</Td>
-                        <Td right mono muted>{money(r.anticipo)}</Td>
-                        <Td mono muted>{r.placa ?? '—'}</Td>
-                        <Td muted>{r.tipo_vehiculo ?? '—'}</Td>
-                        <Td>{r.conductor ?? '—'}</Td>
-                        <Td muted>{r.celular ?? '—'}</Td>
-                        <Td muted>{r.cedula_conductor ?? '—'}</Td>
-                        <Td muted>{r.propietario ?? '—'}</Td>
-                        <Td muted>{r.agencia_despachadora ?? '—'}</Td>
-                        <Td muted>{r.nombre_responsable ?? '—'}</Td>
-                        <Td>{fmtDate(r.fecha_cumplido)}</Td>
-                        <td className="px-3 py-2 text-xs text-right whitespace-nowrap">
-                          {r.dias_cumplido != null ? (
-                            <div className="flex items-center justify-end gap-1.5">
-                              <span style={{ color: plazoVencido ? RED : TICK }}>{r.dias_cumplido}</span>
-                              <PlazoBadge diasCumplidos={r.dias_cumplido} fechaPago={r.fecha_pago} />
-                            </div>
-                          ) : <span style={{ color: MUTED }}>—</span>}
-                        </td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <EstadoBadge value={r.compromiso_pago} colorFn={estadoPagoColor} />
-                        </td>
-                        <td className="px-3 py-2 text-xs max-w-45"
-                          style={{ color: MUTED, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+      <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${BDR}` }}>
+        {loading ? (
+          <div className="flex items-center justify-center h-32">
+            <span className="text-sm animate-pulse" style={{ color: MUTED }}>Cargando...</span>
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex items-center justify-center h-32">
+            <span className="text-sm" style={{ color: MUTED }}>Sin resultados para los filtros seleccionados.</span>
+          </div>
+        ) : (
+          <div style={{ maxHeight: '68vh', overflow: 'auto' }}>
+            <table className="text-sm border-collapse" style={{ minWidth: '3510px' }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
+                <tr style={{ background: '#F1F5F9' }}>
+                  <Th sticky width="105px">Manifiesto</Th>
+                  <Th width="90px">Remesas</Th>
+                  <Th width="125px">Fecha Despacho</Th>
+                  <Th width="160px">Origen</Th>
+                  <Th width="140px">Dpto. Origen</Th>
+                  <Th width="160px">Destino</Th>
+                  <Th width="140px">Dpto. Destino</Th>
+                  <Th width="140px">Cliente</Th>
+                  <Th right width="110px">Valor Remesa</Th>
+                  <Th right width="110px">Flete Neto</Th>
+                  <Th right width="95px">Anticipo</Th>
+                  <Th width="80px">Placa</Th>
+                  <Th width="105px">Remolque</Th>
+                  <Th width="240px">Conductor</Th>
+                  <Th width="100px">Celular</Th>
+                  <Th width="95px">Cédula</Th>
+                  <Th width="210px">Propietario</Th>
+                  <Th width="160px">Agencia Despachadora</Th>
+                  <Th width="140px">Responsable</Th>
+                  <Th width="125px">Fecha Cumplido</Th>
+                  <Th width="115px">Días Cumplido</Th>
+                  <Th width="160px">Compromiso Pago</Th>
+                  <Th width="280px">Novedades</Th>
+                  <Th width="240px">Novedad Conductor</Th>
+                  <Th width="240px">Novedad Empresa</Th>
+                  <Th width="100px">Reajuste</Th>
+                  <Th width="105px">Descuento</Th>
+                  <Th width="170px">Consignación Terceros</Th>
+                  <Th width="160px">Estado Interno</Th>
+                  <Th width="200px">Responsable Estado Interno</Th>
+                  <Th width="100px">Fecha Pago</Th>
+                  <Th right width="110px">Valor Pagado</Th>
+                  <Th width="180px">Entidad Financiera</Th>
+                  <Th width="180px">Responsable Pago</Th>
+                  <Th width="90px">Factura No</Th>
+                  <Th width="110px">Fecha Emisión</Th>
+                  <Th width="260px">Legalización FE / DS</Th>
+                  {canVerValorFactura && <Th right width="110px">Valor Factura</Th>}
+                  <Th width="85px">Días Fact.</Th>
+                  <Th width="50px"></Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => {
+                  const plazoVencido = r.dias_cumplido > 20 && !r.fecha_pago
+                  const sidebarColor = SIDEBAR_COLOR[r.estado_interno]
+                  const rowBg = sidebarColor
+                    ? sidebarColor + '66'
+                    : i % 2 === 0 ? BG : '#F8FAFC'
+                  const stickyBg = sidebarColor ? blendOnWhite(sidebarColor, 0.4) : rowBg
+                  return (
+                    <tr key={r.manifiesto} style={{ background: rowBg }}>
+                      <Td mono highlight={GOLD} sticky bg={stickyBg} width="105px">{r.manifiesto}</Td>
+                      <Td muted width="90px">{r.remesas || '—'}</Td>
+                      <Td width="125px">{fmtDate(r.fecha_despacho)}</Td>
+                      <Td width="160px">{r.origen ?? '—'}</Td>
+                      <Td muted width="140px">{r.departamento_origen ?? '—'}</Td>
+                      <Td width="160px">{r.destino ?? '—'}</Td>
+                      <Td muted width="140px">{r.departamento_destino ?? '—'}</Td>
+                      <Td width="140px">{r.cliente ?? '—'}</Td>
+                      <Td mono width="110px">{money(r.valor_remesa)}</Td>
+                      <Td mono width="110px">{money(r.flete_neto_conductor ?? r.flete_conductor)}</Td>
+                      <Td mono muted width="95px">{money(r.anticipo)}</Td>
+                      <Td mono muted width="80px">{r.placa ?? '—'}</Td>
+                      <Td muted width="105px">{r.tipo_vehiculo ?? '—'}</Td>
+                      <Td width="240px">{r.conductor ?? '—'}</Td>
+                      <Td muted width="100px">{r.celular ?? '—'}</Td>
+                      <Td muted width="95px">{r.cedula_conductor ?? '—'}</Td>
+                      <Td muted width="210px">{r.propietario ?? '—'}</Td>
+                      <Td muted width="160px">{r.agencia_despachadora ?? '—'}</Td>
+                      <Td muted width="140px">{r.nombre_responsable ?? '—'}</Td>
+                      <Td width="125px">{fmtDate(r.fecha_cumplido)}</Td>
+                      <td className="px-3 py-2 text-xs whitespace-nowrap" style={{ width: '115px', minWidth: '115px', borderRight: '1px solid #CBD5E1' }}>
+                        {r.dias_cumplido != null ? (
+                          <div className="flex items-center justify-start gap-1.5">
+                            <span style={{ color: plazoVencido ? RED : TICK }}>{r.dias_cumplido}</span>
+                            <PlazoBadge diasCumplidos={r.dias_cumplido} fechaPago={r.fecha_pago} />
+                          </div>
+                        ) : <span style={{ color: MUTED }}>—</span>}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap" style={{ width: '160px', minWidth: '160px', borderRight: '1px solid #CBD5E1' }}>
+                        <EstadoBadge value={r.compromiso_pago} colorFn={estadoPagoColor} />
+                      </td>
+                      <td className="px-3 py-2 text-xs" style={{ width: '280px', minWidth: '280px', maxWidth: '280px', borderRight: '1px solid #CBD5E1' }}>
+                        <div title={r.novedades || undefined} style={{ color: MUTED, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                           {r.novedades || '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs max-w-45"
-                          style={{ color: MUTED, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-xs" style={{ width: '240px', minWidth: '240px', maxWidth: '240px', borderRight: '1px solid #CBD5E1' }}>
+                        <div title={r.novedad_conductor || undefined} style={{ color: MUTED, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                           {r.novedad_conductor || '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs max-w-45"
-                          style={{ color: MUTED, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-xs" style={{ width: '240px', minWidth: '240px', maxWidth: '240px', borderRight: '1px solid #CBD5E1' }}>
+                        <div title={r.novedad_empresa || undefined} style={{ color: MUTED, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                           {r.novedad_empresa || '—'}
-                        </td>
-                        <Td right mono>{r.ajuste_positivo_flete != null ? money(r.ajuste_positivo_flete) : '—'}</Td>
-                        <Td right mono>{r.ajuste_negativo_flete != null ? money(r.ajuste_negativo_flete) : '—'}</Td>
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <EstadoBadge value={r.estado_interno} colorFn={estadoInternoColor} />
-                        </td>
-                        <Td muted>{r.responsable_estado_interno ?? '—'}</Td>
-                        <Td>{fmtDate(r.fecha_pago)}</Td>
-                        <Td right mono highlight={GREEN}>{money(r.valor_pagado)}</Td>
-                        <Td muted>{r.entidad_financiera ?? '—'}</Td>
-                        <Td muted>{r.responsable ?? '—'}</Td>
-                        <Td mono muted>{r.factura_no ?? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                            style={{ background: GOLD + '22', color: GOLD, border: `1px solid ${GOLD}44` }}>
-                            Sin factura
-                          </span>
-                        )}</Td>
-                        <Td muted>{fmtDate(r.fecha_factura)}</Td>
-                        <Td muted>{r.mes ?? '—'}</Td>
-                        <Td muted>{r.factura_electronica ?? '—'}</Td>
-                        <Td right mono muted>{r.dias_para_facturar ?? '—'}</Td>
-                        <td className="px-3 py-2 sticky right-0"
-                          style={{ background: stickyBg, boxShadow: '-2px 0 4px rgba(0,0,0,0.06)' }}>
-                          {openEnCarga && (
-                            <button type="button"
-                              onClick={() => openEnCarga(r.manifiesto)}
-                              className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-opacity hover:opacity-80"
-                              style={{ background: BLUE + '22', color: BLUE, border: `1px solid ${BLUE}44` }}>
-                              <ExternalLink size={10} /> Ver
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                        </div>
+                      </td>
+                      <Td mono width="100px">{r.ajuste_positivo_flete != null ? money(r.ajuste_positivo_flete) : '—'}</Td>
+                      <Td mono width="105px">{r.ajuste_negativo_flete != null ? money(r.ajuste_negativo_flete) : '—'}</Td>
+                      <Td mono width="170px">{r.consignacion_a_terceros != null ? money(r.consignacion_a_terceros) : '—'}</Td>
+                      <td className="px-3 py-2 whitespace-nowrap" style={{ width: '160px', minWidth: '160px', borderRight: '1px solid #CBD5E1' }}>
+                        <EstadoBadge value={r.estado_interno} colorFn={estadoInternoColor} />
+                      </td>
+                      <Td muted width="200px">{r.responsable_estado_interno ?? '—'}</Td>
+                      <Td width="100px">{fmtDate(r.fecha_pago)}</Td>
+                      <Td mono highlight={GREEN} width="110px">{money(r.valor_pagado)}</Td>
+                      <Td muted width="180px">{r.entidad_financiera ?? '—'}</Td>
+                      <Td muted width="180px">{r.responsable ?? '—'}</Td>
+                      <Td mono muted width="90px">{r.factura_no ?? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                          style={{ background: GOLD + '22', color: GOLD, border: `1px solid ${GOLD}44` }}>
+                          Sin fact.
+                        </span>
+                      )}</Td>
+                      <Td muted width="110px">{fmtDate(r.fecha_factura)}</Td>
+                      <Td muted width="260px">{r.factura_electronica ?? '—'}</Td>
+                      {canVerValorFactura && (
+                        <Td mono width="110px">{r.valor_factura != null ? money(r.valor_factura) : '—'}</Td>
+                      )}
+                      <Td mono muted width="85px">{r.dias_para_facturar ?? '—'}</Td>
+                      <td className="px-3 py-2 sticky right-0" style={{ width: '50px', background: stickyBg, boxShadow: '-2px 0 4px rgba(0,0,0,0.06)' }}>
+                        {openEnCarga && (
+                          <button type="button"
+                            onClick={() => openEnCarga(r.manifiesto)}
+                            className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-opacity hover:opacity-80"
+                            style={{ background: BLUE + '22', color: BLUE, border: `1px solid ${BLUE}44` }}>
+                            <ExternalLink size={10} /> Ver
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-          {/* Pagination */}
-          {!loading && rows.length > 0 && (
-            <div className="flex items-center justify-between px-4 py-3"
-              style={{ borderTop: `1px solid ${BDR}`, background: '#F1F5F9' }}>
-              <span className="text-xs" style={{ color: MUTED }}>
-                Página {page + 1}{hasMore ? '+' : ''} · {rows.length} resultados
-              </span>
-              <div className="flex gap-2">
-                <button type="button" onClick={handlePrev} disabled={page === 0}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-opacity disabled:opacity-30"
-                  style={{ background: BG, border: `1px solid ${BDR}`, color: TICK }}>
-                  <ChevronLeft size={12} /> Anterior
-                </button>
-                <button type="button" onClick={handleNext} disabled={!hasMore}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-opacity disabled:opacity-30"
-                  style={{ background: BG, border: `1px solid ${BDR}`, color: TICK }}>
-                  Siguiente <ChevronRight size={12} />
-                </button>
-              </div>
+        {/* Pagination */}
+        {!loading && rows.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-3"
+            style={{ borderTop: `1px solid ${BDR}`, background: '#F1F5F9' }}>
+            <span className="text-xs" style={{ color: MUTED }}>
+              Página {page + 1}{hasMore ? '+' : ''} · {rows.length} resultados
+            </span>
+            <div className="flex gap-2">
+              <button type="button" onClick={handlePrev} disabled={page === 0}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-opacity disabled:opacity-30"
+                style={{ background: BG, border: `1px solid ${BDR}`, color: TICK }}>
+                <ChevronLeft size={12} /> Anterior
+              </button>
+              <button type="button" onClick={handleNext} disabled={!hasMore}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-opacity disabled:opacity-30"
+                style={{ background: BG, border: `1px solid ${BDR}`, color: TICK }}>
+                Siguiente <ChevronRight size={12} />
+              </button>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
+      </>}
     </div>
   )
 }
