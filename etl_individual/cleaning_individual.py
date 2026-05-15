@@ -372,15 +372,15 @@ def _clean_entidad_financiera(val) -> tuple[str | None, str | None]:
 
 _DEPT_ABBREV: dict[str, str] = {
     "Anti": "Antioquia",
-    "Atla": "Atlántico",
-    "Bogo": "Bogotá D.C.",
-    "Boli": "Bolívar",
-    "Boya": "Boyacá",
+    "Atla": "Atlantico",
+    "Bogo": "Bogota D.C.",
+    "Boli": "Bolivar",
+    "Boya": "Boyaca",
     "Cald": "Caldas",
     "Casa": "Casanare",
     "Cauc": "Cauca",
     "Cesa": "Cesar",
-    "Cord": "Córdoba",
+    "Cord": "Cordoba",
     "Cund": "Cundinamarca",
     "Huil": "Huila",
     "La G": "La Guajira",
@@ -388,13 +388,13 @@ _DEPT_ABBREV: dict[str, str] = {
     "Meta": "Meta",
     "Nari": "Nariño",
     "Nort": "Norte de Santander",
-    "Quin": "Quindío",
+    "Quin": "Quindio",
     "Risa": "Risaralda",
     "Sant": "Santander",
     "Toli": "Tolima",
     "Vall": "Valle del Cauca",
     "Arau": "Arauca",
-    "Caqu": "Caquetá",
+    "Caqu": "Caqueta",
     "Guav": "Guaviare",
     "Putu": "Putumayo",
     "Sucr": "Sucre",
@@ -403,14 +403,14 @@ _DEPT_ABBREV: dict[str, str] = {
 # Palabras de departamento que pueden aparecer en el nombre de la ciudad
 _DEPT_KEYWORDS: dict[str, str] = {
     "ANTIOQUIA":             "Antioquia",
-    "ATLANTICO":             "Atlántico",
-    "BOLIVAR":               "Bolívar",
-    "BOYACA":                "Boyacá",
+    "ATLANTICO":             "Atlantico",
+    "BOLIVAR":               "Bolivar",
+    "BOYACA":                "Boyaca",
     "CALDAS":                "Caldas",
     "CASANARE":              "Casanare",
     "CAUCA":                 "Cauca",
     "CESAR":                 "Cesar",
-    "CORDOBA":               "Córdoba",
+    "CORDOBA":               "Cordoba",
     "CUNDINAMARCA":          "Cundinamarca",
     "HUILA":                 "Huila",
     "GUAJIRA":               "La Guajira",
@@ -418,86 +418,111 @@ _DEPT_KEYWORDS: dict[str, str] = {
     "META":                  "Meta",
     "NARINO":                "Nariño",
     "NORTE DE SANTANDER":    "Norte de Santander",
-    "QUINDIO":               "Quindío",
+    "QUINDIO":               "Quindio",
     "RISARALDA":             "Risaralda",
     "SANTANDER":             "Santander",
     "SUCRE":                 "Sucre",
     "TOLIMA":                "Tolima",
     "VALLE":                 "Valle del Cauca",
-    "CAQUETA":               "Caquetá",
+    "CAQUETA":               "Caqueta",
 }
 
 # Ciudades sin paréntesis cuyo departamento no se puede inferir del nombre
 _CITY_DEPT_FALLBACK: dict[str, str] = {
     "IPIALES":              "Nariño",
     "PASTO":                "Nariño",
+
     "RIOHACHA":             "La Guajira",
     # Ciudades con nombre simple sin abreviatura de departamento
     "AGUSTIN CODAZZI":      "Cesar",
     "BELLO":                "Antioquia",
-    "BOGOTA BOGOTA D. C.":  "Bogotá D.C.",
+    "BOGOTA":               "Bogota D.C.",
+    "BOGOTA, D.C.":         "Bogota D.C.",
+    "BOGOTA D.C.":          "Bogota D.C.",
+    "BOGOTA D. C.":         "Bogota D.C.",
+    "BOGOTA BOGOTA D. C.":  "Bogota D.C.",
+    "SANTA FE DE BOGOTA":   "Bogota D.C.",
     "CALI":                 "Valle del Cauca",
-    "CARTAGENA":            "Bolívar",
+    "CARTAGENA":            "Bolivar",
     "ESPINAL":              "Tolima",
     "GARZON":               "Huila",
     "GIRARDOTA":            "Antioquia",
     "GUACHUCAL":            "Nariño",
     "IBAGUE":               "Tolima",
     "LA PLATA":             "Huila",
-    "MONTELIBANO":          "Córdoba",
+    "MONTELIBANO":          "Cordoba",
     "MOSQUERA":             "Cundinamarca",
     "PEREIRA":              "Risaralda",
     "RIONEGRO":             "Antioquia",
+    "PALMIRA":              "Valle del Cauca",
     "TOTORO":               "Cauca",
+    "MEDELLIN":             "Antioquia",
+    "CUCUTA":               "Norte de Santander",
+    "BUCARAMANGA":          "Santander",
+    "BARRANQUILLA":         "Atlantico",
+    "VILLAVICENCIO":        "Meta",
+    "ARMENIA":              "Quindio",
+    "MANIZALES":            "Caldas",
+    "NEIVA":                "Huila",
+    "MONTERIA":             "Cordoba",
+    "VALLEDUPAR":           "Cesar",
+    "POPAYAN":              "Cauca",
+    "SINCELEJO":            "Sucre",
+    "FLORENCIA":            "Caqueta",
+    "TUNJA":                "Boyaca",
+    "QUIBDO":               "Choco",
+    "YOPAL":                "Casanare",
+    "ARAUCA":               "Arauca",
 }
 
 
-# Nombres canónicos de municipios (clave: uppercase sin acentos, valor: nombre oficial)
+# Nombres canónicos de municipios (clave: uppercase sin acentos, valor: nombre sin acentos)
 _CITY_NAME_MAP: dict[str, str] = {
     "CALI":                 "SANTIAGO DE CALI",
     "PASTO":                "SAN JUAN DE PASTO",
     "CARTAGENA":            "CARTAGENA DE INDIAS",
-    "BOGOTA":               "BOGOTÁ D.C.",
-    "BOGOTA D.C.":          "BOGOTÁ D.C.",
-    "BOGOTA D. C.":         "BOGOTÁ D.C.",
-    "BOGOTA BOGOTA D. C.":  "BOGOTÁ D.C.",
-    "SANTA FE DE BOGOTA":   "BOGOTÁ D.C.",
-    "MEDELLIN":             "MEDELLÍN",
+    "BOGOTA":               "BOGOTA, D.C.",
+    "BOGOTA D.C.":          "BOGOTA, D.C.",
+    "BOGOTA D. C.":         "BOGOTA, D.C.",
+    "BOGOTA BOGOTA D. C.":  "BOGOTA, D.C.",
+    "SANTA FE DE BOGOTA":   "BOGOTA, D.C.",
+    "MEDELLIN":             "MEDELLIN",
     "BARRANQUILLA":         "BARRANQUILLA",
     "BUCARAMANGA":          "BUCARAMANGA",
-    "CUCUTA":               "CÚCUTA",
+    "CUCUTA":               "CUCUTA",
     "PEREIRA":              "PEREIRA",
     "MANIZALES":            "MANIZALES",
     "ARMENIA":              "ARMENIA",
-    "IBAGUE":               "IBAGUÉ",
+    "IBAGUE":               "IBAGUE",
     "NEIVA":                "NEIVA",
     "VILLAVICENCIO":        "VILLAVICENCIO",
-    "MONTERIA":             "MONTERÍA",
+    "MONTERIA":             "MONTERIA",
     "SINCELEJO":            "SINCELEJO",
     "VALLEDUPAR":           "VALLEDUPAR",
     "RIOHACHA":             "RIOHACHA",
     "SANTA MARTA":          "SANTA MARTA",
-    "POPAYAN":              "POPAYÁN",
+    "POPAYAN":              "POPAYAN",
     "TUNJA":                "TUNJA",
     "FLORENCIA":            "FLORENCIA",
-    "QUIBDO":               "QUIBDÓ",
+    "QUIBDO":               "QUIBDO",
     "MOCOA":                "MOCOA",
     "YOPAL":                "YOPAL",
     "ARAUCA":               "ARAUCA",
     "LETICIA":              "LETICIA",
-    "MITU":                 "MITÚ",
-    "PUERTO INIRIDA":       "PUERTO INÍRIDA",
-    "SAN JOSE DEL GUAVIARE": "SAN JOSÉ DEL GUAVIARE",
-    "PUERTO CARRENO":       "PUERTO CARREÑO",
+    "MITU":                 "MITU",
+    "PUERTO INIRIDA":       "PUERTO INIRIDA",
+    "SAN JOSE DEL GUAVIARE": "SAN JOSE DEL GUAVIARE",
+    "PUERTO CARRENO":       "PUERTO CARRENO",
 }
 
 
 def _normalize_city_name(val) -> str:
-    """Estandariza nombre de municipio al nombre oficial colombiano."""
+    """Estandariza nombre de municipio sin acentos."""
     if pd.isna(val) or not str(val).strip():
         return val
     key = re.sub(r'\s+', ' ', _strip_accents(str(val).strip().upper()))
-    return _CITY_NAME_MAP.get(key, str(val).strip())
+    canonical = _CITY_NAME_MAP.get(key, str(val).strip())
+    return _strip_accents(canonical)
 
 
 def _extract_departamento(ciudad_val) -> str | None:
@@ -510,7 +535,8 @@ def _extract_departamento(ciudad_val) -> str | None:
     m = re.search(r'\(([^)]+)\)', s)
     if m:
         abbrev = m.group(1).strip()
-        return _DEPT_ABBREV.get(abbrev, abbrev)   # si no está en el dict, devuelve la abrev tal cual
+        result = _DEPT_ABBREV.get(abbrev, abbrev)
+        return _strip_accents(result)
 
     # 2. Buscar palabras clave de departamento en el nombre (orden: más específico primero)
     s_norm = _strip_accents(s.upper())
@@ -571,10 +597,11 @@ _PERSON_COL_FIXES: dict[str, dict[str, str | None]] = {
 _PERSON_FUZZY_THRESHOLD = 92
 
 ESTADO_RULES = [
-    (r'15\s*d[iíï]?[ai]', "PAGO A 15 DIAS"),
-    (r'20\s*d[iíï]?[ai]', "PAGO A 20 DIAS"),
-    (r'30\s*d[iíï]?[ai]', "PAGO A 30 DIAS"),
-    (r'[58]\s*d[iíï]?[ai]', "PAGO A 5-8 DIAS"),
+    # Acepta "15DH", "15D", "15 DIA", "15 DÍAS" — debe correr ANTES de pago normal
+    (r'15\s*d[hiíï]?[ai]?', "PAGO A 15 DIAS"),
+    (r'20\s*d[hiíï]?[ai]?', "PAGO A 20 DIAS"),
+    (r'30\s*d[hiíï]?[ai]?', "PAGO A 30 DIAS"),
+    (r'[58]\s*d[hiíï]?[ai]?', "PAGO A 5-8 DIAS"),
     # Contraentrega: cubre typos con letras faltantes/dobles/intercambiadas
     # COMTRAENTREGA, COTRAENTREGA, CNTRAENTREGA, CONTRANTREGA, CONTRAENTEGA,
     # CONTRAENTRAG, CONTREAENTREGA, CONTREANTREGA, CONTRAENTRTEGA, CONTRAAENTREGA
@@ -637,11 +664,13 @@ def _clean_money(val: str) -> float | None:
 
 
 def _strip_accents(s: str) -> str:
-    """Elimina acentos/diacríticos: PÁGO → PAGO, DÍAS → DIAS."""
-    return "".join(
+    """Elimina tildes pero conserva ñ/Ñ: PÁGÓ → PAGO, NARIÑO → NARIÑO."""
+    s = s.replace("ñ", "\x00").replace("Ñ", "\x01")
+    result = "".join(
         c for c in unicodedata.normalize("NFD", s)
         if unicodedata.category(c) != "Mn"
     )
+    return result.replace("\x00", "ñ").replace("\x01", "Ñ")
 
 
 def _normalize_estado(val) -> tuple[str | None, str | None]:
@@ -695,7 +724,11 @@ COMPROMISO_PAGO_RULES = [
     (r'^c\.?\s*contra', "CONTRAENTREGA"),
     # CONTING: 20-25 DH / CONTIG. PAGO 20-25 DIAS HABIL.
     (r'conti[gn]+', "CONTINGENCIA 20-25 DH"),
-    # PAGO NORMAL(15DH) → PAGO NORMAL
+    # PAGO NORMAL(15DH) / PAGO NORMAL (15D) → PAGO A 15 DIAS
+    # (la marca "15DH" indica plazo de 15 días hábiles — debe detectarse ANTES de la regla pago normal)
+    (r'15\s*d[hiíï]?[ai]?', "PAGO A 15 DIAS"),
+    (r'20\s*d[hiíï]?[ai]?', "PAGO A 20 DIAS"),
+    (r'30\s*d[hiíï]?[ai]?', "PAGO A 30 DIAS"),
     (r'pago\s*normal', "PAGO NORMAL"),
     (r'pronto\s*(de\s*)?pago', "PRONTO PAGO"),
     (r'contra.*entrega|c\.?\s*contra', "CONTRAENTREGA"),
@@ -1048,10 +1081,10 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors="coerce", format="mixed").dt.date
 
-    # 2. Monetarios
+    # 2. Monetarios → entero nullable (sin decimales, coincide con DB NUMERIC)
     for col in MONEY_COLS:
         if col in df.columns:
-            df[col] = df[col].apply(_clean_money)
+            df[col] = pd.to_numeric(df[col].apply(_clean_money), errors="coerce").round(0).astype("Int64")
 
     # 3. Identificadores: quitar .0 y convertir a string limpio
     for col in ID_COLS:
@@ -1094,6 +1127,11 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
         else:
             df["compromiso_pago"] = df["compromiso_pago"].fillna(df["estado"])
             df = df.drop(columns=["estado"])
+
+    # 6a-bis. PAGO NORMAL → PAGO A 15 DIAS (estándar de la empresa: el "pago normal"
+    # histórico equivale a 15 días). El resto de categorías se preserva.
+    if "compromiso_pago" in df.columns:
+        df.loc[df["compromiso_pago"] == "PAGO NORMAL", "compromiso_pago"] = "PAGO A 15 DIAS"
 
     # 6b. Agencia despachadora: ANULADO, LETRAS+NÚMEROS, lista negra
     if "agencia_despachadora" in df.columns:

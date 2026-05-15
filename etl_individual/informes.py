@@ -1,6 +1,6 @@
 """
 informes.py
-Informe consolidado del ETL: informes/informe_etl.xlsx
+Informe consolidado del ETL: cleaned_data/informe_calidad/informe_etl.xlsx
 
 Hojas:
   1_Resumen              — Dashboard ejecutivo con métricas clave
@@ -34,7 +34,7 @@ from etl_individual.cleaning_individual import (
 DATA_FOLDER  = ROOT / "data_sheets"
 CLEANED_DIR  = ROOT / "cleaned_data"
 CLEANED_FILE = CLEANED_DIR / "individual_cleaned.csv"
-OUTPUT_FILE  = ROOT / "informes/informe_etl.xlsx"
+OUTPUT_FILE  = CLEANED_DIR / "informe_calidad" / "informe_etl.xlsx"
 
 # Artefactos ETL generados por cleaning_individual.py
 ETL_ARTIFACTS = [
