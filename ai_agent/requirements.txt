@@ -1,9 +1,15 @@
+# Producción — usadas por main.py / webhook / agent en runtime
 fastapi
 uvicorn[standard]
-groq
 httpx
 python-dotenv
 pyjwt
 
-# Claude / Anthropic (producción)
-# anthropic
+# LLM clients de producción
+openai     # DeepSeek (OpenAI-compatible) — agente principal
+groq       # Moderación anti-jailbreak (llama-3.1-8b-instant)
+
+# Solo para scripts/test_agent.py --modelos (A/B contra Gemini/Claude).
+# Si no usas A/B testing, puedes quitarlos del deploy.
+anthropic
+google-genai

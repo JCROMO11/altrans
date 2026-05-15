@@ -4,6 +4,7 @@ from db import queries
 # ── Definiciones para Groq (formato OpenAI) ──────────────────────────────────
 
 _CONDUCTOR_TOOL_NAMES = {
+    "listar_manifiestos",
     "consultar_manifiesto",
     "resumen_periodo",
     "manifiestos_pendientes_pago",
@@ -13,6 +14,21 @@ _CONDUCTOR_TOOL_NAMES = {
 }
 
 TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_manifiestos",
+            "description": "Lista todos los manifiestos de un conductor, opcionalmente filtrados por mes y año. Úsala cuando el conductor pregunte por 'mis manifiestos', 'mis viajes' o quiera un resumen general.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mes":  {"type": "string", "description": "Mes en mayúsculas (opcional): ENERO, FEBRERO, etc."},
+                    "anio": {"type": "string", "description": "Año (opcional), ej: 2025"},
+                },
+                "required": [],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -31,14 +47,19 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "resumen_periodo",
-            "description": "KPIs y totales de un mes/año: cantidad de manifiestos, fletes, remesas y pendiente de pago.",
+            "description": (
+                "KPIs y totales de un período: cantidad de manifiestos, fletes, remesas y pendiente de pago. "
+                "Úsala para: un mes específico (mes+anio), un año completo (solo anio, sin mes), "
+                "o comparar trimestres. Si el conductor pregunta por todo un año (ej: '¿cuánto gané en 2024?'), "
+                "llama con solo anio y sin mes."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "mes": {"type": "string", "description": "Mes en mayúsculas: ENERO, FEBRERO, etc."},
-                    "anio": {"type": "string", "description": "Año, ej: 2025"},
+                    "mes":  {"type": "string", "description": "Mes en mayúsculas (opcional): ENERO, FEBRERO, etc. Omitir para resumen anual."},
+                    "anio": {"type": "string", "description": "Año (opcional), ej: 2025. Omitir solo si se quieren todos los registros."},
                 },
-                "required": ["mes", "anio"],
+                "required": [],
             },
         },
     },
@@ -167,8 +188,9 @@ def _ccedula(args) -> str | None:
     return args.get("_conductor_cedula")
 
 _TOOL_MAP = {
+    "listar_manifiestos":          lambda args: queries.listar_manifiestos(_ccedula(args), args.get("mes"), _anio(args)),
     "consultar_manifiesto":        lambda args: queries.consultar_manifiesto(int(args["numero"]), _ccedula(args)),
-    "resumen_periodo":             lambda args: queries.resumen_periodo(args["mes"], _anio(args), _ccedula(args)),
+    "resumen_periodo":             lambda args: queries.resumen_periodo(args.get("mes"), _anio(args), _ccedula(args)),
     "manifiestos_pendientes_pago": lambda args: queries.manifiestos_pendientes_pago(args.get("mes"), _anio(args), _ccedula(args)),
     "manifiestos_sin_factura":     lambda args: queries.manifiestos_sin_factura(args.get("mes"), _anio(args), _ccedula(args)),
     "top_conductores":             lambda args: queries.top_conductores(args.get("mes"), _anio(args), _limite(args)),

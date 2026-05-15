@@ -5,18 +5,17 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 
 def get_settings() -> dict:
-    required = ["GROQ_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "JWT_SECRET"]
+    # DEEPSEEK_API_KEY → agente principal (producción)
+    # GROQ_API_KEY     → solo moderación (clasificador rápido y barato)
+    required = ["DEEPSEEK_API_KEY", "GROQ_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "JWT_SECRET"]
     missing = [k for k in required if not os.getenv(k)]
     if missing:
         raise RuntimeError(f"Variables de entorno faltantes: {', '.join(missing)}")
 
     return {
-        # GROQ_API_KEY la lee el cliente de Groq directo del entorno
+        # DEEPSEEK_API_KEY y GROQ_API_KEY las leen sus clientes directo del entorno
         "supabase_url":         os.environ["SUPABASE_URL"],
         "supabase_service_key": os.environ["SUPABASE_SERVICE_KEY"],
-
-        # Claude / Anthropic (producción)
-        # "anthropic_api_key": os.environ["ANTHROPIC_API_KEY"],
     }
 
 
