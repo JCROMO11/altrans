@@ -350,5 +350,56 @@ class TestAgentReply:
             assert 'error' in send.call_args[0][1].lower() or 'intent' in send.call_args[0][1].lower()
 
 
+# ── 7. VALIDACIÓN HMAC ─────────────────────────────────────────────────────────
+
+import hashlib
+import hmac
+
+# _validate_signature vive en main.py; al importarla se ejecuta el init de la app
+# pero como `config` y `db` ya están importados indirectamente vía webhook, no hay
+# problema de side-effects adicionales.
+from main import _validate_signature
+
+
+class TestHmacValidation:
+    SECRET = "test-secret-2026"
+
+    def _sign(self, body: bytes, secret: str | None = None) -> str:
+        key = (secret or self.SECRET).encode("utf-8")
+        return "sha256=" + hmac.new(key, body, hashlib.sha256).hexdigest()
+
+    def test_firma_valida_pasa(self, monkeypatch):
+        """Con secreto configurado y firma correcta → True."""
+        monkeypatch.setenv("WA_APP_SECRET", self.SECRET)
+        body = b'{"entry":[{"changes":[{"value":{"messages":[{"from":"5","id":"m"}]}}]}]}'
+        sig = self._sign(body)
+        assert _validate_signature(body, sig) is True
+
+    def test_firma_invalida_rechaza(self, monkeypatch):
+        """Con secreto configurado y firma incorrecta → False."""
+        monkeypatch.setenv("WA_APP_SECRET", self.SECRET)
+        body = b'{"entry":[]}'
+        fake_sig = self._sign(b"otro-body-diferente")
+        assert _validate_signature(body, fake_sig) is False
+
+    def test_header_faltante_rechaza(self, monkeypatch):
+        """Sin el header de firma → False."""
+        monkeypatch.setenv("WA_APP_SECRET", self.SECRET)
+        assert _validate_signature(b'{"entry":[]}', None) is False
+
+    def test_header_mal_formado_rechaza(self, monkeypatch):
+        """Header que no empieza con sha256= → False."""
+        monkeypatch.setenv("WA_APP_SECRET", self.SECRET)
+        assert _validate_signature(b'{"entry":[]}', "md5=abc123") is False
+
+    def test_sin_secret_deja_pasar(self, monkeypatch):
+        """Modo desarrollo: sin WA_APP_SECRET configurado → True (con warning)."""
+        monkeypatch.delenv("WA_APP_SECRET", raising=False)
+        # Cualquier body, sin header — en dev pasa todo
+        assert _validate_signature(b'cualquier cosa', None) is True
+        # Incluso con header mal formado pasa porque no hay secreto
+        assert _validate_signature(b'{"entry":[]}', "sha256=daigual") is True
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
