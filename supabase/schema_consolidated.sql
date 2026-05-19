@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
 
     -- ── Cumplimiento operativo ──────────────────────────────────────────────
     fecha_cumplido              DATE,
-    compromiso_pago             TEXT,
+    compromiso_pago             TEXT            DEFAULT 'PAGO A 15 DIAS',
     novedades                   TEXT,
     novedad_conductor           TEXT,
     novedad_empresa             TEXT,
