@@ -1,6 +1,9 @@
-.PHONY: help setup status db-reset etl load backup seed-users list-users \
-        test-db test-agent test-agent-multi test-concurrency \
-        serve ngrok probar-todo clean
+.PHONY: help setup status count dedup-check verify-load \
+        db-reset etl load backup seed-users list-users \
+        chatbot-status \
+        test-db test-etl test-webhook test-dashboard test-agent \
+        test-agent-multi test-concurrency test-all \
+        serve ngrok probar-todo clean install-dashboard-deps
 
 PY   := python3
 PORT ?= 8080
@@ -11,11 +14,15 @@ help:
 	@echo "  Setup"
 	@echo "    setup              - Instala deps y valida .env"
 	@echo "    status             - Conteos rápidos por tabla"
+	@echo "    install-dashboard-deps - npm install en dashboard/"
 	@echo ""
 	@echo "  Pipeline de datos  (ojo: destructivo)"
 	@echo "    db-reset           - DROPea schema y reaplica schema_consolidated.sql"
 	@echo "    etl                - Excel -> sheets -> cleaning -> informe_etl"
 	@echo "    load               - Sube cleaned_data a Supabase"
+	@echo "    count              - SELECT COUNT(*) de manifiestos_flat"
+	@echo "    dedup-check        - Detecta manifiestos duplicados en DB"
+	@echo "    verify-load        - count + dedup-check (validar tras load)"
 	@echo "    backup             - Backup CSV de todas las tablas"
 	@echo ""
 	@echo "  Usuarios"
@@ -23,17 +30,24 @@ help:
 	@echo "    list-users         - Lista usuarios actuales + rol"
 	@echo ""
 	@echo "  Tests"
-	@echo "    test-db            - pytest tests/ (audit, RPCs, seguridad)"
+	@echo "    test-db            - Seguridad, integridad, audit_log, RPCs"
+	@echo "    test-etl           - Funciones de limpieza del ETL"
+	@echo "    test-webhook       - Webhook WhatsApp (auth, jailbreak, límites, HMAC)"
+	@echo "    test-dashboard     - vitest (componentes y hooks del dashboard)"
 	@echo "    test-agent         - Suite del chatbot (DeepSeek)"
-	@echo "    test-agent-multi   - A/B contra deepseek,groq,gemini,claude"
-	@echo "    test-concurrency   - Solo el test de 10 conductores paralelos"
+	@echo "    test-agent-multi   - A/B contra deepseek,gemini,claude"
+	@echo "    test-concurrency   - 10 conductores paralelos"
+	@echo "    test-all           - TODOS los tests (db + etl + webhook + agent)"
+	@echo ""
+	@echo "  Monitoreo"
+	@echo "    chatbot-status     - Salud del chatbot (sesiones, jailbreaks, activos)"
 	@echo ""
 	@echo "  Dev server"
 	@echo "    serve              - uvicorn FastAPI puerto $$PORT (2 workers)"
 	@echo "    ngrok              - Túnel ngrok al puerto $$PORT"
 	@echo ""
 	@echo "  Atajo del día"
-	@echo "    probar-todo        - db-reset + etl  (revisar informe antes de load)"
+	@echo "    probar-todo        - db-reset + etl (revisar informe antes de make load)"
 
 # ── Setup ──────────────────────────────────────────────────────────────────────
 
@@ -45,6 +59,10 @@ setup:
 	pip install -r ai_agent/requirements.txt
 	pip install pandas openpyxl sqlalchemy psycopg2-binary python-dotenv pytest requests
 	@echo "✅ Setup OK"
+
+install-dashboard-deps:
+	cd dashboard && npm install
+	@echo "✅ Dashboard deps instaladas"
 
 status:
 	@$(PY) -c "import os; from dotenv import load_dotenv; load_dotenv(); \
@@ -73,6 +91,22 @@ load:
 	$(PY) -m etl_individual.load_flat
 	@echo "✅ Datos cargados a Supabase"
 
+count:
+	@$(PY) -c "import os; from dotenv import load_dotenv; load_dotenv(); \
+import psycopg2; c = psycopg2.connect(os.environ['DATABASE_URL']); cur = c.cursor(); \
+cur.execute('SELECT COUNT(*) FROM public.manifiestos_flat'); \
+print(f'manifiestos_flat: {cur.fetchone()[0]:,} filas')"
+
+dedup-check:
+	@$(PY) -c "import os; from dotenv import load_dotenv; load_dotenv(); \
+import psycopg2; c = psycopg2.connect(os.environ['DATABASE_URL']); cur = c.cursor(); \
+cur.execute('SELECT manifiesto, COUNT(*) AS n FROM public.manifiestos_flat GROUP BY 1 HAVING COUNT(*) > 1 ORDER BY n DESC'); \
+dups = cur.fetchall(); \
+[print(f'  ⚠️  {m}: {n} ocurrencias') for m, n in dups] if dups else print('✅ Sin duplicados')"
+
+verify-load: count dedup-check
+	@echo "✅ Carga verificada"
+
 backup:
 	$(PY) -m etl_individual.backup_db
 
@@ -84,20 +118,40 @@ seed-users:
 list-users:
 	$(PY) -m etl_individual.seed_users --listar
 
+# ── Monitoreo ─────────────────────────────────────────────────────────────────
+
+chatbot-status:
+	$(PY) ai_agent/scripts/chatbot_status.py
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 test-db:
 	$(PY) -m pytest tests/test_audit_log.py tests/test_read_rpcs.py -v
 	$(PY) tests/test_seguridad_integridad.py
 
+test-etl:
+	$(PY) -m pytest tests/test_cleaning_etl.py -v
+
+test-webhook:
+	$(PY) -m pytest tests/test_webhook.py -v
+
+test-dashboard:
+	@test -d dashboard/node_modules || (echo "⚠️  node_modules no encontrado. Ejecuta: make install-dashboard-deps" && exit 1)
+	cd dashboard && npx vitest run
+
 test-agent:
 	cd ai_agent && $(PY) scripts/test_agent.py
 
 test-agent-multi:
-	cd ai_agent && $(PY) scripts/test_agent.py --modelos deepseek,groq,gemini,claude
+	cd ai_agent && $(PY) scripts/test_agent.py --modelos deepseek,gemini,claude
 
 test-concurrency:
 	cd ai_agent && $(PY) scripts/test_agent.py --concurrencia --categoria consultas
+
+test-all: test-db test-etl test-webhook test-agent
+	@echo ""
+	@echo "✅ Suite completa (db + etl + webhook + agent)."
+	@echo "   Dashboard tests: make test-dashboard  (requiere Node)"
 
 # ── Dev server ────────────────────────────────────────────────────────────────
 
@@ -112,7 +166,7 @@ ngrok:
 probar-todo: db-reset etl
 	@echo ""
 	@echo "👉 Revisa cleaned_data/informe_calidad/informe_etl.xlsx"
-	@echo "    Si OK:   make load && make seed-users && make test-db && make test-agent"
+	@echo "    Si OK:   make load && make seed-users && make verify-load && make test-all"
 
 clean:
 	@find . -type d \( -name __pycache__ -o -name .pytest_cache \) -exec rm -rf {} + 2>/dev/null || true
