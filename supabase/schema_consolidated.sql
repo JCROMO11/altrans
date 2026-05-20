@@ -702,11 +702,11 @@ BEGIN
         RAISE EXCEPTION 'Sin permiso';
     END IF;
     UPDATE public.manifiestos_flat SET
-        factura_no          = p_factura_no,
-        fecha_factura       = p_fecha_factura,
-        factura_electronica = p_factura_electronica,
-        mes_facturacion     = p_mes_facturacion,
-        valor_factura       = p_valor_factura,
+        factura_no          = COALESCE(p_factura_no,          factura_no),
+        fecha_factura       = COALESCE(p_fecha_factura,       fecha_factura),
+        factura_electronica = COALESCE(p_factura_electronica, factura_electronica),
+        mes_facturacion     = COALESCE(p_mes_facturacion,     mes_facturacion),
+        valor_factura       = COALESCE(p_valor_factura,       valor_factura),
         actualizado_en      = now()
     WHERE manifiesto = p_manifiesto;
 END;
