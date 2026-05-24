@@ -22,7 +22,6 @@ COPY . .
 RUN useradd -m -u 1000 altrans && chown -R altrans:altrans /app
 USER altrans
 
-# Railway inyecta $PORT
 ENV PORT=8080
 EXPOSE 8080
 

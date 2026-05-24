@@ -10,11 +10,15 @@ _ALGO   = "HS256"
 _TTL_H  = 24
 
 
-def create_token(nombre: str, cedula: str) -> str:
+def create_token(nombre: str, identificador: str, tipo_usuario: str = "conductor") -> str:
+    """`identificador` es la cédula (conductor) o la placa (propietario)."""
     payload = {
-        "nombre": nombre,
-        "cedula": cedula,
-        "exp":    datetime.now(timezone.utc) + timedelta(hours=_TTL_H),
+        "nombre":        nombre,
+        "identificador": identificador,
+        "tipo_usuario":  tipo_usuario,
+        # Campo legacy para clientes que aún leen `cedula` directamente.
+        "cedula":        identificador if tipo_usuario == "conductor" else None,
+        "exp":           datetime.now(timezone.utc) + timedelta(hours=_TTL_H),
     }
     return jwt.encode(payload, _SECRET, algorithm=_ALGO)
 
@@ -31,5 +35,11 @@ def decode_token(token: str) -> dict:
 def get_current_conductor(
     credentials: HTTPAuthorizationCredentials = Security(_bearer),
 ) -> dict:
-    """FastAPI dependency — inyecta nombre y cedula del conductor autenticado."""
-    return decode_token(credentials.credentials)
+    """FastAPI dependency — inyecta nombre, identificador y tipo_usuario del usuario autenticado.
+    Mantiene `cedula` en el dict por compatibilidad con clientes existentes."""
+    payload = decode_token(credentials.credentials)
+    # Si el token es viejo (solo tenía `cedula`), normalizar al formato nuevo.
+    if "identificador" not in payload and "cedula" in payload:
+        payload["identificador"] = payload["cedula"]
+        payload["tipo_usuario"]  = "conductor"
+    return payload
