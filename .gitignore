@@ -35,3 +35,6 @@ dashboard/.env.local
 supabase/.branches
 supabase/.temp
 supabase/migrations/
+
+# Documentación local (no va al repo)
+docs/

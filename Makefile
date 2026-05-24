@@ -1,12 +1,14 @@
-.PHONY: help setup status count dedup-check verify-load \
-        db-reset etl load backup seed-users list-users \
+.PHONY: help setup status count dedup-check verify-load verify-schema \
+        db-reset etl load backup verify-backup seed-users seed-users-dry list-users \
         chatbot-status \
         test-db test-etl test-webhook test-dashboard test-agent \
-        test-agent-multi test-concurrency test-all \
+        test-agent-propietario test-agent-multi test-concurrency test-all \
+        test-excel-pre test-excel-post test-excel-generar \
         serve ngrok probar-todo clean install-dashboard-deps
 
-PY   := python3
-PORT ?= 8080
+SHELL   := /bin/bash
+PY      := python3
+PORT    ?= 8080
 
 help:
 	@echo "Comandos disponibles:"
@@ -22,11 +24,14 @@ help:
 	@echo "    load               - Sube cleaned_data a Supabase"
 	@echo "    count              - SELECT COUNT(*) de manifiestos_flat"
 	@echo "    dedup-check        - Detecta manifiestos duplicados en DB"
-	@echo "    verify-load        - count + dedup-check (validar tras load)"
+	@echo "    verify-load        - DB vs CSV cleaned + dedup-check (validar tras load)"
+	@echo "    verify-schema      - Verifica tablas + RPCs (usar tras db-reset)"
 	@echo "    backup             - Backup CSV de todas las tablas"
+	@echo "    verify-backup      - Verifica integridad del último backup vs DB (conteo + PKs + sumas)"
 	@echo ""
 	@echo "  Usuarios"
-	@echo "    seed-users         - Crea/actualiza usuarios test (1 por rol)"
+	@echo "    seed-users         - Crea/actualiza usuarios de producción (login por cédula)"
+	@echo "    seed-users-dry     - Previsualiza seed sin ejecutar"
 	@echo "    list-users         - Lista usuarios actuales + rol"
 	@echo ""
 	@echo "  Tests"
@@ -34,10 +39,16 @@ help:
 	@echo "    test-etl           - Funciones de limpieza del ETL"
 	@echo "    test-webhook       - Webhook WhatsApp (auth, jailbreak, límites, HMAC)"
 	@echo "    test-dashboard     - vitest (componentes y hooks del dashboard)"
-	@echo "    test-agent         - Suite del chatbot (DeepSeek)"
+	@echo "    test-agent         - Suite completa del chatbot (conductor+admin+propietario+concurrencia)"
+	@echo "    test-agent-propietario - Solo casos de propietario (placa)"
 	@echo "    test-agent-multi   - A/B contra deepseek,gemini,claude"
-	@echo "    test-concurrency   - 10 conductores paralelos"
+	@echo "    test-concurrency   - Suite completa + 10 conductores paralelos"
 	@echo "    test-all           - TODOS los tests (db + etl + webhook + agent)"
+	@echo ""
+	@echo "  Excel upload (2.6)"
+	@echo "    test-excel-generar - Genera prueba_invalidas.xlsx y prueba_vacio.xlsx en tests/reportes/"
+	@echo "    test-excel-pre     - Compara CSV cleaned vs Lista_Manifiestos (qué va a cambiar)"
+	@echo "    test-excel-post    - Compara DB actual vs Lista_Manifiestos (verifica que se aplicaron)"
 	@echo ""
 	@echo "  Monitoreo"
 	@echo "    chatbot-status     - Salud del chatbot (sesiones, jailbreaks, activos)"
@@ -73,10 +84,14 @@ print('Tabla'.ljust(25), 'Filas'.rjust(10)); print('-'*40); \
 # ── Pipeline de datos ─────────────────────────────────────────────────────────
 
 db-reset:
-	@echo "⚠️  ESTO BORRA TODOS LOS DATOS DE LA DB. Ctrl+C en 3s para cancelar..."
+	@test -f .env || (echo "ERROR: falta .env en la raíz del proyecto"; exit 1)
+	@grep -q '^DATABASE_URL=' .env || (echo "ERROR: DATABASE_URL no está definido en .env"; exit 1)
+	@echo "⚠️  ESTO BORRA TODOS LOS DATOS Y RECREA EL SCHEMA. Ctrl+C en 3s para cancelar..."
 	@sleep 3
-	@psql "$$(grep '^DATABASE_URL=' .env | cut -d= -f2-)" -f supabase/schema_consolidated.sql
-	@echo "✅ Schema re-aplicado"
+	@psql "$$(grep '^DATABASE_URL=' .env | cut -d= -f2-)" \
+	    -c "TRUNCATE public.manifiestos_flat, public.audit_log, public.chatbot_sesiones, public.processed_messages, public.jailbreak_log RESTART IDENTITY CASCADE;" \
+	    -f supabase/schema_consolidated.sql
+	@echo "✅ Datos borrados y schema re-aplicado"
 
 etl:
 	$(PY) -m etl_individual.exports
@@ -104,16 +119,25 @@ cur.execute('SELECT manifiesto, COUNT(*) AS n FROM public.manifiestos_flat GROUP
 dups = cur.fetchall(); \
 [print(f'  ⚠️  {m}: {n} ocurrencias') for m, n in dups] if dups else print('✅ Sin duplicados')"
 
-verify-load: count dedup-check
-	@echo "✅ Carga verificada"
+verify-load:
+	$(PY) -m etl_individual.verify_load
+
+verify-schema:
+	$(PY) -m etl_individual.verify_schema
 
 backup:
 	$(PY) -m etl_individual.backup_db
+
+verify-backup:
+	$(PY) -m etl_individual.verify_backup
 
 # ── Usuarios ─────────────────────────────────────────────────────────────────
 
 seed-users:
 	$(PY) -m etl_individual.seed_users
+
+seed-users-dry:
+	$(PY) -m etl_individual.seed_users --dry-run
 
 list-users:
 	$(PY) -m etl_individual.seed_users --listar
@@ -140,18 +164,49 @@ test-dashboard:
 	cd dashboard && npx vitest run
 
 test-agent:
-	cd ai_agent && $(PY) scripts/test_agent.py
+	cd ai_agent && $(PY) scripts/test_agent.py --tipo todos --concurrencia
+
+test-agent-propietario:
+	cd ai_agent && $(PY) scripts/test_agent.py --tipo propietario
 
 test-agent-multi:
 	cd ai_agent && $(PY) scripts/test_agent.py --modelos deepseek,gemini,claude
 
 test-concurrency:
-	cd ai_agent && $(PY) scripts/test_agent.py --concurrencia --categoria consultas
+	cd ai_agent && $(PY) scripts/test_agent.py --tipo todos --concurrencia
 
 test-all: test-db test-etl test-webhook test-agent
 	@echo ""
 	@echo "✅ Suite completa (db + etl + webhook + agent)."
 	@echo "   Dashboard tests: make test-dashboard  (requiere Node)"
+
+# ── Excel upload (numeral 2.6) ────────────────────────────────────────────
+
+test-excel-generar:
+	$(PY) tests/generar_excel_prueba.py --invalidas --vacio
+	@echo ""
+	@echo "✅ Excels de prueba generados en data/data_test/"
+	@echo "   prueba_invalidas.xlsx  — 6 válidas + 4 inválidas  → subir al dashboard"
+	@echo "   prueba_vacio.xlsx      — sin datos                 → debe mostrar error"
+
+test-excel-pre:
+	$(PY) tests/generar_excel_comparacion.py \
+	    --csv cleaned_data/individual_cleaned.csv \
+	    --excel data/Lista_Manifiestos_08_05_2026.xlsx \
+	    --output tests/reportes/comparacion_pre_upload.xlsx
+	@echo ""
+	@echo "✅ Reporte PRE-upload: tests/reportes/comparacion_pre_upload.xlsx"
+	@echo "   → Muestra qué campos CAMBIARÁN al importar el Excel"
+
+test-excel-post:
+	$(PY) tests/generar_excel_comparacion.py \
+	    --desde-db \
+	    --excel data/Lista_Manifiestos_08_05_2026.xlsx \
+	    --output tests/reportes/comparacion_post_upload.xlsx
+	@echo ""
+	@echo "✅ Reporte POST-upload: tests/reportes/comparacion_post_upload.xlsx"
+	@echo "   → 'Sin Cambios' = cambios aplicados correctamente"
+	@echo "   → 'Con Cambios' = manifiestos que quedaron distintos (deseleccionados o errores)"
 
 # ── Dev server ────────────────────────────────────────────────────────────────
 
