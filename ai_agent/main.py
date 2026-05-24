@@ -53,12 +53,14 @@ def login(req: LoginRequest):
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, conductor: dict = Depends(get_current_conductor)):
-    respuesta = run(
-        req.mensaje,
-        req.historial,
-        conductor_nombre=conductor["nombre"],
-        conductor_cedula=conductor["cedula"],
-    )
+    tipo = conductor.get("tipo_usuario") or "conductor"
+    identificador = conductor.get("identificador") or conductor.get("cedula")
+    kwargs = {"nombre": conductor.get("nombre"), "tipo_usuario": tipo}
+    if tipo == "conductor":
+        kwargs["conductor_cedula"] = identificador
+    else:
+        kwargs["placa"] = identificador
+    respuesta, _tools_called = run(req.mensaje, req.historial, **kwargs)
     return ChatResponse(respuesta=respuesta)
 
 
