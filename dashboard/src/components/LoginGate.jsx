@@ -8,7 +8,7 @@ const BLUE = '#1E6FBF'
 const MUTED = '#64748B'
 
 export default function LoginGate({ children }) {
-  const [input, setInput]     = useState({ email: '', password: '' })
+  const [input, setInput]     = useState({ cedula: '', password: '' })
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)
   const [visible, setVisible] = useState(false)
@@ -19,12 +19,12 @@ export default function LoginGate({ children }) {
     setError('')
 
     const { error: err } = await supabase.auth.signInWithPassword({
-      email:    input.email.trim(),
+      email:    `${input.cedula.trim()}@altrans.internal`,
       password: input.password,
     })
 
     if (err) {
-      setError('Correo o contraseña incorrectos')
+      setError('Cédula o contraseña incorrectos')
       setLoading(false)
     }
     // Si hay éxito, onAuthStateChange en App.jsx actualiza la sesión automáticamente
@@ -48,17 +48,18 @@ export default function LoginGate({ children }) {
             </svg>
           </div>
           <p className="text-lg font-bold tracking-wide" style={{ color: TICK }}>Altrans</p>
-          <p className="text-xs" style={{ color: MUTED }}>Ingresa tus credenciales para continuar</p>
+          <p className="text-xs" style={{ color: MUTED }}>Ingresa tu cédula y contraseña para continuar</p>
         </div>
 
         {/* Form */}
         <form onSubmit={submit} className="flex flex-col gap-3">
           <input
-            type="email"
-            value={input.email}
+            type="text"
+            inputMode="numeric"
+            value={input.cedula}
             autoFocus
-            placeholder="Correo electrónico"
-            onChange={e => setInput(p => ({ ...p, email: e.target.value }))}
+            placeholder="Número de cédula"
+            onChange={e => setInput(p => ({ ...p, cedula: e.target.value }))}
             className="w-full rounded-md border px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#1E6FBF] transition-colors bg-transparent"
             style={{ borderColor: error ? '#ef4444' : BDR, color: TICK }}
           />
@@ -87,7 +88,7 @@ export default function LoginGate({ children }) {
 
           <button
             type="submit"
-            disabled={!input.email || !input.password || loading}
+            disabled={!input.cedula || !input.password || loading}
             className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-40"
             style={{ background: BLUE, color: '#FFFFFF' }}>
             {loading ? 'Ingresando...' : 'Entrar'}

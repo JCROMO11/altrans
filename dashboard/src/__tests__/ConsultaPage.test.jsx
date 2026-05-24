@@ -41,7 +41,7 @@ describe('ConsultaPage', () => {
   })
 
   it('renderiza el panel de filtros', () => {
-    render(<ConsultaPage user={{ app_metadata: { role: 'operativo' } }} />)
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
     expect(screen.getByText(/Filtros de consulta/i)).toBeInTheDocument()
     expect(screen.getByText(/Limpiar todo/i)).toBeInTheDocument()
   })
@@ -52,7 +52,7 @@ describe('ConsultaPage', () => {
       rows: [], totals: null, loading: false, page: 0, hasMore: false,
       buscar, nextPage: vi.fn(), prevPage: vi.fn(),
     })
-    render(<ConsultaPage user={{ app_metadata: { role: 'operativo' } }} />)
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
 
     expect(buscar).toHaveBeenCalledWith(expect.objectContaining({
       manifiesto: '', fecha_desde: '', fecha_hasta: '',
@@ -66,7 +66,7 @@ describe('ConsultaPage', () => {
       rows: [], totals: null, loading: false, page: 0, hasMore: false,
       buscar, nextPage: vi.fn(), prevPage: vi.fn(),
     })
-    render(<ConsultaPage user={{ app_metadata: { role: 'operativo' } }} />)
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
 
     const input = screen.getByPlaceholderText('Número...')
     fireEvent.change(input, { target: { value: '21001' } })
@@ -85,7 +85,7 @@ describe('ConsultaPage', () => {
       rows: [], totals: null, loading: false, page: 0, hasMore: false,
       buscar, nextPage: vi.fn(), prevPage: vi.fn(),
     })
-    render(<ConsultaPage user={{ app_metadata: { role: 'operativo' } }} />)
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
 
     buscar.mockClear()
     fireEvent.click(screen.getByText(/Limpiar todo/i))
@@ -95,13 +95,13 @@ describe('ConsultaPage', () => {
     )
   })
 
-  it('rol admin ve la pestaña de Auditoría', () => {
-    render(<ConsultaPage user={{ app_metadata: { role: 'admin' } }} />)
+  it('rol gerencia ve la pestaña de Auditoría', () => {
+    render(<ConsultaPage user={{ app_metadata: { role: 'gerencia' } }} />)
     expect(screen.getByText(/Auditoría/i)).toBeInTheDocument()
   })
 
-  it('rol operativo NO ve pestaña de Auditoría', () => {
-    render(<ConsultaPage user={{ app_metadata: { role: 'operativo' } }} />)
+  it('rol logistico NO ve pestaña de Auditoría', () => {
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
     expect(screen.queryByText(/Auditoría/i)).not.toBeInTheDocument()
   })
 })

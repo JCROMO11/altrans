@@ -53,8 +53,8 @@ export function useManifiesto() {
     if (error) throw error
   }
 
-  const updateSeguimiento = async (manifiesto_id, form) => {
-    const { error } = await supabase.rpc('guardar_operativo', {
+  const updateLogistico = async (manifiesto_id, form) => {
+    const { error } = await supabase.rpc('guardar_logistico', {
       p_manifiesto:                 manifiesto_id,
       p_fecha_cumplido:             form.fecha_cumplido              || null,
       p_compromiso_pago:            form.compromiso_pago             || null,
@@ -98,5 +98,5 @@ export function useManifiesto() {
     if (error) throw error
   }
 
-  return { search, update, remove, updateSeguimiento, updateTesoreria, updateFacturacion }
+  return { search, update, remove, updateLogistico, updateTesoreria, updateFacturacion }
 }
