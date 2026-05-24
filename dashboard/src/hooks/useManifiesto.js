@@ -98,5 +98,16 @@ export function useManifiesto() {
     if (error) throw error
   }
 
-  return { search, update, remove, updateLogistico, updateTesoreria, updateFacturacion }
+  // Solo estado_interno + responsable. Para financiero/administrativo, que NO
+  // tienen acceso a guardar_logistico (no pueden tocar novedades/ajustes).
+  const updateEstadoInterno = async (manifiesto_id, { estado_interno, responsable_estado_interno }) => {
+    const { error } = await supabase.rpc('guardar_estado_interno', {
+      p_manifiesto:                 manifiesto_id,
+      p_estado_interno:             estado_interno             || null,
+      p_responsable_estado_interno: responsable_estado_interno || null,
+    })
+    if (error) throw error
+  }
+
+  return { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion }
 }
