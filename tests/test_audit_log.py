@@ -21,7 +21,7 @@ def _conn():
     return psycopg2.connect(DB_URL)
 
 
-def _claims_for(role='admin', email='test@altrans.local'):
+def _claims_for(role='gerencia', email='test@altrans.local'):
     return json.dumps({
         'sub':'test','role':'authenticated','email':email,
         'app_metadata':{'role':role},
@@ -120,7 +120,7 @@ def fixtures():
 class TestAuditLog:
 
     def test_update_de_un_campo_genera_una_fila(self):
-        _update_with('admin', 'tester@altrans.local', cliente='CLIENTE NUEVO')
+        _update_with('gerencia', 'tester@altrans.local', cliente='CLIENTE NUEVO')
 
         rows = _audit_rows(TEST_MANIF)
         assert len(rows) == 1
@@ -130,12 +130,12 @@ class TestAuditLog:
         assert r['valor_nuevo']    == 'CLIENTE NUEVO'
 
     def test_registra_email_del_usuario(self):
-        _update_with('admin', 'maria@altrans.local', cliente='OTRO')
+        _update_with('gerencia', 'maria@altrans.local', cliente='OTRO')
         rows = _audit_rows(TEST_MANIF)
         assert rows[0]['usuario'] == 'maria@altrans.local'
 
     def test_update_varios_campos_genera_varias_filas(self):
-        _update_with('admin', 'x@y.com',
+        _update_with('gerencia', 'x@y.com',
                      cliente='NUEVO', placa='XYZ999', conductor='CONDUCTOR NUEVO')
 
         rows = _audit_rows(TEST_MANIF)
@@ -144,7 +144,7 @@ class TestAuditLog:
 
     def test_update_a_mismo_valor_no_genera_fila(self):
         # Cliente actual = 'CLIENTE ORIG'. Asignar el mismo valor → no debe haber fila.
-        _update_with('admin', 'x@y.com', cliente='CLIENTE ORIG')
+        _update_with('gerencia', 'x@y.com', cliente='CLIENTE ORIG')
         rows = _audit_rows(TEST_MANIF)
         # El campo 'cliente' NO debe estar
         assert not any(r['campo'] == 'cliente' for r in rows)
@@ -157,14 +157,14 @@ class TestAuditLog:
                    and r['valor_nuevo'] == 'Revisar peso' for r in rows)
 
     def test_valor_a_null_se_audita(self):
-        _update_with('admin', 'x@y.com', conductor=None)
+        _update_with('gerencia', 'x@y.com', conductor=None)
         rows = _audit_rows(TEST_MANIF)
         c = next(r for r in rows if r['campo'] == 'conductor')
         assert c['valor_anterior'] == 'CONDUCTOR ORIG'
         assert c['valor_nuevo'] is None
 
     def test_campo_numerico_se_serializa_como_texto(self):
-        _update_with('admin', 'x@y.com', flete_conductor=600000)
+        _update_with('gerencia', 'x@y.com', flete_conductor=600000)
         rows = _audit_rows(TEST_MANIF)
         f = next(r for r in rows if r['campo'] == 'flete_conductor')
         # PostgreSQL serializa NUMERIC(14,2) como '500000.00'
@@ -173,16 +173,16 @@ class TestAuditLog:
 
     def test_cambio_de_flete_genera_audit_de_flete_neto_tambien(self):
         """flete_neto_conductor es GENERATED — se recalcula y debe loguearse."""
-        _update_with('admin', 'x@y.com', flete_conductor=700000)
+        _update_with('gerencia', 'x@y.com', flete_conductor=700000)
         rows = _audit_rows(TEST_MANIF)
         campos = {r['campo'] for r in rows}
         assert 'flete_conductor'      in campos
         assert 'flete_neto_conductor' in campos
 
     def test_cambios_secuenciales_acumulan_filas(self):
-        _update_with('admin', 'a@x.com', cliente='V1')
-        _update_with('admin', 'b@x.com', cliente='V2')
-        _update_with('admin', 'c@x.com', cliente='V3')
+        _update_with('gerencia', 'a@x.com', cliente='V1')
+        _update_with('gerencia', 'b@x.com', cliente='V2')
+        _update_with('gerencia', 'c@x.com', cliente='V3')
         rows = _audit_rows(TEST_MANIF)
         cliente_rows = [r for r in rows if r['campo'] == 'cliente']
         assert len(cliente_rows) == 3
@@ -194,7 +194,7 @@ class TestAuditLog:
 
     def test_campos_no_auditados_no_generan_fila(self):
         """Campos como 'mes', 'año', 'archivo_origen' NO están en la lista del trigger."""
-        _update_with('admin', 'x@y.com', archivo_origen='OTRO.xlsx')
+        _update_with('gerencia', 'x@y.com', archivo_origen='OTRO.xlsx')
         rows = _audit_rows(TEST_MANIF)
         assert not any(r['campo'] == 'archivo_origen' for r in rows)
 
@@ -231,7 +231,7 @@ class TestAuditLog:
 
     def test_borrado_de_manifiesto_borra_audit_log_en_cascada(self):
         # Generar algunas entradas
-        _update_with('admin', 'x@y.com', cliente='X1')
+        _update_with('gerencia', 'x@y.com', cliente='X1')
         assert len(_audit_rows(TEST_MANIF)) > 0
 
         # Borrar el manifiesto

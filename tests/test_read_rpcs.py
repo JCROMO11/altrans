@@ -36,7 +36,7 @@ TEST_MANIFIESTOS = [
     (999005, 'MAYO',   2026, 'TEST ANULADO',     'CLIENTE Z', 'CALI',     900000,  400000, 0),  # ANULADO
 ]
 
-def _set_claims(cur, role='admin'):
+def _set_claims(cur, role='gerencia'):
     claims = json.dumps({"sub":"test","role":"authenticated","email":"test@altrans.local","app_metadata":{"role":role}})
     cur.execute("SET LOCAL request.jwt.claims = %s", (claims,))
 
