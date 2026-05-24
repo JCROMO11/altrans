@@ -11,17 +11,26 @@ def normalize_col(name: str) -> str:
 
 def find_header_row(file, max_rows=20):
     preview = pd.read_csv(file, header=None, nrows=max_rows)
-    
+
     # Ignora filas que contengan "HOLA" en cualquier celda
     hola_mask = preview.apply(
         lambda row: row.astype(str).str.contains('HOLA', case=False, na=False).any(),
         axis=1
     )
     valid_rows = preview[~hola_mask]
-    
+
     if valid_rows.empty:
         valid_rows = preview  # fallback por si acaso
-    
+
+    # Busca primero la fila que tenga 'MANIFIESTO' como valor de celda — indicador
+    # confiable del header real. Evita que filas con muchos "Unnamed: X" ganen por conteo.
+    manif_mask = valid_rows.apply(
+        lambda row: row.astype(str).str.strip().str.upper().eq('MANIFIESTO').any(),
+        axis=1
+    )
+    if manif_mask.any():
+        return int(manif_mask.idxmax())
+
     non_null_counts = valid_rows.notna().sum(axis=1)
     return int(non_null_counts.idxmax())
 
@@ -1059,6 +1068,37 @@ def _clean_cedula_conductor(val) -> tuple[str | None, str | None]:
     return None, f"[CEDULA INUSUAL: {str(val).strip()}]"
 
 
+_BAD_YEAR_RE = re.compile(r'\b(20\d{3,})\b')
+
+def _fix_year_typo(val) -> str:
+    """
+    Corrige años con dígitos extra en strings de fecha.
+    Busca el último grupo '20XX' dentro del año malformado.
+      '31/05/20245'  → '31/05/2024'
+      '09/01/20256'  → '09/01/2025'
+      '13/08/202025' → '13/08/2025'
+      '11/01/20234'  → '11/01/2023'
+    """
+    if pd.isna(val):
+        return val
+    s = str(val)
+
+    def _last_valid_year(m):
+        bad = m.group(1)
+        if len(bad) == 5:
+            # '20240' → '2024', '20256' → '2025'
+            return bad[:4]
+        if len(bad) == 6:
+            # '202025' → last 4 = '2025'; fallback: first 4
+            last4 = bad[-4:]
+            return last4 if re.match(r'20\d{2}$', last4) else bad[:4]
+        # 7+ dígitos: tomar el último grupo '20XX' válido
+        matches = re.findall(r'20\d{2}', bad)
+        return matches[-1] if matches else bad
+
+    return _BAD_YEAR_RE.sub(_last_valid_year, s)
+
+
 def clean_values(df: pd.DataFrame) -> pd.DataFrame:
     """
     Limpieza de valores del DataFrame combinado:
@@ -1079,6 +1119,7 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
     #    con los demás cuando no coincide.
     for col in DATE_COLS:
         if col in df.columns:
+            df[col] = df[col].apply(_fix_year_typo)
             df[col] = pd.to_datetime(df[col], errors="coerce", format="mixed").dt.date
 
     # 2. Monetarios → entero nullable (sin decimales, coincide con DB NUMERIC)
