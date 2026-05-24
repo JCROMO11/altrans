@@ -1,3 +1,5 @@
+from datetime import date, datetime
+
 import httpx
 from config import get_settings
 
@@ -11,6 +13,26 @@ _HEADERS = {
 }
 
 TABLE = "manifiestos_flat"
+# Vista enriquecida con campos calculados (fecha_estimada_pago, dias_cumplido).
+# Usar para queries que necesitan esos campos; el resto puede seguir contra la tabla.
+VIEW = "v_manifiestos"
+
+
+def _add_dias_restantes(rows: list[dict]) -> list[dict]:
+    """Calcula dias_restantes_pago = fecha_estimada_pago - hoy.
+    NULL si fecha_estimada_pago no aplica (anulado, pagado, sin cumplido, modalidad sin plazo)."""
+    hoy = date.today()
+    for r in rows:
+        fep = r.get("fecha_estimada_pago")
+        if fep:
+            try:
+                fep_date = datetime.fromisoformat(fep).date() if isinstance(fep, str) else fep
+                r["dias_restantes_pago"] = (fep_date - hoy).days
+            except (ValueError, TypeError):
+                r["dias_restantes_pago"] = None
+        else:
+            r["dias_restantes_pago"] = None
+    return rows
 
 # ── Cliente HTTP reutilizado (HTTP keep-alive + pool) ────────────────────────
 # Antes: cada request abría una conexión TCP+TLS nueva (~200ms overhead).
@@ -48,23 +70,45 @@ def _apply_conductor(params: dict, cedula: str = None):
     if cedula:
         params["cedula_conductor"] = f"eq.{cedula}"
 
+def _apply_placa(params: dict, placa: str = None):
+    if placa:
+        params["placa"] = f"eq.{placa.upper()}"
+
+def _apply_identificador(params: dict, identificador: str = None, tipo_usuario: str = None):
+    """Aplica el filtro correcto según el tipo de usuario autenticado."""
+    if not identificador or not tipo_usuario:
+        return
+    if tipo_usuario == "propietario":
+        _apply_placa(params, identificador)
+    else:
+        _apply_conductor(params, identificador)
+
 
 # ── Queries ───────────────────────────────────────────────────────────────────
 
-def listar_manifiestos(cedula: str, mes: str = None, año: int = None) -> list[dict]:
+def listar_manifiestos(cedula: str = None, mes: str = None, año: int = None,
+                       placa: str = None) -> list[dict]:
+    # Para propietarios mostramos también la placa y el conductor del viaje.
+    if placa:
+        select = ("manifiesto,fecha_despacho,origen,destino,cliente,conductor,placa,"
+                  "flete_neto_conductor,flete_conductor,fecha_pago,estado_interno,mes,año")
+    else:
+        select = ("manifiesto,fecha_despacho,origen,destino,cliente,"
+                  "flete_neto_conductor,flete_conductor,fecha_pago,estado_interno,mes,año")
     params = {
-        "select": "manifiesto,fecha_despacho,origen,destino,cliente,flete_neto_conductor,flete_conductor,fecha_pago,estado_interno,mes,año",
+        "select": select,
         "order":  "manifiesto.desc",
         "limit":  "50",
-        # Manifiestos ANULADOS no existen para el conductor (decisión de negocio)
+        # Manifiestos ANULADOS no existen para el usuario (decisión de negocio)
         "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
     _apply_conductor(params, cedula)
+    _apply_placa(params, placa)
     _apply_periodo(params, mes, año)
     return _get(TABLE, params)
 
 
-def consultar_manifiesto(numero: int, cedula: str = None) -> dict | None:
+def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> dict | None:
     params = {
         "manifiesto": f"eq.{numero}",
         "select": (
@@ -72,30 +116,34 @@ def consultar_manifiesto(numero: int, cedula: str = None) -> dict | None:
             "conductor,cedula_conductor,celular,placa,tipo_vehiculo,propietario,"
             "agencia_despachadora,remesas,valor_remesa,"
             "flete_conductor,ajuste_positivo_flete,ajuste_negativo_flete,consignacion_a_terceros,flete_neto_conductor,anticipo,"
-            "fecha_cumplido,compromiso_pago,novedades,novedad_conductor,novedad_empresa,"
+            "fecha_cumplido,compromiso_pago,fecha_estimada_pago,novedades,novedad_conductor,novedad_empresa,"
             "estado_interno,responsable_estado_interno,"
             "fecha_pago,valor_pagado,entidad_financiera,"
             "factura_no,fecha_factura,factura_electronica,valor_factura,mes,año"
         ),
     }
     _apply_conductor(params, cedula)
-    rows = _get(TABLE, params)
+    _apply_placa(params, placa)
+    rows = _get(VIEW, params)
     if not rows:
         return None
-    # Si está anulado, ocultarlo: para el conductor el manifiesto no existe.
+    # Si está anulado, ocultarlo: para el usuario el manifiesto no existe.
     if rows[0].get("estado_interno") == "ANULADO":
         return None
+    _add_dias_restantes(rows)
     return rows[0]
 
 
-def resumen_periodo(mes: str = None, año: int = None, cedula: str = None) -> dict:
+def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
+                    placa: str = None) -> dict:
     params = {
         "select": "manifiesto,valor_remesa,flete_conductor,flete_neto_conductor,anticipo,valor_pagado,estado_interno,fecha_pago",
-        # Excluir ANULADOS desde la query: para el conductor no existen.
+        # Excluir ANULADOS desde la query: para el usuario no existen.
         "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
     _apply_periodo(params, mes, año)
     _apply_conductor(params, cedula)
+    _apply_placa(params, placa)
 
     rows = _get(TABLE, params)
 
@@ -126,20 +174,24 @@ def resumen_periodo(mes: str = None, año: int = None, cedula: str = None) -> di
     }
 
 
-def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str = None) -> list[dict]:
+def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str = None,
+                                placa: str = None) -> list[dict]:
     params = {
-        "select": "manifiesto,fecha_despacho,conductor,flete_neto_conductor,flete_conductor,anticipo,valor_pagado,compromiso_pago,estado_interno",
+        "select": "manifiesto,fecha_despacho,conductor,flete_neto_conductor,flete_conductor,anticipo,valor_pagado,fecha_cumplido,compromiso_pago,fecha_estimada_pago,estado_interno",
         "fecha_pago": "is.null",
         "or":         "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
     _apply_periodo(params, mes, año)
     _apply_conductor(params, cedula)
+    _apply_placa(params, placa)
 
-    rows = _get(TABLE, params)
+    rows = _get(VIEW, params)
+    _add_dias_restantes(rows)
     return rows[:50]
 
 
-def manifiestos_sin_factura(mes: str = None, año: int = None, cedula: str = None) -> list[dict]:
+def manifiestos_sin_factura(mes: str = None, año: int = None, cedula: str = None,
+                            placa: str = None) -> list[dict]:
     params = {
         "select": "manifiesto,fecha_despacho,cliente,conductor,responsable_estado_interno,estado_interno",
         "factura_no": "is.null",
@@ -147,6 +199,7 @@ def manifiestos_sin_factura(mes: str = None, año: int = None, cedula: str = Non
     }
     _apply_periodo(params, mes, año)
     _apply_conductor(params, cedula)
+    _apply_placa(params, placa)
 
     rows = _get(TABLE, params)
     return rows[:50]
@@ -171,18 +224,20 @@ def top_conductores(mes: str = None, año: int = None, limite: int = 10) -> list
 
 
 def top_clientes(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
-    params = {"select": "cliente,valor_remesa"}
+    params = {"select": "cliente,valor_remesa,valor_factura"}
     _apply_periodo(params, mes, año)
 
     rows = _get(TABLE, params)
     conteo: dict[str, int]   = {}
     remesas: dict[str, float] = {}
+    facturado: dict[str, float] = {}
     for r in rows:
         nombre = r.get("cliente") or "Sin cliente"
-        conteo[nombre]  = conteo.get(nombre, 0) + 1
-        remesas[nombre] = remesas.get(nombre, 0) + (r.get("valor_remesa") or 0)
+        conteo[nombre]    = conteo.get(nombre, 0) + 1
+        remesas[nombre]   = remesas.get(nombre, 0) + (r.get("valor_remesa") or 0)
+        facturado[nombre] = facturado.get(nombre, 0) + (r.get("valor_factura") or 0)
 
-    return [{"cliente": k, "manifiestos": conteo[k], "total_remesa": remesas[k]}
+    return [{"cliente": k, "manifiestos": conteo[k], "total_remesa": remesas[k], "total_facturado": facturado[k]}
             for k in sorted(conteo, key=lambda x: -conteo[x])[:limite]]
 
 
@@ -200,17 +255,47 @@ def top_rutas(mes: str = None, año: int = None, limite: int = 10) -> list[dict]
             for k, v in sorted(conteo.items(), key=lambda x: -x[1])[:limite]]
 
 
-def manifiestos_con_novedad(mes: str = None, año: int = None, cedula: str = None) -> list[dict]:
+# Tokens que NO son novedades reales — son clasificación de vehículo o servicio.
+# Filtrar server-side evita que el modelo procese ruido y agote MAX_TOOL_ITERS.
+_NOVEDAD_RUIDO = ("TIPO VEHICULO", "TIPO VEHÍCULO", "TURBO", "URBANO", "URBANOS")
+
+def manifiestos_con_novedad(mes: str = None, año: int = None, cedula: str = None,
+                            placa: str = None) -> list[dict]:
     params = {
-        "select": "manifiesto,fecha_despacho,conductor,cliente,novedades,novedad_conductor,novedad_empresa,estado_interno",
+        "select": "manifiesto,fecha_despacho,conductor,cliente,novedades,estado_interno",
         "novedades": "not.is.null",
         "or":        "(estado_interno.neq.ANULADO,estado_interno.is.null)",
+        "limit":     "100",
     }
     _apply_periodo(params, mes, año)
     _apply_conductor(params, cedula)
+    _apply_placa(params, placa)
 
     rows = _get(TABLE, params)
-    return [r for r in rows if (r.get("novedades") or "").strip()][:50]
+    # Devolvemos solo novedades REALES (las que requieren atención).
+    # Ruido como "TIPO VEHICULO: TURBO" se filtra aquí, no en el modelo,
+    # para mantener la respuesta breve y permitirle resumir sin saturarse.
+    result = []
+    for r in rows:
+        nov = (r.get("novedades") or "").strip()
+        if not nov:
+            continue
+        nov_upper = nov.upper()
+        if all(token in nov_upper for token in []):  # placeholder, no-op
+            continue
+        # Si TODA la novedad es ruido (sin texto adicional relevante), saltarla.
+        if any(token in nov_upper for token in _NOVEDAD_RUIDO) and len(nov) < 60:
+            continue
+        result.append({
+            "manifiesto":       r["manifiesto"],
+            "fecha_despacho":   r.get("fecha_despacho"),
+            "conductor":        r.get("conductor"),
+            "cliente":          r.get("cliente"),
+            "novedad_resumen":  nov[:120] + ("..." if len(nov) > 120 else ""),
+        })
+        if len(result) >= 25:
+            break
+    return result
 
 
 def conductor_info(nombre: str = None, cedula: str = None, cedula_auth: str = None) -> list[dict]:
@@ -277,6 +362,36 @@ def verificar_manifiesto_conductor(manifiesto: int, cedula: str) -> bool:
     return len(rows) > 0
 
 
+def get_propietario_by_placa(placa: str) -> dict | None:
+    """Devuelve {nombre, placa} si la placa existe en algún manifiesto NO anulado.
+    Usa el campo `propietario` del manifiesto más reciente con esa placa.
+    """
+    rows = _get(TABLE, {
+        "placa":  f"eq.{placa.upper()}",
+        "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
+        "select": "propietario,placa",
+        "order":  "fecha_despacho.desc",
+        "limit":  "1",
+    })
+    if not rows:
+        return None
+    return {
+        "nombre": rows[0].get("propietario") or "Propietario",
+        "placa":  rows[0]["placa"],
+    }
+
+
+def verificar_manifiesto_propietario(manifiesto: int, placa: str) -> bool:
+    """Confirma que el manifiesto corresponde a esa placa y no está anulado."""
+    rows = _get(TABLE, {
+        "manifiesto": f"eq.{manifiesto}",
+        "placa":      f"eq.{placa.upper()}",
+        "or":         "(estado_interno.neq.ANULADO,estado_interno.is.null)",
+        "select":     "manifiesto",
+    })
+    return len(rows) > 0
+
+
 # ── Sesiones del chatbot (persistencia en Supabase) ──────────────────────────
 
 def _request(method: str, path: str, params: dict = None, json_body=None, headers_extra: dict = None):
@@ -323,14 +438,16 @@ def mark_message_processed(message_id: str) -> bool:
     return True
 
 
-def log_jailbreak(wa_from: str | None, cedula: str | None, mensaje: str, motivo: str) -> None:
+def log_jailbreak(wa_from: str | None, identificador: str | None, mensaje: str, motivo: str) -> None:
+    """`identificador` es la cédula del conductor o la placa del propietario.
+    Se persiste en la columna legacy `cedula` por compatibilidad."""
     try:
         _request(
             "POST",
             "jailbreak_log",
             json_body={
                 "wa_from": wa_from,
-                "cedula":  cedula,
+                "cedula":  identificador,
                 "mensaje": mensaje[:500],
                 "motivo":  motivo,
             },

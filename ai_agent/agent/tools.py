@@ -113,7 +113,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "top_clientes",
-            "description": "Clientes con más manifiestos y mayor valor de remesas en un período.",
+            "description": "Clientes con más manifiestos, mayor valor de remesas y facturación en un período.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -187,16 +187,19 @@ def _limite(args) -> int:
 def _ccedula(args) -> str | None:
     return args.get("_conductor_cedula")
 
+def _placa(args) -> str | None:
+    return args.get("_placa")
+
 _TOOL_MAP = {
-    "listar_manifiestos":          lambda args: queries.listar_manifiestos(_ccedula(args), args.get("mes"), _anio(args)),
-    "consultar_manifiesto":        lambda args: queries.consultar_manifiesto(int(args["numero"]), _ccedula(args)),
-    "resumen_periodo":             lambda args: queries.resumen_periodo(args.get("mes"), _anio(args), _ccedula(args)),
-    "manifiestos_pendientes_pago": lambda args: queries.manifiestos_pendientes_pago(args.get("mes"), _anio(args), _ccedula(args)),
-    "manifiestos_sin_factura":     lambda args: queries.manifiestos_sin_factura(args.get("mes"), _anio(args), _ccedula(args)),
+    "listar_manifiestos":          lambda args: queries.listar_manifiestos(_ccedula(args), args.get("mes"), _anio(args), placa=_placa(args)),
+    "consultar_manifiesto":        lambda args: queries.consultar_manifiesto(int(args["numero"]), _ccedula(args), placa=_placa(args)),
+    "resumen_periodo":             lambda args: queries.resumen_periodo(args.get("mes"), _anio(args), _ccedula(args), placa=_placa(args)),
+    "manifiestos_pendientes_pago": lambda args: queries.manifiestos_pendientes_pago(args.get("mes"), _anio(args), _ccedula(args), placa=_placa(args)),
+    "manifiestos_sin_factura":     lambda args: queries.manifiestos_sin_factura(args.get("mes"), _anio(args), _ccedula(args), placa=_placa(args)),
     "top_conductores":             lambda args: queries.top_conductores(args.get("mes"), _anio(args), _limite(args)),
     "top_clientes":                lambda args: queries.top_clientes(args.get("mes"), _anio(args), _limite(args)),
     "top_rutas":                   lambda args: queries.top_rutas(args.get("mes"), _anio(args), _limite(args)),
-    "manifiestos_con_novedad":     lambda args: queries.manifiestos_con_novedad(args.get("mes"), _anio(args), _ccedula(args)),
+    "manifiestos_con_novedad":     lambda args: queries.manifiestos_con_novedad(args.get("mes"), _anio(args), _ccedula(args), placa=_placa(args)),
     "conductor_info":              lambda args: queries.conductor_info(
                                        args.get("nombre"), args.get("cedula"),
                                        cedula_auth=_ccedula(args),

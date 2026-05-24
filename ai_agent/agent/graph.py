@@ -27,17 +27,39 @@ def run(
     historial: list[dict] = None,
     conductor_nombre: str = None,
     conductor_cedula: str = None,
-) -> str:
-    """Ejecuta el agente. Filtra todo por cédula si está autenticado."""
-    system_prompt = build_system_prompt(conductor_nombre, conductor_cedula)
+    placa: str = None,
+    nombre: str = None,
+    tipo_usuario: str = None,
+) -> tuple[str, bool]:
+    """Ejecuta el agente. Filtra por cédula (conductor) o placa (propietario).
+
+    Devuelve (respuesta, tools_called). `tools_called` indica si el agente
+    invocó al menos una herramienta para esta respuesta — el webhook lo usa
+    para descontar del límite de consultas solo los mensajes con tool call.
+
+    Compatibilidad: si se pasa `conductor_cedula`, se trata como conductor
+    autenticado (modo legacy). Para propietarios usar `placa` + `nombre`.
+    """
+    # Normalizar parámetros — soportar firma legacy y nueva.
+    if conductor_cedula and not tipo_usuario:
+        tipo_usuario = "conductor"
+        nombre = nombre or conductor_nombre
+
+    autenticado = bool(conductor_cedula or placa)
+    system_prompt = build_system_prompt(
+        nombre=nombre or conductor_nombre,
+        cedula=conductor_cedula,
+        placa=placa,
+        tipo_usuario=tipo_usuario,
+    )
     messages = [{"role": "system", "content": system_prompt}]
     if historial:
         messages.extend(historial)
     messages.append({"role": "user", "content": mensaje})
 
-    active_tools = (
-        tool_executor.TOOLS_CONDUCTOR if conductor_cedula else tool_executor.TOOLS
-    )
+    active_tools = tool_executor.TOOLS_CONDUCTOR if autenticado else tool_executor.TOOLS
+
+    tools_called = False
 
     for _ in range(MAX_TOOL_ITERS):
         response = _client.chat.completions.create(
@@ -45,19 +67,45 @@ def run(
             messages=messages,
             tools=active_tools,
             tool_choice="auto",
-            max_tokens=512,
+            max_tokens=800,
             temperature=0.2,
         )
         msg = response.choices[0].message
 
         if not msg.tool_calls:
-            return msg.content or "No pude completar tu consulta. Intenta reformularla."
+            content = msg.content
+            if not content:
+                # DeepSeek ocasionalmente devuelve content=None sin tool_calls.
+                # Reintentamos sin tools para forzar una respuesta de texto.
+                logger.warning("empty_response_retry", extra={"mensaje": mensaje[:100]})
+                recovery = _client.chat.completions.create(
+                    model=MODEL,
+                    messages=messages,
+                    max_tokens=800,
+                    temperature=0.3,
+                )
+                content = recovery.choices[0].message.content or "Lo siento, no pude procesar tu consulta. Intenta de nuevo."
+            return content, tools_called
 
+        tools_called = True
         messages.append(msg)
         for tc in msg.tool_calls:
-            args = json.loads(tc.function.arguments)
+            try:
+                args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError as e:
+                logger.warning("json_parse_error", extra={
+                    "tool": tc.function.name, "args_raw": tc.function.arguments[:200], "error": str(e),
+                })
+                messages.append({
+                    "role":         "tool",
+                    "tool_call_id": tc.id,
+                    "content":      json.dumps({"error": f"Argumentos mal formados: {e}"}),
+                })
+                continue
             if conductor_cedula:
                 args["_conductor_cedula"] = conductor_cedula
+            if placa:
+                args["_placa"] = placa
             result = tool_executor.execute(tc.function.name, args)
             messages.append({
                 "role":         "tool",
@@ -72,7 +120,8 @@ def run(
         max_tokens=512,
         temperature=0.2,
     )
-    return response.choices[0].message.content or "No pude completar tu consulta. Intenta reformularla."
+    content = response.choices[0].message.content or "No pude completar tu consulta. Intenta reformularla."
+    return content, tools_called
 
 
 # ── Moderación: capa 2 anti-jailbreak ────────────────────────────────────────

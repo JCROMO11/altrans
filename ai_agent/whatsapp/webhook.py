@@ -74,7 +74,14 @@ def _parse_ts(value) -> datetime:
 def _new_session(wa_from: str) -> dict:
     session = {
         "wa_from":               wa_from,
-        "estado":                "esperando_cedula",
+        "estado":                "esperando_identificador",
+        # Nuevo flujo unificado:
+        "tipo_usuario":          None,             # 'conductor' | 'propietario'
+        "identificador_temp":    None,             # cédula o placa antes de verificar manifiesto
+        "identificador_auth":    None,             # cédula o placa ya verificada
+        "nombre_temp":           None,
+        "nombre":                None,
+        # Campos legacy (mantienen compat con sesiones existentes):
         "cedula_temp":           None,
         "conductor_nombre_temp": None,
         "conductor_cedula":      None,
@@ -87,6 +94,35 @@ def _new_session(wa_from: str) -> dict:
     }
     queries.upsert_session(session)
     return session
+
+
+# Placa colombiana: 3 letras + 3 dígitos (carros), 3 letras + 2 dígitos + 1 letra (motos),
+# o variantes para tráileres. Detección permisiva: cualquier mezcla de letras y dígitos.
+_PLACA_RE = re.compile(r"^[A-Z]{2,3}[\s-]?\d{2,4}[A-Z]?$", re.IGNORECASE)
+
+
+def _detectar_tipo_usuario(texto: str) -> tuple[str, str] | None:
+    """Devuelve ('conductor', cedula_limpia) o ('propietario', placa) según el formato.
+    None si no se reconoce.
+
+    Acepta cédulas con o sin separadores (CC 1.130.668.182 → 1130668182) y
+    placas en cualquier capitalización (abc-123 → ABC123).
+    """
+    t = texto.strip().upper()
+    # Si extrayendo solo dígitos obtenemos una cédula válida y NO hay otras letras
+    # significativas (aparte de prefijos como CC, C.C., NIT), tratar como cédula.
+    digitos = re.sub(r"\D", "", t)
+    letras = re.sub(r"[^A-Z]", "", t)
+    if 5 <= len(digitos) <= 12 and letras in ("", "CC", "C", "NIT", "TI", "CE"):
+        return ("conductor", digitos)
+    # Para placa, normalizar quitando separadores
+    t_limpio = re.sub(r"[\s\-\.]", "", t)
+    if _PLACA_RE.match(t_limpio):
+        return ("propietario", t_limpio)
+    # Fallback: letras+dígitos sin formato estándar, intentar como placa
+    if any(c.isalpha() for c in t_limpio) and any(c.isdigit() for c in t_limpio) and len(t_limpio) <= 8:
+        return ("propietario", t_limpio)
+    return None
 
 
 def _load_session(wa_from: str) -> dict | None:
@@ -121,12 +157,13 @@ def _is_locked(session: dict) -> bool:
         return True
     session["locked_until"] = None
     session["auth_fails"]   = 0
-    session["estado"]       = "esperando_cedula"
+    session["estado"]       = "esperando_identificador"
     return False
 
 
 def _primer_nombre(nombre_completo: str) -> str:
-    return (nombre_completo or "").split()[0].capitalize()
+    partes = (nombre_completo or "").split()
+    return partes[0].capitalize() if partes else ""
 
 
 # ── Handler principal ────────────────────────────────────────────────────────
@@ -149,7 +186,14 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
 
     if not session:
         session = _new_session(wa_from)
-        send_text(wa_from, "Hola, soy el asistente de Altrans. Para continuar, escribe tu número de cédula.")
+        send_text(
+            wa_from,
+            "¡Hola! 👋 Bienvenido al asistente de Altrans.\n\n"
+            "Puedo ayudarte a consultar tus manifiestos, fletes, pagos y más.\n\n"
+            "Para empezar, cuéntame:\n"
+            "- Si eres *conductor*, escribe tu número de cédula.\n"
+            "- Si eres *propietario de vehículo*, escribe la placa."
+        )
         logger.info("session_new", extra={"wa_from": wa_from})
         return
 
@@ -161,32 +205,45 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
     texto  = text.strip()
     estado = session["estado"]
 
-    # ── Paso 1: cédula ───────────────────────────────────────────────────────
-    if estado == "esperando_cedula":
-        cedula_limpia = re.sub(r'\D', '', texto)
-        if not cedula_limpia:
-            send_text(wa_from, "Por favor escribe solo el número de tu cédula, sin puntos ni espacios.")
+    # ── Paso 1: identificador (cédula o placa) ──────────────────────────────
+    if estado in ("esperando_identificador", "esperando_cedula"):
+        deteccion = _detectar_tipo_usuario(texto)
+        if not deteccion:
+            send_text(wa_from, "No reconozco ese formato. Escribe solo tu cédula (números) o la placa de tu vehículo (ej: ABC123).")
             return
 
-        conductor = queries.get_conductor_by_cedula(cedula_limpia)
-        if not conductor:
+        tipo, identificador = deteccion
+
+        if tipo == "conductor":
+            registro = queries.get_conductor_by_cedula(identificador)
+            etiqueta_err = "cédula"
+        else:
+            registro = queries.get_propietario_by_placa(identificador)
+            etiqueta_err = "placa"
+
+        if not registro:
             bloqueado = _register_fail(session)
             _save(session)
             if bloqueado:
-                send_text(wa_from, f"Cédula no encontrada. Acceso bloqueado por {LOCKOUT_MIN} minutos por múltiples intentos fallidos.")
-                logger.warning("auth_locked", extra={"wa_from": wa_from, "stage": "cedula"})
+                send_text(wa_from, f"{etiqueta_err.capitalize()} no encontrada. Acceso bloqueado por {LOCKOUT_MIN} minutos por múltiples intentos fallidos.")
+                logger.warning("auth_locked", extra={"wa_from": wa_from, "stage": "identificador", "tipo": tipo})
             else:
                 restantes = MAX_AUTH_FAILS - session["auth_fails"]
-                send_text(wa_from, f"No encontré esa cédula. Verifica el número e intenta de nuevo. ({restantes} intento(s) restante(s))")
+                send_text(wa_from, f"No encontré esa {etiqueta_err}. Verifica e intenta de nuevo. ({restantes} intento(s) restante(s))")
             return
 
-        session["cedula_temp"]           = cedula_limpia
-        session["conductor_nombre_temp"] = conductor["nombre"]
-        session["estado"]                = "esperando_manifiesto"
+        session["tipo_usuario"]       = tipo
+        session["identificador_temp"] = identificador
+        session["nombre_temp"]        = registro["nombre"]
+        session["estado"]             = "esperando_manifiesto"
         _save(session)
 
-        nombre = _primer_nombre(conductor["nombre"])
-        send_text(wa_from, f"Hola {nombre}. Ahora escribe el número de uno de tus manifiestos para verificar tu identidad.")
+        nombre = _primer_nombre(registro["nombre"])
+        if tipo == "conductor":
+            mensaje = f"Hola {nombre}. Ahora escribe el número de uno de tus manifiestos para verificar tu identidad."
+        else:
+            mensaje = f"Hola {nombre}. Ahora escribe el número de un manifiesto reciente de tu vehículo para verificar."
+        send_text(wa_from, mensaje)
         return
 
     # ── Paso 2: manifiesto ───────────────────────────────────────────────────
@@ -196,37 +253,55 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
             send_text(wa_from, "El número de manifiesto debe ser numérico. Intenta de nuevo.")
             return
 
-        cedula = session["cedula_temp"]
-        if not queries.verificar_manifiesto_conductor(int(manifiesto_limpio), cedula):
+        tipo = session.get("tipo_usuario") or "conductor"
+        identificador = session.get("identificador_temp") or session.get("cedula_temp")
+        nombre_temp = session.get("nombre_temp") or session.get("conductor_nombre_temp") or ""
+
+        if tipo == "conductor":
+            ok = queries.verificar_manifiesto_conductor(int(manifiesto_limpio), identificador)
+            err_msg = "Ese manifiesto no corresponde a tu cédula."
+        else:
+            ok = queries.verificar_manifiesto_propietario(int(manifiesto_limpio), identificador)
+            err_msg = "Ese manifiesto no corresponde a tu placa."
+
+        if not ok:
             bloqueado = _register_fail(session)
             _save(session)
             if bloqueado:
                 send_text(wa_from, f"Manifiesto incorrecto. Acceso bloqueado por {LOCKOUT_MIN} minutos por múltiples intentos fallidos.")
-                logger.warning("auth_locked", extra={"wa_from": wa_from, "stage": "manifiesto", "cedula": cedula})
+                logger.warning("auth_locked", extra={"wa_from": wa_from, "stage": "manifiesto", "tipo": tipo})
             else:
                 restantes = MAX_AUTH_FAILS - session["auth_fails"]
-                send_text(wa_from, f"Ese manifiesto no corresponde a tu cédula. Intenta con otro número. ({restantes} intento(s) restante(s))")
+                send_text(wa_from, f"{err_msg} Intenta con otro número. ({restantes} intento(s) restante(s))")
             return
 
-        session["conductor_cedula"] = cedula
-        session["conductor_nombre"] = session["conductor_nombre_temp"]
-        session["estado"]           = "activa"
-        session["auth_fails"]       = 0
+        session["identificador_auth"] = identificador
+        session["nombre"]             = nombre_temp
+        # Espejar a campos legacy para retrocompatibilidad de sesiones existentes
+        if tipo == "conductor":
+            session["conductor_cedula"] = identificador
+            session["conductor_nombre"] = nombre_temp
+        session["estado"]      = "activa"
+        session["auth_fails"]  = 0
         _save(session)
 
-        nombre = _primer_nombre(session["conductor_nombre"])
-        send_text(wa_from, f"Verificado. Bienvenido {nombre}, tienes {MAX_MSGS_PER_SESSION} consultas disponibles en esta sesión. ¿En qué te puedo ayudar?")
-        logger.info("auth_ok", extra={"wa_from": wa_from, "cedula": cedula})
+        nombre = _primer_nombre(nombre_temp)
+        rol = "conductor" if tipo == "conductor" else "propietario"
+        send_text(wa_from, f"Verificado. Bienvenido {nombre} ({rol}), tienes {MAX_MSGS_PER_SESSION} consultas disponibles en esta sesión. ¿En qué te puedo ayudar?")
+        logger.info("auth_ok", extra={"wa_from": wa_from, "tipo": tipo, "identificador": identificador})
         return
 
     # ── Sesión activa ────────────────────────────────────────────────────────
     if estado == "activa":
-        if not session.get("conductor_cedula"):
+        tipo = session.get("tipo_usuario") or "conductor"
+        identificador = session.get("identificador_auth") or session.get("conductor_cedula")
+        if not identificador:
             queries.delete_session(wa_from)
-            send_text(wa_from, "Tu sesión expiró. Por favor escribe tu cédula para volver a ingresar.")
+            send_text(wa_from, "Tu sesión expiró. Escribe tu cédula o placa para volver a ingresar.")
             return
 
-        cedula = session["conductor_cedula"]
+        # Nombre para los logs y compatibilidad con código existente
+        cedula = identificador  # usado solo para logging/jailbreak; ya no implica conductor
 
         # Capa 1: regex barata
         if _JAILBREAK_RE.search(texto):
@@ -259,11 +334,18 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
             return
 
         try:
-            respuesta = run(
+            run_kwargs = {
+                "nombre":       session.get("nombre") or session.get("conductor_nombre"),
+                "tipo_usuario": tipo,
+            }
+            if tipo == "conductor":
+                run_kwargs["conductor_cedula"] = identificador
+            else:
+                run_kwargs["placa"] = identificador
+            respuesta, tools_called = run(
                 texto,
                 session["historial"],
-                conductor_nombre=session["conductor_nombre"],
-                conductor_cedula=cedula,
+                **run_kwargs,
             )
         except Exception:
             logger.exception("agent_error", extra={"wa_from": wa_from, "cedula": cedula})
@@ -280,15 +362,20 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
         session["historial"].append({"role": "assistant", "content": respuesta})
         if len(session["historial"]) > MAX_HISTORIAL:
             session["historial"] = session["historial"][-MAX_HISTORIAL:]
-        session["msg_count"] += 1
+        # Solo descontamos del límite cuando el agente realmente consultó datos.
+        # Aclaraciones, saludos, rechazos de jailbreak o respuestas fuera de
+        # alcance no llaman herramientas y no deberían gastar consultas.
+        if tools_called:
+            session["msg_count"] += 1
         _save(session)
 
         logger.info("agent_reply", extra={
             "wa_from": wa_from, "cedula": cedula,
-            "msg_count": session["msg_count"], "len_in": len(texto), "len_out": len(respuesta),
+            "msg_count": session["msg_count"], "tools_called": tools_called,
+            "len_in": len(texto), "len_out": len(respuesta),
         })
 
         send_text(wa_from, respuesta)
-        # Aviso de cierre cuando quede 1 consulta
-        if session["msg_count"] == MAX_MSGS_PER_SESSION - 1:
+        # Aviso de cierre cuando quede 1 consulta (solo si efectivamente consumimos una)
+        if tools_called and session["msg_count"] == MAX_MSGS_PER_SESSION - 1:
             send_text(wa_from, "📌 Te queda 1 consulta en esta sesión.")
