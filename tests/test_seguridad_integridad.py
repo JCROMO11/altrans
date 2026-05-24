@@ -210,7 +210,7 @@ CASOS_RPC = [
         "SELECT public.guardar_digitador(p_manifiesto := 999100)",
         False),
 
-    # guardar_logistico: logistico/digitador/tesoreria/financiero/gerencia (todos tienen CUMPLE)
+    # guardar_logistico: logistico/digitador/tesoreria/gerencia (los que tienen CUMPLE per Drive)
     ("logistico", "guardar_logistico",
         "SELECT public.guardar_logistico(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
         True),
@@ -220,8 +220,23 @@ CASOS_RPC = [
     ("tesoreria", "guardar_logistico",
         "SELECT public.guardar_logistico(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
         True),
+    # financiero y administrativo NO pueden tocar cumplimiento completo per Drive
     ("financiero", "guardar_logistico",
         "SELECT public.guardar_logistico(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
+        False),
+    ("administrativo", "guardar_logistico",
+        "SELECT public.guardar_logistico(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
+        False),
+
+    # guardar_estado_interno: financiero/administrativo (estado_interno only) + roles con CUMPLE
+    ("financiero", "guardar_estado_interno",
+        "SELECT public.guardar_estado_interno(p_manifiesto := 999100, p_estado_interno := 'FACTURA RECIBIDA')",
+        True),
+    ("administrativo", "guardar_estado_interno",
+        "SELECT public.guardar_estado_interno(p_manifiesto := 999100, p_estado_interno := 'FACTURA RECIBIDA')",
+        True),
+    ("logistico", "guardar_estado_interno",
+        "SELECT public.guardar_estado_interno(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
         True),
 
     # guardar_tesoreria: solo tesoreria/gerencia
