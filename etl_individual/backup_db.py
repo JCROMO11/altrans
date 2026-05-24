@@ -112,19 +112,34 @@ def main() -> int:
     tablas = [args.solo] if args.solo else TABLES
     print(f"Backup → {out_dir}")
 
+    # Conteos para verificación CSV vs DB
+    discrepancias = []
     for t in tablas:
         path = out_dir / f"{t}.csv"
         if t == "manifiestos_flat":
-            n = backup_manifiestos_flat(DB_URL, path)
-            print(f"  · {t}: {n:,} filas (estructurado)")
+            n_csv = backup_manifiestos_flat(DB_URL, path)
+            print(f"  · {t}: {n_csv:,} filas (estructurado)")
         else:
-            n = backup_tabla_simple(DB_URL, t, path)
-            if n == -1:
+            n_csv = backup_tabla_simple(DB_URL, t, path)
+            if n_csv == -1:
                 print(f"  · {t}: no existe, saltando")
-            else:
-                print(f"  · {t}: {n:,} filas")
+                continue
+            print(f"  · {t}: {n_csv:,} filas")
 
-    print("Backup completo.")
+        # Verificar contra la DB — usa csv.reader para manejar campos con saltos de línea
+        import csv
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            filas_csv = sum(1 for _ in csv.reader(f)) - 1  # menos cabecera
+        if filas_csv != n_csv:
+            discrepancias.append(f"{t}: escritas={n_csv}, archivo={filas_csv}")
+
+    if discrepancias:
+        print("\n❌ Discrepancias detectadas:")
+        for d in discrepancias:
+            print(f"   {d}")
+        return 1
+
+    print("\n✅ Backup completo y verificado (CSV == DB en todas las tablas)")
     return 0
 
 
