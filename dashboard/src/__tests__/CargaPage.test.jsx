@@ -20,7 +20,7 @@ vi.mock('../hooks/useManifiesto', () => ({
     search: searchMock,
     update: vi.fn(),
     remove: vi.fn(),
-    updateSeguimiento: vi.fn(),
+    updateLogistico: vi.fn(),
     updateTesoreria: vi.fn(),
     updateFacturacion: vi.fn(),
   }),
@@ -41,8 +41,8 @@ describe('CargaPage', () => {
     searchMock.mockReset()
   })
 
-  it('rol operativo: NO ve el panel de upload Excel (solo digitador/admin)', () => {
-    render(<CargaPage target={null} clearTarget={() => {}} user={{ app_metadata: { role: 'operativo' } }} />)
+  it('rol logistico: NO ve el panel de upload Excel (solo digitador/gerencia)', () => {
+    render(<CargaPage target={null} clearTarget={() => {}} user={{ app_metadata: { role: 'logistico' } }} />)
     // No debe haber referencia a importar/arrastrar archivo
     expect(screen.queryByText(/Arrastra/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/excel/i)).not.toBeInTheDocument()
@@ -57,14 +57,14 @@ describe('CargaPage', () => {
 
   it('al cargar con target dispara search del manifiesto objetivo', () => {
     searchMock.mockResolvedValue({ manifiesto: 12345, conductor: 'JUAN' })
-    render(<CargaPage target={12345} clearTarget={() => {}} user={{ app_metadata: { role: 'admin' } }} />)
+    render(<CargaPage target={12345} clearTarget={() => {}} user={{ app_metadata: { role: 'gerencia' } }} />)
     expect(searchMock).toHaveBeenCalledWith(12345)
   })
 
-  it('rol admin tiene acceso a todas las pestañas (despacho/operativo/tesoreria/financiero)', () => {
-    // Con admin pasa el primer chequeo de canEdit*, podemos confirmar buscando que renderiza algo
+  it('rol gerencia tiene acceso a todas las pestañas (despacho/logistico/tesoreria/financiero)', () => {
+    // Con gerencia pasa el primer chequeo de canEdit*, podemos confirmar buscando que renderiza algo
     const { container } = render(
-      <CargaPage target={null} clearTarget={() => {}} user={{ app_metadata: { role: 'admin' } }} />,
+      <CargaPage target={null} clearTarget={() => {}} user={{ app_metadata: { role: 'gerencia' } }} />,
     )
     expect(container.firstChild).toBeTruthy()
   })

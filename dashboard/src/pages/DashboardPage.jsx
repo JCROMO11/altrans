@@ -29,14 +29,34 @@ const TICK_XXS = { fontSize: 9,  fill: TICK }
 const fmtCOP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v)
 const fmtK   = v => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}K` : String(v)
 
+// Formato compacto para KPIs grandes: > 10M usa abreviatura, si no formato COP completo.
+const fmtKpi = v => {
+  if (typeof v !== 'number' || !isFinite(v)) return fmtCOP(0)
+  if (v >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(2)}MM`
+  if (v >= 10_000_000)    return `$${(v / 1_000_000).toFixed(1)}M`
+  return fmtCOP(v)
+}
+
 function Skeleton() {
   return <div className="h-7 w-28 rounded bg-muted animate-pulse" />
+}
+
+function ChartSkeleton({ height = 240 }) {
+  // Barras grises animadas mientras carga
+  const bars = [60, 80, 45, 90, 55, 75, 40, 85]
+  return (
+    <div className="flex items-end gap-2 px-2 animate-pulse" style={{ height }}>
+      {bars.map((h, i) => (
+        <div key={i} className="flex-1 rounded-t bg-muted" style={{ height: `${h}%`, opacity: 0.4 + (i % 3) * 0.2 }} />
+      ))}
+    </div>
+  )
 }
 
 function KpiCard({ label, value, textColor, borderColor, loading }) {
   return (
     <div
-      className="rounded-lg border bg-card p-4 flex flex-col gap-2 border-l-[3px] shadow-md"
+      className="rounded-lg border bg-card p-4 flex flex-col gap-2 border-l-[3px] shadow-md transition-shadow duration-200 hover:shadow-lg"
       style={{ borderColor: TT_BDR, borderLeftColor: borderColor }}
     >
       <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
@@ -81,7 +101,10 @@ function FilterPill({ label, active, onClick }) {
 
 const hoy = new Date()
 
-export default function DashboardPage() {
+const KPI_ROLES = ['gerencia', 'financiero', 'administrativo']
+
+export default function DashboardPage({ user }) {
+  const rol = user?.app_metadata?.role || ''
   const [mesIdx, setMesIdx] = useState(hoy.getMonth())
   const [año,    setAño]    = useState(hoy.getFullYear())
 
@@ -91,11 +114,20 @@ export default function DashboardPage() {
 
   const periodoLabel = [mes ?? 'Todos los meses', año ? String(año) : 'Todos los años'].join(' · ')
 
+  if (!KPI_ROLES.includes(rol)) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 h-64 text-center">
+        <p className="text-sm font-medium">Esta sección no está disponible para tu perfil.</p>
+        <p className="text-xs text-muted-foreground">Contacta a gerencia si necesitas acceso.</p>
+      </div>
+    )
+  }
+
   const financieros = [
-    { label: 'Total remesas',       value: fmtCOP(data?.totalRemesas   ?? 0), textColor: GOLD,  borderColor: GOLD  },
-    { label: 'Total fletes',        value: fmtCOP(data?.totalFletes    ?? 0), textColor: GOLD,  borderColor: GOLD  },
-    { label: 'Total anticipos',     value: fmtCOP(data?.totalAnticipo  ?? 0), textColor: GOLD,  borderColor: GOLD  },
-    { label: 'Pendiente por pagar', value: fmtCOP(data?.pendientePagar ?? 0), textColor: GOLD,  borderColor: GOLD  },
+    { label: 'Total remesas',       value: fmtKpi(data?.totalRemesas   ?? 0), textColor: GOLD,  borderColor: GOLD  },
+    { label: 'Total fletes',        value: fmtKpi(data?.totalFletes    ?? 0), textColor: GOLD,  borderColor: GOLD  },
+    { label: 'Total anticipos',     value: fmtKpi(data?.totalAnticipo  ?? 0), textColor: GOLD,  borderColor: GOLD  },
+    { label: 'Pendiente por pagar', value: fmtKpi(data?.pendientePagar ?? 0), textColor: GOLD,  borderColor: GOLD  },
   ]
 
   const operativos = [
@@ -110,7 +142,7 @@ export default function DashboardPage() {
 
       {/* Filtros */}
       <div className="flex flex-col gap-3 pb-1">
-        <p className="text-xs text-muted-foreground">{periodoLabel}</p>
+        <p className="text-base font-semibold" style={{ color: TICK }}>{periodoLabel}</p>
 
         <div className="flex gap-1.5 items-center">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest w-8">Año</span>
@@ -142,18 +174,20 @@ export default function DashboardPage() {
       {/* Row 3: Línea tendencia */}
       <SectionLabel>Tendencia anual</SectionLabel>
       <ChartCard title={`Facturado vs Ganancia bruta${año ? ` — ${año}` : ''}`}>
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={data?.lineChart ?? []} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-            <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} />
-            <XAxis dataKey="mes" tick={TICK_SM} tickLine={false} axisLine={false} />
-            <YAxis tickFormatter={fmtK} tick={TICK_SM} width={70} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={TOOLTIP_STYLE}
-              formatter={(v, name) => [fmtCOP(v), name === 'facturado' ? 'Facturado' : 'Ganancia bruta']} />
-            <Legend formatter={v => v === 'facturado' ? 'Facturado' : 'Ganancia bruta'} />
-            <Line type="monotone" dataKey="facturado" stroke={BLUE} strokeWidth={2.5} dot={false} />
-            <Line type="monotone" dataKey="ganancia"  stroke={GOLD} strokeWidth={2.5} dot={false} strokeDasharray="5 3" />
-          </LineChart>
-        </ResponsiveContainer>
+        {loading ? <ChartSkeleton /> : (
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={data?.lineChart ?? []} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+              <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} />
+              <XAxis dataKey="mes" tick={TICK_SM} tickLine={false} axisLine={false} />
+              <YAxis tickFormatter={fmtK} tick={TICK_SM} width={70} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TOOLTIP_STYLE}
+                formatter={(v, name) => [fmtCOP(v), name === 'facturado' ? 'Facturado' : 'Ganancia bruta']} />
+              <Legend formatter={v => v === 'facturado' ? 'Facturado' : 'Ganancia bruta'} />
+              <Line type="monotone" dataKey="facturado" stroke={BLUE} strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="ganancia"  stroke={GOLD} strokeWidth={2.5} dot={false} strokeDasharray="5 3" />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </ChartCard>
 
       {/* Row 4 */}
@@ -161,42 +195,48 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         <ChartCard title="Estado de pago">
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={data?.estadoPago ?? []} dataKey="value" nameKey="name"
-                cx="50%" cy="48%" innerRadius={52} outerRadius={88}
-                label={({ percent }) => percent > 0.06 ? `${(percent * 100).toFixed(0)}%` : ''}
-                labelLine={false} paddingAngle={2}
-              >
-                {(data?.estadoPago ?? []).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-            </PieChart>
-          </ResponsiveContainer>
+          {loading ? <ChartSkeleton /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={data?.estadoPago ?? []} dataKey="value" nameKey="name"
+                  cx="50%" cy="48%" innerRadius={52} outerRadius={88}
+                  label={({ percent }) => percent > 0.06 ? `${(percent * 100).toFixed(0)}%` : ''}
+                  labelLine={false} paddingAngle={2}
+                >
+                  {(data?.estadoPago ?? []).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
 
         <ChartCard title="Top clientes">
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart layout="vertical" data={data?.topClientes ?? []} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
-              <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} horizontal={false} />
-              <XAxis type="number" tick={TICK_SM} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="nombre" width={110} tick={TICK_XS} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Bar dataKey="count" name="Manifiestos" fill={BLUE} radius={[0, 6, 6, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {loading ? <ChartSkeleton /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart layout="vertical" data={data?.topClientes ?? []} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} horizontal={false} />
+                <XAxis type="number" tick={TICK_SM} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="nombre" width={110} tick={TICK_XS} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="count" name="Manifiestos" fill={BLUE} radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
 
         <ChartCard title="Top rutas">
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart layout="vertical" data={data?.topRutas ?? []} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
-              <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} horizontal={false} />
-              <XAxis type="number" tick={TICK_SM} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="ruta" width={150} tick={TICK_XXS} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Bar dataKey="count" name="Manifiestos" fill={GOLD} radius={[0, 6, 6, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {loading ? <ChartSkeleton /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart layout="vertical" data={data?.topRutas ?? []} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} horizontal={false} />
+                <XAxis type="number" tick={TICK_SM} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="ruta" width={150} tick={TICK_XXS} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="count" name="Manifiestos" fill={GOLD} radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
 
       </div>
@@ -205,43 +245,49 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         <ChartCard title="Por agencia">
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={data?.chartAgencias ?? []} margin={{ top: 8, right: 16, bottom: 4 }}>
-              <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} vertical={false} />
-              <XAxis dataKey="nombre" tick={TICK_SM} axisLine={false} tickLine={false} />
-              <YAxis tick={TICK_SM} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Bar dataKey="count" name="Manifiestos" fill={BLUE} radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {loading ? <ChartSkeleton /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={data?.chartAgencias ?? []} margin={{ top: 8, right: 16, bottom: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} vertical={false} />
+                <XAxis dataKey="nombre" tick={TICK_SM} axisLine={false} tickLine={false} />
+                <YAxis tick={TICK_SM} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="count" name="Manifiestos" fill={BLUE} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
 
         <ChartCard title="Estado interno">
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={data?.chartEstadoInterno ?? []} dataKey="value" nameKey="name"
-                cx="50%" cy="48%" innerRadius={52} outerRadius={88}
-                label={({ percent }) => percent > 0.06 ? `${(percent * 100).toFixed(0)}%` : ''}
-                labelLine={false} paddingAngle={2}
-              >
-                {(data?.chartEstadoInterno ?? []).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={TOOLTIP_STYLE}
-                formatter={(v, name) => [v, name.length > 24 ? name.slice(0, 24) + '…' : name]} />
-            </PieChart>
-          </ResponsiveContainer>
+          {loading ? <ChartSkeleton /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={data?.chartEstadoInterno ?? []} dataKey="value" nameKey="name"
+                  cx="50%" cy="48%" innerRadius={52} outerRadius={88}
+                  label={({ percent }) => percent > 0.06 ? `${(percent * 100).toFixed(0)}%` : ''}
+                  labelLine={false} paddingAngle={2}
+                >
+                  {(data?.chartEstadoInterno ?? []).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={TOOLTIP_STYLE}
+                  formatter={(v, name) => [v, name.length > 24 ? name.slice(0, 24) + '…' : name]} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
 
         <ChartCard title="Top conductores">
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart layout="vertical" data={data?.topConductores ?? []} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
-              <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} horizontal={false} />
-              <XAxis type="number" tick={TICK_SM} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="nombre" width={120} tick={TICK_XS} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Bar dataKey="count" name="Manifiestos" fill={GOLD} radius={[0, 6, 6, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {loading ? <ChartSkeleton /> : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart layout="vertical" data={data?.topConductores ?? []} margin={{ left: 0, right: 16, top: 4, bottom: 4 }}>
+                <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} horizontal={false} />
+                <XAxis type="number" tick={TICK_SM} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="nombre" width={120} tick={TICK_XS} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="count" name="Manifiestos" fill={GOLD} radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
 
       </div>

@@ -227,28 +227,42 @@ const FACT_INIT = {
 // ── Excel Upload Panel ───────────────────────────────────────────────────────
 // Campos comparables entre payload y DB para detectar cambios
 const DB_FIELDS = [
-  'fecha_despacho','origen','destino','conductor','cedula_conductor','celular',
+  'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor','celular',
   'placa','tipo_vehiculo','propietario','agencia_despachadora','nombre_responsable',
   'valor_remesa','flete_conductor','anticipo','remesas',
 ]
 const FIELD_LABELS = {
   fecha_despacho:'Fecha despacho', origen:'Origen', destino:'Destino',
-  conductor:'Conductor', cedula_conductor:'Cédula', celular:'Celular',
+  cliente:'Cliente', conductor:'Conductor', cedula_conductor:'Cédula', celular:'Celular',
   placa:'Placa', tipo_vehiculo:'Remolque', propietario:'Propietario',
   agencia_despachadora:'Agencia Despachadora', nombre_responsable:'Responsable',
   valor_remesa:'Valor remesa', flete_conductor:'Flete', anticipo:'Anticipo',
   remesas:'Remesas',
 }
-const PAYLOAD_KEY = {
-  fecha_despacho:'p_fecha_despacho', origen:'p_origen', destino:'p_destino',
-  conductor:'p_conductor', cedula_conductor:'p_cedula_conductor', celular:'p_celular',
-  placa:'p_placa', tipo_vehiculo:'p_tipo_vehiculo', propietario:'p_propietario',
-  agencia_despachadora:'p_agencia_despachadora', nombre_responsable:'p_nombre_responsable',
-  valor_remesa:'p_valor_remesa', flete_conductor:'p_flete_conductor',
-  anticipo:'p_anticipo', remesas:'p_remesas',
-}
-
 const UPLOAD_BATCH = 20
+
+// Markup compartido entre preview y revisión: lista de filas Excel sin manifiesto válido.
+function ErrorRows({ invalid, title }) {
+  return (
+    <div className="rounded-lg overflow-hidden" style={{ border: `1px solid #FECACA` }}>
+      <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider"
+        style={{ background: '#FEF2F2', color: '#DC2626' }}>
+        {title}
+      </div>
+      <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+        {invalid.map((e, i) => (
+          <div key={i} className="grid grid-cols-[48px_140px_160px_1fr] px-3 py-1.5 text-xs border-t"
+            style={{ borderColor: '#FECACA', color: TICK }}>
+            <span style={{ color: MUTED }}>Fila {e.fila}</span>
+            <span style={{ color: '#DC2626', fontWeight: 600 }}>{e.campo ?? '—'}</span>
+            <span style={{ color: MUTED, fontFamily: 'monospace' }}>{e.valor ?? '—'}</span>
+            <span>{e.error}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function ExcelUploadPanel({ onDone }) {
   const RED = '#DC2626'
@@ -278,7 +292,7 @@ function ExcelUploadPanel({ onDone }) {
         return
       }
 
-      const payloads    = rows.map((r, i) => buildPayload(r, i))
+      const payloads    = rows.map((r, i) => buildPayload(r, i, file.name))
       const valid       = payloads.filter(p => p.payload)
       const invalid     = payloads.filter(p => p.error)
       const previewRows = valid.slice(0, 5).map(p => ({
@@ -303,11 +317,18 @@ function ExcelUploadPanel({ onDone }) {
       const { valid, invalid } = preview
       const numeros  = valid.map(p => p.payload.p_manifiesto)
       const dbSelect = DB_FIELDS.join(',') + ',manifiesto'
-      const { data: dbRows, error } = await supabase
-        .from('manifiestos_flat').select(dbSelect).in('manifiesto', numeros)
-      if (error) throw error
+      // Chunk para no exceder max-rows=1000 de PostgREST
+      const CHUNK = 900
+      let allRows = []
+      for (let i = 0; i < numeros.length; i += CHUNK) {
+        const chunk = numeros.slice(i, i + CHUNK)
+        const { data, error } = await supabase
+          .from('manifiestos_flat').select(dbSelect).in('manifiesto', chunk)
+        if (error) throw error
+        allRows = allRows.concat(data ?? [])
+      }
 
-      const dbMap      = new Map((dbRows ?? []).map(r => [r.manifiesto, r]))
+      const dbMap      = new Map(allRows.map(r => [r.manifiesto, r]))
       const nuevos     = []
       const sinCambios = []
       const conCambios = []
@@ -317,20 +338,16 @@ function ExcelUploadPanel({ onDone }) {
         const dbRow = dbMap.get(num)
         if (!dbRow) { nuevos.push(p); continue }
         const diffs = DB_FIELDS
-          .map(f => ({ field: f, valDB: normalizeVal(dbRow[f], f), valNew: normalizeVal(p.payload[PAYLOAD_KEY[f]], f) }))
+          .map(f => ({ field: f, valDB: normalizeVal(dbRow[f], f), valNew: normalizeVal(p.payload[`p_${f}`], f) }))
           .filter(d => d.valDB !== d.valNew)
         if (diffs.length === 0) sinCambios.push(p)
         else conCambios.push({ ...p, diffs })
       }
 
-      if (conCambios.length === 0) {
-        await ejecutarCarga(nuevos, [], sinCambios.length, invalid)
-      } else {
-        setRevision({ nuevos, sinCambios, conCambios, invalid })
-        setSeleccionados(new Set(conCambios.map(p => p.payload.p_manifiesto)))
-        setExpandidos(new Set())
-        setBusy(false)
-      }
+      setRevision({ nuevos, sinCambios, conCambios, invalid })
+      setSeleccionados(new Set(conCambios.map(p => p.payload.p_manifiesto)))
+      setExpandidos(new Set())
+      setBusy(false)
     } catch (err) {
       setResult({ ok: 0, actualizados: 0, omitidos: 0, errores: [{ fila: '-', msg: err.message }] })
       setBusy(false)
@@ -441,16 +458,7 @@ function ExcelUploadPanel({ onDone }) {
           </div>
 
           {preview.invalid.length > 0 && (
-            <div className="rounded-lg overflow-hidden" style={{ border: `1px solid #FECACA` }}>
-              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider"
-                style={{ background: '#FEF2F2', color: RED }}>Filas con error (no se importarán)</div>
-              {preview.invalid.slice(0, 5).map((e, i) => (
-                <div key={i} className="grid grid-cols-[60px_1fr] px-3 py-1.5 text-xs border-t"
-                  style={{ borderColor: '#FECACA', color: TICK }}>
-                  <span style={{ color: MUTED }}>{e.fila}</span><span>{e.error}</span>
-                </div>
-              ))}
-            </div>
+            <ErrorRows invalid={preview.invalid} title="Filas con error (no se importarán)" />
           )}
 
           <div className="flex gap-3">
@@ -559,18 +567,20 @@ function ExcelUploadPanel({ onDone }) {
             </div>
           </div>
 
-          <div className="flex gap-4">
-            <button type="button"
-              onClick={() => setSeleccionados(new Set(revision.conCambios.map(p => p.payload.p_manifiesto)))}
-              className="text-xs font-semibold hover:opacity-70" style={{ color: BLUE }}>
-              Seleccionar todos
-            </button>
-            <button type="button"
-              onClick={() => setSeleccionados(new Set())}
-              className="text-xs font-semibold hover:opacity-70" style={{ color: MUTED }}>
-              Deseleccionar todos
-            </button>
-          </div>
+          {revision.conCambios.length > 0 && (
+            <div className="flex gap-4">
+              <button type="button"
+                onClick={() => setSeleccionados(new Set(revision.conCambios.map(p => p.payload.p_manifiesto)))}
+                className="text-xs font-semibold hover:opacity-70" style={{ color: BLUE }}>
+                Seleccionar todos
+              </button>
+              <button type="button"
+                onClick={() => setSeleccionados(new Set())}
+                className="text-xs font-semibold hover:opacity-70" style={{ color: MUTED }}>
+                Deseleccionar todos
+              </button>
+            </div>
+          )}
 
           {/* Lista de manifiestos con cambios */}
           <div className="flex flex-col gap-2">
@@ -616,9 +626,15 @@ function ExcelUploadPanel({ onDone }) {
             })}
           </div>
 
+          {revision.invalid.length > 0 && (
+            <ErrorRows invalid={revision.invalid}
+              title={`Filas con error — no se importarán (${revision.invalid.length})`} />
+          )}
+
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={confirmarRevision}
-              className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
+              disabled={totalImportar === 0}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: BLUE, color: '#fff' }}>
               <Upload size={14} /> Importar ({totalImportar} registro{totalImportar !== 1 ? 's' : ''})
             </button>
@@ -699,15 +715,19 @@ function ExcelUploadPanel({ onDone }) {
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function CargaPage({ target, clearTarget, user }) {
   const rol = user?.app_metadata?.role || ''
-  const canEditDespacho   = ['digitador', 'admin'].includes(rol)
-  const canEditOperativo  = ['operativo',  'admin'].includes(rol)
-  const canEditTesoreria  = ['tesoreria',  'admin'].includes(rol)
-  const canEditFinanciero = ['financiero', 'admin'].includes(rol)
-  const canUploadExcel    = ['digitador',  'admin'].includes(rol)
+  const canEditDespacho      = ['digitador', 'gerencia'].includes(rol)
+  // logistico hereda a digitador y tesoreria (per USUARIOS DRIVE: ambos tienen "CUMPLE,")
+  const canEditLogistico     = ['logistico', 'digitador', 'tesoreria', 'gerencia'].includes(rol)
+  // financiero solo puede editar estado_interno dentro de cumplimiento, nada más de esa tab
+  const canEditEstadoInterno = canEditLogistico || ['financiero', 'administrativo'].includes(rol)
+  const canEditTesoreria     = ['tesoreria', 'contadora', 'gerencia'].includes(rol)
+  const canEditFinanciero    = ['financiero', 'contadora', 'gerencia'].includes(rol)
+  const canUploadExcel       = ['digitador',  'gerencia'].includes(rol)
 
   const [query,  setQuery]  = useState('')
   const [view,   setView]   = useState('inicio')
   const [ficha,  setFicha]  = useState(null)
+  const fichaFromExcel = !!ficha?.archivo_origen
   const [tab,    setTab]    = useState('despacho')
   const [formSeg,   setFS]  = useState(SEGUIMIENTO_INIT)
   const [formTes,   setFT]  = useState(TESORERIA_INIT)
@@ -720,7 +740,7 @@ export default function CargaPage({ target, clearTarget, user }) {
   const [msg,    setMsg]    = useState(null)
 
   const { catalogos } = useCatalogos()
-  const { search, update, remove, updateSeguimiento, updateTesoreria, updateFacturacion } = useManifiesto()
+  const { search, update, remove, updateLogistico, updateTesoreria, updateFacturacion } = useManifiesto()
 
   // ── Catalog options ─────────────────────────────────────────────────────────
   const optConductores  = catalogos.conductores.map(c => ({ id: c.nombre, label: c.nombre, sub: c.cedula }))
@@ -737,29 +757,31 @@ export default function CargaPage({ target, clearTarget, user }) {
   // ── Load ficha ──────────────────────────────────────────────────────────────
   const userName = user?.app_metadata?.nombre || user?.email || ''
 
+  const buildEditForm = (data) => ({
+    fecha_despacho:       data.fecha_despacho       || '',
+    conductor:            data.conductor            || '',
+    cedula_conductor:     data.cedula_conductor     || '',
+    celular:              data.celular              || '',
+    placa:                data.placa                || '',
+    tipo_vehiculo:        data.tipo_vehiculo        || '',
+    propietario:          data.propietario          || '',
+    cliente:              data.cliente              || '',
+    origen:               data.origen               || '',
+    destino:              data.destino              || '',
+    agencia_despachadora: data.agencia_despachadora || '',
+    nombre_responsable:   data.nombre_responsable   || '',
+    valor_remesa:         data.valor_remesa         ?? '',
+    flete_conductor:      data.flete_conductor      ?? '',
+    anticipo:             data.anticipo             ?? '',
+    remesas:              data.remesas              || '',
+  })
+
   const loadFicha = (data) => {
     setFicha(data)
     setTab('despacho')
     setEditMode(false)
     setConfirmDel(false)
-    setFE({
-      fecha_despacho:       data.fecha_despacho          || '',
-      conductor:            data.conductor               || '',
-      cedula_conductor:     data.cedula_conductor        || '',
-      celular:              data.celular                 || '',
-      placa:                data.placa                   || '',
-      tipo_vehiculo:        data.tipo_vehiculo           || '',
-      propietario:          data.propietario             || '',
-      cliente:              data.cliente                 || '',
-      origen:               data.origen                  || '',
-      destino:              data.destino                 || '',
-      agencia_despachadora: data.agencia_despachadora    || '',
-      nombre_responsable:   data.nombre_responsable      || '',
-      valor_remesa:         data.valor_remesa            ?? '',
-      flete_conductor:      data.flete_conductor         ?? '',
-      anticipo:             data.anticipo                ?? '',
-      remesas:              data.remesas                 || '',
-    })
+    setFE(buildEditForm(data))
     setFS({
       fecha_cumplido:              data.fecha_cumplido              || '',
       compromiso_pago:             data.compromiso_pago             || 'PAGO A 15 DIAS',
@@ -789,24 +811,7 @@ export default function CargaPage({ target, clearTarget, user }) {
 
   const revertEdit = () => {
     if (!ficha) return
-    setFE({
-      fecha_despacho:       ficha.fecha_despacho          || '',
-      conductor:            ficha.conductor               || '',
-      cedula_conductor:     ficha.cedula_conductor        || '',
-      celular:              ficha.celular                 || '',
-      placa:                ficha.placa                   || '',
-      tipo_vehiculo:        ficha.tipo_vehiculo           || '',
-      propietario:          ficha.propietario             || '',
-      cliente:              ficha.cliente                 || '',
-      origen:               ficha.origen                  || '',
-      destino:              ficha.destino                 || '',
-      agencia_despachadora: ficha.agencia_despachadora    || '',
-      nombre_responsable:   ficha.nombre_responsable      || '',
-      valor_remesa:         ficha.valor_remesa            ?? '',
-      flete_conductor:      ficha.flete_conductor         ?? '',
-      anticipo:             ficha.anticipo                ?? '',
-      remesas:              ficha.remesas                 || '',
-    })
+    setFE(buildEditForm(ficha))
     toast('success', 'Campos restaurados a los valores guardados.')
   }
 
@@ -885,8 +890,26 @@ export default function CargaPage({ target, clearTarget, user }) {
     e.preventDefault()
     setBusy(true)
     try {
-      await updateSeguimiento(ficha.manifiesto, { ...formSeg, responsable_estado_interno: userName })
+      await updateLogistico(ficha.manifiesto, { ...formSeg, responsable_estado_interno: userName })
       toast('success', 'Cumplimiento actualizado correctamente.')
+      const data = await search(ficha.manifiesto)
+      loadFicha(data)
+    } catch (err) { toast('error', err.message ?? 'Error al guardar') }
+    finally { setBusy(false) }
+  }
+
+  const handleSaveEstadoInterno = async (e) => {
+    e.preventDefault()
+    if (!formSeg.estado_interno) { toast('error', 'Seleccioná un estado interno.'); return }
+    setBusy(true)
+    try {
+      // Enviar formSeg completo (cargado desde ficha) para no sobreescribir a NULL
+      // novedades/ajustes/consignación — guardar_logistico no usa COALESCE en esos campos.
+      await updateLogistico(ficha.manifiesto, {
+        ...formSeg,
+        responsable_estado_interno: userName,
+      })
+      toast('success', 'Estado interno actualizado correctamente.')
       const data = await search(ficha.manifiesto)
       loadFicha(data)
     } catch (err) { toast('error', err.message ?? 'Error al guardar') }
@@ -995,7 +1018,7 @@ export default function CargaPage({ target, clearTarget, user }) {
             <div className="flex-1" />
             {!confirmDel && (
               <>
-                {tab === 'despacho' && canEditDespacho && (
+                {tab === 'despacho' && canEditDespacho && !fichaFromExcel && (
                   <button type="button" onClick={() => setEditMode(v => !v)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                     style={editMode
@@ -1004,7 +1027,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                     {editMode ? <><X size={12} /> Cancelar</> : <><Pencil size={12} /> Editar</>}
                   </button>
                 )}
-                {rol === 'admin' && (
+                {rol === 'gerencia' && (
                   <button type="button" onClick={() => setConfirmDel(true)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
                     style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA' }}>
@@ -1080,6 +1103,13 @@ export default function CargaPage({ target, clearTarget, user }) {
           {tab === 'despacho' && !editMode && (() => {
             return (
               <div className="flex flex-col gap-4">
+                {fichaFromExcel && (
+                  <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs"
+                    style={{ background: '#FFF7ED', border: '1px solid #FED7AA', color: '#92400E' }}>
+                    <Lock size={12} style={{ flexShrink: 0 }} />
+                    Datos cargados desde Excel ({ficha.archivo_origen}). La única forma de modificarlos es mediante el panel de importación.
+                  </div>
+                )}
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Despacho</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -1234,8 +1264,8 @@ export default function CargaPage({ target, clearTarget, user }) {
             </form>
           )}
 
-          {/* Tab: Cumplimiento — lectura para roles sin permiso */}
-          {tab === 'cumplimiento' && !canEditOperativo && (
+          {/* Tab: Cumplimiento — lectura pura para roles sin ningún permiso sobre esta tab */}
+          {tab === 'cumplimiento' && !canEditEstadoInterno && (
             <div className="flex flex-col gap-4">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Cumplimiento operativo</p>
@@ -1264,8 +1294,56 @@ export default function CargaPage({ target, clearTarget, user }) {
             </div>
           )}
 
-          {/* Tab: Cumplimiento — edición para operativo/admin */}
-          {tab === 'cumplimiento' && canEditOperativo && (
+          {/* Tab: Cumplimiento — financiero: solo estado_interno editable, resto readonly */}
+          {tab === 'cumplimiento' && canEditEstadoInterno && !canEditLogistico && (
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Cumplimiento operativo</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {[
+                    { l: 'Fecha cumplido',         v: ficha.fecha_cumplido },
+                    { l: 'Compromiso pago',         v: ficha.compromiso_pago },
+                    { l: 'Responsable estado int.', v: ficha.responsable_estado_interno },
+                    { l: 'Novedades',               v: ficha.novedades, col: 4 },
+                    { l: 'Novedad del conductor',   v: ficha.novedad_conductor, col: 2 },
+                    { l: 'Novedad de la empresa',   v: ficha.novedad_empresa, col: 2 },
+                    { l: 'Reajuste',                v: ficha.ajuste_positivo_flete != null ? `$ ${Number(ficha.ajuste_positivo_flete).toLocaleString('es-CO')}` : null },
+                    { l: 'Descuento',               v: ficha.ajuste_negativo_flete != null ? `$ ${Number(ficha.ajuste_negativo_flete).toLocaleString('es-CO')}` : null },
+                    { l: 'Consignación a terceros', v: ficha.consignacion_a_terceros != null ? `$ ${Number(ficha.consignacion_a_terceros).toLocaleString('es-CO')}` : null },
+                  ].map(({ l, v, col }) => (
+                    <div key={l} className="rounded-lg px-3 py-2.5"
+                      style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>{l}</p>
+                      <p className="text-sm" style={{ color: v ? TICK : MUTED }}>{v ?? '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <form onSubmit={handleSaveEstadoInterno} className="flex flex-col gap-4">
+                <SectionCard icon={ClipboardList} title="Estado interno" cols={2}>
+                  <Select label="Estado interno" value={formSeg.estado_interno}
+                    onChange={fs('estado_interno')} options={ESTADO_INTERNO_OPTS} />
+                  <Field label="Responsable">
+                    <div className="flex items-center justify-between h-9 px-3 text-sm rounded-md border"
+                      style={{ borderColor: BDR, background: '#F8FAFC', color: TICK }}>
+                      <span>{userName}</span>
+                      <Lock size={11} style={{ color: MUTED }} />
+                    </div>
+                  </Field>
+                </SectionCard>
+                <div className="flex justify-end">
+                  <button type="submit" disabled={busy}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
+                    style={{ background: BLUE, color: '#FFFFFF' }}>
+                    <Save size={14} /> {busy ? 'Guardando...' : 'Guardar estado interno'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Tab: Cumplimiento — edición completa para logistico/digitador/tesoreria/gerencia */}
+          {tab === 'cumplimiento' && canEditLogistico && (
             <form onSubmit={handleSaveSeg} className="flex flex-col gap-4">
               <SectionCard icon={ClipboardList} title="Cumplimiento operativo" cols={3}>
                 <DateInput label="Fecha cumplido"

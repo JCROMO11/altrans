@@ -57,12 +57,12 @@ describe('useManifiesto.update', () => {
     expect(params.p_anticipo).toBe(null)
   })
 
-  it('updateSeguimiento envía ajustes y consignacion como número o null', async () => {
+  it('updateLogistico envía ajustes y consignacion como número o null', async () => {
     supabase.rpc.mockResolvedValue({ error: null })
 
     const { result } = renderHook(() => useManifiesto())
     await act(async () => {
-      await result.current.updateSeguimiento(50, {
+      await result.current.updateLogistico(50, {
         ajuste_positivo_flete: '100000',
         ajuste_negativo_flete: '',
         consignacion_a_terceros: 0,

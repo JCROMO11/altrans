@@ -23,6 +23,8 @@ function normalizeResponsable(s) {
 const MESES_ARR = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
                    'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
 
+const trimOrNull = (v) => v != null ? String(v).trim() : null
+
 // Convierte valores numéricos del Excel. Soporta:
 //   - Separadores de miles con coma o punto: "1,420,000" / "1.420.000"
 //   - Decimales con coma: "1.420,50"
@@ -77,11 +79,17 @@ export function parseFecha(v) {
 }
 
 // Construye el payload para guardar_digitador desde una fila de Excel.
-// Devuelve { fila, payload } o { fila, error }.
-export function buildPayload(r, i) {
+// Devuelve { fila, payload } o { fila, campo, valor, error }.
+export function buildPayload(r, i, fileName = null) {
   const manifiesto = Number(String(r['MANIFIESTO'] ?? '').trim())
   if (!manifiesto || isNaN(manifiesto)) {
-    return { fila: i + 2, error: 'Sin número de manifiesto válido' }
+    const raw = String(r['MANIFIESTO'] ?? '').trim()
+    return {
+      fila:   i + 2,
+      campo:  'MANIFIESTO',
+      valor:  raw || '(vacío)',
+      error:  'Sin número de manifiesto válido',
+    }
   }
 
   const fecha = parseFecha(r['FECHA EMISIÓN'])
@@ -106,21 +114,20 @@ export function buildPayload(r, i) {
       p_departamento_origen:  dpto_origen,
       p_destino:              destino,
       p_departamento_destino: dpto_destino,
-      p_cliente:              r['GENERADORES']    != null ? String(r['GENERADORES']).split(';')[0].trim() : null,
-      p_conductor:            r['CONDUCTOR']      != null ? String(r['CONDUCTOR']).trim()                 : null,
-      p_cedula_conductor:     r['DOC. CONDUCTOR'] != null ? String(r['DOC. CONDUCTOR']).trim()            : null,
-      p_celular:              r['TEL. CONDUCTOR'] != null ? String(r['TEL. CONDUCTOR']).trim()            : null,
-      p_placa:                r['PLACA']          != null ? String(r['PLACA']).trim()                    : null,
-      p_tipo_vehiculo:        r['REMOLQUE']       != null ? String(r['REMOLQUE']).trim()                 : null,
-      p_propietario:          (r['POSEEDOR'] ?? r['PROPIETARIO']) != null
-                                ? String(r['POSEEDOR'] ?? r['PROPIETARIO']).trim()
-                                : null,
-      p_agencia_despachadora: r['AGENCIA']        != null ? String(r['AGENCIA']).trim()                  : null,
+      p_cliente:              r['GENERADORES'] != null ? String(r['GENERADORES']).split(';')[0].trim() : null,
+      p_conductor:            trimOrNull(r['CONDUCTOR']),
+      p_cedula_conductor:     trimOrNull(r['DOC. CONDUCTOR']),
+      p_celular:              trimOrNull(r['TEL. CONDUCTOR']),
+      p_placa:                trimOrNull(r['PLACA']),
+      p_tipo_vehiculo:        trimOrNull(r['REMOLQUE']),
+      p_propietario:          trimOrNull(r['POSEEDOR'] ?? r['PROPIETARIO']),
+      p_agencia_despachadora: trimOrNull(r['AGENCIA']),
       p_nombre_responsable:   normalizeResponsable(r['CREADO POR']),
       p_valor_remesa:         toNum(r['VALORES REMESAS']),
       p_flete_conductor:      toNum(r['FLETE']),
       p_anticipo:             toNum(r['ANTICIPO']),
-      p_remesas:              r['REMESAS']        != null ? String(r['REMESAS']).trim()                  : null,
+      p_remesas:              trimOrNull(r['REMESAS']),
+      p_archivo_origen:       fileName,
     },
   }
 }

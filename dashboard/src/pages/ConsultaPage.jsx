@@ -439,8 +439,8 @@ function AuditoriaPanel() {
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function ConsultaPage({ openEnCarga, user }) {
   const rol = user?.app_metadata?.role || ''
-  const canVerValorFactura = ['financiero', 'admin'].includes(rol)
-  const isAdmin = rol === 'admin'
+  const canVerValorFactura = ['financiero', 'contadora', 'administrativo', 'gerencia'].includes(rol)
+  const isGerencia = rol === 'gerencia'
 
   const { catalogos } = useCatalogos()
   const { rows, loading, page, hasMore, buscar } = useConsulta()
@@ -476,7 +476,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
     <div className="flex flex-col gap-6 pb-8">
 
       {/* Tab bar — Auditoría solo visible para admin */}
-      {isAdmin && (
+      {isGerencia && (
         <div className="flex gap-1 p-1 rounded-xl self-start" style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
           {[
             { id: 'manifiestos', label: 'Manifiestos' },
@@ -496,7 +496,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
         </div>
       )}
 
-      {activeTab === 'auditoria' && isAdmin
+      {activeTab === 'auditoria' && isGerencia
         ? <AuditoriaPanel />
         : <>
 
