@@ -39,6 +39,7 @@ DROP FUNCTION IF EXISTS public.consulta_totales                    CASCADE;
 DROP FUNCTION IF EXISTS public.tendencia_anual                     CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_digitador                   CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_logistico                   CASCADE;
+DROP FUNCTION IF EXISTS public.guardar_estado_interno              CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_tesoreria                   CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_financiero                  CASCADE;
 DROP FUNCTION IF EXISTS public.borrar_manifiesto                   CASCADE;
@@ -657,8 +658,10 @@ $$;
 
 
 -- ── guardar_logistico ───────────────────────────────────────────────────────
--- Acceso: logistico (R-W), digitador (también es logístico per USUARIOS DRIVE),
--- tesoreria (Johana también tiene "CUMPLE"), gerencia.
+-- Acceso: logistico (R-W), digitador (Marcela también tiene CUMPLE per USUARIOS
+-- DRIVE), tesoreria (Johana también tiene CUMPLE), gerencia.
+-- Roles financiero/administrativo NO van acá: el Drive los limita a editar solo
+-- estado_interno — usan guardar_estado_interno() abajo.
 -- NULLIF en campos de texto libre: enviar "" desde el frontend equivale a NULL,
 -- evita filas espurias en audit_log cuando el usuario abre y guarda sin cambios.
 CREATE OR REPLACE FUNCTION public.guardar_logistico(
@@ -679,7 +682,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-    IF public.user_role() NOT IN ('logistico', 'digitador', 'tesoreria', 'financiero', 'administrativo', 'gerencia') THEN
+    IF public.user_role() NOT IN ('logistico', 'digitador', 'tesoreria', 'gerencia') THEN
         RAISE EXCEPTION 'Sin permiso';
     END IF;
     UPDATE public.manifiestos_flat SET
@@ -693,6 +696,34 @@ BEGIN
         ajuste_positivo_flete      = p_ajuste_positivo_flete,
         ajuste_negativo_flete      = p_ajuste_negativo_flete,
         consignacion_a_terceros    = p_consignacion_a_terceros,
+        actualizado_en             = now()
+    WHERE manifiesto = p_manifiesto;
+END;
+$$;
+
+
+-- ── guardar_estado_interno ──────────────────────────────────────────────────
+-- Acceso: financiero (Maria Elena), administrativo (Oscar), + cualquier rol que
+-- ya pueda escribir cumplimiento completo. Solo toca estado_interno y su
+-- responsable — el resto de la tab cumplimiento queda intacta.
+-- Per USUARIOS DRIVE: financiero y administrativo solo modifican estado_interno;
+-- guardar_logistico no los autoriza para evitar que pisen novedades/ajustes.
+CREATE OR REPLACE FUNCTION public.guardar_estado_interno(
+    p_manifiesto                 BIGINT,
+    p_estado_interno             TEXT,
+    p_responsable_estado_interno TEXT DEFAULT NULL
+)
+RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF public.user_role() NOT IN ('financiero', 'administrativo', 'logistico', 'digitador', 'tesoreria', 'gerencia') THEN
+        RAISE EXCEPTION 'Sin permiso';
+    END IF;
+    UPDATE public.manifiestos_flat SET
+        estado_interno             = COALESCE(p_estado_interno,             estado_interno),
+        responsable_estado_interno = COALESCE(p_responsable_estado_interno, responsable_estado_interno),
         actualizado_en             = now()
     WHERE manifiesto = p_manifiesto;
 END;
@@ -848,6 +879,7 @@ REVOKE EXECUTE ON FUNCTION public.get_catalogos()                               
 REVOKE EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                                                             FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   FROM PUBLIC;
@@ -860,6 +892,7 @@ GRANT EXECUTE ON FUNCTION public.get_catalogos()                                
 GRANT EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              TO authenticated;
+GRANT EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                                                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   TO authenticated;
