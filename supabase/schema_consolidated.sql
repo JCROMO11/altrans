@@ -21,8 +21,8 @@
 --   6. Vista v_manifiestos (security_invoker, enmascara valor_factura)
 --   7. Función user_role
 --   8. RPCs de lectura: consulta_manifiestos, consulta_totales, tendencia_anual
---   9. RPCs de escritura por rol (digitador, operativo, tesoreria, financiero)
---  10. RPCs admin: borrar_manifiesto, get_usuarios, get_catalogos
+--   9. RPCs de escritura por rol (digitador, logistico, tesoreria, financiero)
+--  10. RPCs gerencia: borrar_manifiesto, get_usuarios, get_catalogos
 --  11. RLS sobre manifiestos_flat
 --  12. Permisos finales (REVOKE PUBLIC + GRANT authenticated)
 -- =============================================================================
@@ -38,7 +38,7 @@ DROP FUNCTION IF EXISTS public.consulta_manifiestos                CASCADE;
 DROP FUNCTION IF EXISTS public.consulta_totales                    CASCADE;
 DROP FUNCTION IF EXISTS public.tendencia_anual                     CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_digitador                   CASCADE;
-DROP FUNCTION IF EXISTS public.guardar_operativo                   CASCADE;
+DROP FUNCTION IF EXISTS public.guardar_logistico                   CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_tesoreria                   CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_financiero                  CASCADE;
 DROP FUNCTION IF EXISTS public.borrar_manifiesto                   CASCADE;
@@ -222,9 +222,18 @@ CREATE TRIGGER trg_audit_manifiestos
 -- ╚══════════════════════════════════════════════════════════════════════════╝
 
 -- Sesiones persistentes de WhatsApp
+-- tipo_usuario distingue conductor (autentica con cédula) de propietario (con placa).
+-- identificador_temp guarda la cédula o placa durante el flujo de autenticación;
+-- identificador_auth es el valor verificado tras pasar manifiesto.
 CREATE TABLE IF NOT EXISTS public.chatbot_sesiones (
     wa_from                TEXT PRIMARY KEY,
-    estado                 TEXT        NOT NULL DEFAULT 'esperando_cedula',
+    estado                 TEXT        NOT NULL DEFAULT 'esperando_identificador',
+    tipo_usuario           TEXT,                                 -- 'conductor' | 'propietario'
+    identificador_temp     TEXT,                                 -- cédula o placa en flujo de auth
+    identificador_auth     TEXT,                                 -- cédula o placa ya verificada
+    nombre_temp            TEXT,
+    nombre                 TEXT,
+    -- Campos legacy: se mantienen para compatibilidad con sesiones previas.
     cedula_temp            TEXT,
     conductor_nombre_temp  TEXT,
     conductor_cedula       TEXT,
@@ -236,6 +245,14 @@ CREATE TABLE IF NOT EXISTS public.chatbot_sesiones (
     locked_until           TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_chatbot_last_activity ON public.chatbot_sesiones (last_activity);
+
+-- Migración idempotente: agrega columnas nuevas si la tabla ya existía
+-- desde una versión anterior del schema.
+ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS tipo_usuario       TEXT;
+ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS identificador_temp TEXT;
+ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS identificador_auth TEXT;
+ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS nombre_temp        TEXT;
+ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS nombre             TEXT;
 
 -- Idempotencia del webhook de Meta
 CREATE TABLE IF NOT EXISTS public.processed_messages (
@@ -291,7 +308,7 @@ SELECT
     m.flete_neto_conductor,
     m.fecha_pago, m.valor_pagado, m.entidad_financiera, m.responsable,
     m.factura_no, m.fecha_factura, m.factura_electronica, m.mes_facturacion,
-    CASE WHEN public.user_role() IN ('financiero', 'admin')
+    CASE WHEN public.user_role() IN ('financiero', 'contadora', 'administrativo', 'gerencia')
          THEN m.valor_factura
          ELSE NULL
     END AS valor_factura,
@@ -300,7 +317,30 @@ SELECT
     m.cargado_en, m.actualizado_en,
     CASE WHEN m.fecha_cumplido IS NOT NULL
          THEN CURRENT_DATE - m.fecha_cumplido
-    END AS dias_cumplido
+    END AS dias_cumplido,
+    -- ── Fecha estimada de pago ────────────────────────────────────────────────
+    -- Aproximación días hábiles → calendario con factor ×1.4 (Julián 2026-05-23).
+    -- NULL = no aplica (anulado, ya pagado, sin fecha_cumplido, o modalidad sin plazo).
+    -- Casos sin valor numérico documentado (PRONTO PAGO, PRIORITARIO, OTROS, NULL):
+    -- se usa 15 dh ≈ 21 cal como tentativo; el chatbot debe avisar al conductor.
+    CASE
+        WHEN m.fecha_cumplido IS NULL                THEN NULL
+        WHEN m.fecha_pago     IS NOT NULL            THEN NULL
+        WHEN m.estado_interno  = 'ANULADO'           THEN NULL
+        WHEN m.compromiso_pago = 'URBANO'            THEN NULL
+        WHEN m.compromiso_pago = 'ANULADO'           THEN NULL
+        WHEN m.compromiso_pago = 'PAGADO'            THEN NULL
+        ELSE m.fecha_cumplido + (CASE m.compromiso_pago
+            WHEN 'PAGO A 15 DIAS'         THEN 21
+            WHEN 'PAGO A 20 DIAS'         THEN 28
+            WHEN 'PAGO A 30 DIAS'         THEN 42
+            WHEN 'PAGO A 5-8 DIAS'        THEN 11
+            WHEN 'PAGO INMEDIATO'         THEN 0
+            WHEN 'CONTRAENTREGA'          THEN 0
+            WHEN 'CONTINGENCIA 20-25 DH'  THEN 35
+            ELSE 21  -- PRONTO PAGO, PRIORITARIO, OTROS, NULL (tentativo)
+        END)
+    END AS fecha_estimada_pago
 FROM public.manifiestos_flat m;
 
 
@@ -511,14 +551,14 @@ AS $$
 $$;
 
 
--- ── get_usuarios (solo admin) ────────────────────────────────────────────────
+-- ── get_usuarios (solo gerencia) ────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.get_usuarios()
 RETURNS TABLE(email TEXT, rol TEXT)
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-    IF public.user_role() <> 'admin' THEN
+    IF public.user_role() <> 'gerencia' THEN
         RAISE EXCEPTION 'Sin permiso';
     END IF;
     RETURN QUERY
@@ -570,7 +610,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-    IF public.user_role() NOT IN ('digitador', 'admin') THEN
+    IF public.user_role() NOT IN ('digitador', 'gerencia') THEN
         RAISE EXCEPTION 'Sin permiso';
     END IF;
     INSERT INTO public.manifiestos_flat (
@@ -616,10 +656,12 @@ END;
 $$;
 
 
--- ── guardar_operativo ───────────────────────────────────────────────────────
+-- ── guardar_logistico ───────────────────────────────────────────────────────
+-- Acceso: logistico (R-W), digitador (también es logístico per USUARIOS DRIVE),
+-- tesoreria (Johana también tiene "CUMPLE"), gerencia.
 -- NULLIF en campos de texto libre: enviar "" desde el frontend equivale a NULL,
 -- evita filas espurias en audit_log cuando el usuario abre y guarda sin cambios.
-CREATE OR REPLACE FUNCTION public.guardar_operativo(
+CREATE OR REPLACE FUNCTION public.guardar_logistico(
     p_manifiesto                 BIGINT,
     p_fecha_cumplido             DATE    DEFAULT NULL,
     p_compromiso_pago            TEXT    DEFAULT NULL,
@@ -637,7 +679,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-    IF public.user_role() NOT IN ('operativo', 'admin') THEN
+    IF public.user_role() NOT IN ('logistico', 'digitador', 'tesoreria', 'financiero', 'administrativo', 'gerencia') THEN
         RAISE EXCEPTION 'Sin permiso';
     END IF;
     UPDATE public.manifiestos_flat SET
@@ -670,7 +712,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-    IF public.user_role() NOT IN ('tesoreria', 'admin') THEN
+    IF public.user_role() NOT IN ('tesoreria', 'contadora', 'gerencia') THEN
         RAISE EXCEPTION 'Sin permiso';
     END IF;
     UPDATE public.manifiestos_flat SET
@@ -698,7 +740,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-    IF public.user_role() NOT IN ('financiero', 'admin') THEN
+    IF public.user_role() NOT IN ('financiero', 'contadora', 'gerencia') THEN
         RAISE EXCEPTION 'Sin permiso';
     END IF;
     UPDATE public.manifiestos_flat SET
@@ -713,14 +755,14 @@ END;
 $$;
 
 
--- ── borrar_manifiesto (solo admin) ──────────────────────────────────────────
+-- ── borrar_manifiesto (solo gerencia) ───────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.borrar_manifiesto(p_manifiesto BIGINT)
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
 BEGIN
-    IF public.user_role() <> 'admin' THEN
+    IF public.user_role() <> 'gerencia' THEN
         RAISE EXCEPTION 'Sin permiso';
     END IF;
     DELETE FROM public.manifiestos_flat WHERE manifiesto = p_manifiesto;
@@ -748,7 +790,7 @@ CREATE POLICY "escritura_service_role"
     WITH CHECK (auth.role() = 'service_role');
 
 
--- ── audit_log: solo admin lee; escritura solo vía trigger ───────────────────
+-- ── audit_log: solo gerencia lee; escritura solo vía trigger ────────────────
 ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS audit_log_admin_select ON public.audit_log;
@@ -756,7 +798,7 @@ DROP POLICY IF EXISTS audit_log_no_writes   ON public.audit_log;
 
 CREATE POLICY audit_log_admin_select ON public.audit_log
     FOR SELECT TO authenticated
-    USING (public.user_role() = 'admin');
+    USING (public.user_role() = 'gerencia');
 
 CREATE POLICY audit_log_no_writes ON public.audit_log
     FOR ALL TO authenticated
@@ -768,13 +810,13 @@ ALTER TABLE public.chatbot_sesiones    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.processed_messages  ENABLE ROW LEVEL SECURITY;
 
 
--- ── jailbreak_log: solo admin lee ───────────────────────────────────────────
+-- ── jailbreak_log: solo gerencia lee ────────────────────────────────────────
 ALTER TABLE public.jailbreak_log ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS jb_admin_select ON public.jailbreak_log;
 CREATE POLICY jb_admin_select ON public.jailbreak_log
     FOR SELECT TO authenticated
-    USING (public.user_role() = 'admin');
+    USING (public.user_role() = 'gerencia');
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -805,7 +847,7 @@ REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                      
 REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_operativo(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                                                             FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   FROM PUBLIC;
@@ -817,7 +859,7 @@ GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                       
 GRANT EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.guardar_operativo(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              TO authenticated;
+GRANT EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                                                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   TO authenticated;
@@ -835,5 +877,6 @@ GRANT EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                      
 -- ║      WHERE email = '<EMAIL>';                                            ║
 -- ║                                                                          ║
 -- ║    Roles disponibles:                                                    ║
--- ║      digitador | operativo | tesoreria | financiero | admin              ║
+-- ║      digitador | logistico | tesoreria | financiero |                    ║
+-- ║      contadora | administrativo | gerencia                              ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝
