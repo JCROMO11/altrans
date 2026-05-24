@@ -4,7 +4,7 @@ Suite de seguridad e integridad para la DB de Altrans.
 Cubre:
   1. Enmascaramiento de valor_factura por rol
   2. RLS sobre tablas privadas (chatbot_sesiones, processed_messages, jailbreak_log)
-  3. Permisos de RPCs por rol (guardar_digitador / operativo / tesoreria / financiero / borrar)
+  3. Permisos de RPCs por rol (guardar_digitador / logistico / tesoreria / financiero / borrar)
   4. Upsert idempotente de guardar_digitador
   5. CASCADE en audit_log
   6. Fórmula flete_neto_conductor (NO incluye consignacion_a_terceros)
@@ -48,7 +48,7 @@ _TEST_CLAIMS = json.dumps({
     "sub": "test-user",
     "role": "authenticated",
     "email": "test@altrans.local",
-    "app_metadata": {"role": "admin"},
+    "app_metadata": {"role": "gerencia"},
 })
 
 def _role_claims(role):
@@ -133,12 +133,12 @@ else:
 
     rows_op, err = sql_as_role(
         f"SELECT valor_factura FROM v_manifiestos WHERE manifiesto = {manifiesto_test}",
-        "operativo",
+        "logistico",
     )
     if rows_op and rows_op[0][0] is None:
-        ok("mask", "operativo ve valor_factura = NULL")
+        ok("mask", "logistico ve valor_factura = NULL")
     else:
-        fail("mask", "operativo ve valor_factura = NULL", f"obtuvo: {rows_op} err={err}")
+        fail("mask", "logistico ve valor_factura = NULL", f"obtuvo: {rows_op} err={err}")
 
     rows_fin, err = sql_as_role(
         f"SELECT valor_factura FROM v_manifiestos WHERE manifiesto = {manifiesto_test}",
@@ -151,12 +151,12 @@ else:
 
     rows_adm, err = sql_as_role(
         f"SELECT valor_factura FROM v_manifiestos WHERE manifiesto = {manifiesto_test}",
-        "admin",
+        "gerencia",
     )
     if rows_adm and rows_adm[0][0] is not None:
-        ok("mask", "admin ve valor_factura real")
+        ok("mask", "gerencia ve valor_factura real")
     else:
-        fail("mask", "admin ve valor_factura real", f"obtuvo: {rows_adm} err={err}")
+        fail("mask", "gerencia ve valor_factura real", f"obtuvo: {rows_adm} err={err}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -196,11 +196,11 @@ sql_direct("""
 """, fetch=False)
 
 CASOS_RPC = [
-    # guardar_digitador: solo digitador/admin
+    # guardar_digitador: solo digitador/gerencia
     ("digitador", "guardar_digitador",
         "SELECT public.guardar_digitador(p_manifiesto := 999100, p_celular := '3001111111')",
         True),
-    ("operativo", "guardar_digitador",
+    ("logistico", "guardar_digitador",
         "SELECT public.guardar_digitador(p_manifiesto := 999100)",
         False),
     ("tesoreria", "guardar_digitador",
@@ -210,41 +210,44 @@ CASOS_RPC = [
         "SELECT public.guardar_digitador(p_manifiesto := 999100)",
         False),
 
-    # guardar_operativo: solo operativo/admin
-    ("operativo", "guardar_operativo",
-        "SELECT public.guardar_operativo(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
+    # guardar_logistico: logistico/digitador/tesoreria/financiero/gerencia (todos tienen CUMPLE)
+    ("logistico", "guardar_logistico",
+        "SELECT public.guardar_logistico(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
         True),
-    ("digitador", "guardar_operativo",
-        "SELECT public.guardar_operativo(p_manifiesto := 999100)",
-        False),
-    ("tesoreria", "guardar_operativo",
-        "SELECT public.guardar_operativo(p_manifiesto := 999100)",
-        False),
+    ("digitador", "guardar_logistico",
+        "SELECT public.guardar_logistico(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
+        True),
+    ("tesoreria", "guardar_logistico",
+        "SELECT public.guardar_logistico(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
+        True),
+    ("financiero", "guardar_logistico",
+        "SELECT public.guardar_logistico(p_manifiesto := 999100, p_estado_interno := 'CUMPLIDO')",
+        True),
 
-    # guardar_tesoreria: solo tesoreria/admin
+    # guardar_tesoreria: solo tesoreria/gerencia
     ("tesoreria", "guardar_tesoreria",
         "SELECT public.guardar_tesoreria(p_manifiesto := 999100, p_valor_pagado := 100000)",
         True),
-    ("operativo", "guardar_tesoreria",
+    ("logistico", "guardar_tesoreria",
         "SELECT public.guardar_tesoreria(p_manifiesto := 999100)",
         False),
     ("financiero", "guardar_tesoreria",
         "SELECT public.guardar_tesoreria(p_manifiesto := 999100)",
         False),
 
-    # guardar_financiero: solo financiero/admin
+    # guardar_financiero: solo financiero/gerencia
     ("financiero", "guardar_financiero",
         "SELECT public.guardar_financiero(p_manifiesto := 999100, p_factura_no := 'F-001')",
         True),
-    ("operativo", "guardar_financiero",
+    ("logistico", "guardar_financiero",
         "SELECT public.guardar_financiero(p_manifiesto := 999100)",
         False),
     ("digitador", "guardar_financiero",
         "SELECT public.guardar_financiero(p_manifiesto := 999100)",
         False),
 
-    # borrar_manifiesto: solo admin (sobre un manifiesto inexistente, no importa el efecto)
-    ("admin", "borrar_manifiesto",
+    # borrar_manifiesto: solo gerencia (sobre un manifiesto inexistente, no importa el efecto)
+    ("gerencia", "borrar_manifiesto",
         "SELECT public.borrar_manifiesto(999199)",
         True),
     ("digitador", "borrar_manifiesto",
@@ -277,11 +280,11 @@ count_antes = sql_direct("SELECT COUNT(*) FROM manifiestos_flat")[0][0]
 # Llamar dos veces con el mismo manifiesto — no debe duplicar (commit=True para verificar persistencia)
 _, err1 = sql_as_role(
     "SELECT public.guardar_digitador(p_manifiesto := 999100, p_celular := '3001234567')",
-    "admin", commit=True,
+    "gerencia", commit=True,
 )
 _, err2 = sql_as_role(
     "SELECT public.guardar_digitador(p_manifiesto := 999100, p_celular := '3009999999')",
-    "admin", commit=True,
+    "gerencia", commit=True,
 )
 count_despues = sql_direct("SELECT COUNT(*) FROM manifiestos_flat")[0][0]
 celular_final = sql_direct("SELECT celular FROM manifiestos_flat WHERE manifiesto = 999100")[0][0]
@@ -400,6 +403,66 @@ if r2.status_code == 200 and len(r2.json()) == 1 and r2.json()[0]["estado_intern
     ok("anulado", "sin filtro sí aparece (sanity check)")
 else:
     fail("anulado", "sanity sin filtro", f"status={r2.status_code} body={r2.text[:200]}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+print("\n── 8. Facturación: dias_para_facturar y guardar_financiero ───────────")
+
+# Insertar manifiesto base con fecha_despacho conocida
+MANIF_FACT = 999110
+sql_direct("DELETE FROM manifiestos_flat WHERE manifiesto = %s", (MANIF_FACT,), fetch=False)
+sql_direct("""
+    INSERT INTO manifiestos_flat (
+        manifiesto, archivo_origen, mes, año, periodo, semana,
+        consecutivo_semanal, fecha_despacho, origen, departamento_origen,
+        destino, departamento_destino, cliente, remesas,
+        placa, tipo_vehiculo, conductor, cedula_conductor
+    ) VALUES (
+        %s,'TEST.xlsx','MAYO',2026,'2026-05-01','S20',1,
+        '2026-05-01','BOGOTA','CUNDINAMARCA','CALI','VALLE DEL CAUCA',
+        'CLIENTE FACT','REM-FACT','ABC123','SENCILLO','CONDUCTOR FACT','12345678'
+    )
+""", (MANIF_FACT,), fetch=False)
+
+# Guardar facturación completa
+_, err = sql_as_role(
+    "SELECT public.guardar_financiero(p_manifiesto := 999110, "
+    "p_factura_no := 'F-TEST-001', p_fecha_factura := '2026-05-15'::date, "
+    "p_valor_factura := 1500000)",
+    "gerencia", commit=True,
+)
+if err is None:
+    ok("facturacion", "guardar_financiero acepta los 3 campos completos")
+else:
+    fail("facturacion", "guardar_financiero con 3 campos", f"err={err}")
+
+# Verificar dias_para_facturar = fecha_factura - fecha_despacho = 14
+row = sql_direct(
+    "SELECT dias_para_facturar FROM manifiestos_flat WHERE manifiesto = %s",
+    (MANIF_FACT,),
+)
+dias = row[0][0] if row else None
+if dias == 14:
+    ok("facturacion", f"dias_para_facturar se calcula correctamente (esperado=14, actual={dias})")
+else:
+    fail("facturacion", "dias_para_facturar", f"esperado=14 actual={dias}")
+
+# fecha_factura NULL → dias_para_facturar debe ser NULL
+sql_direct(
+    "UPDATE manifiestos_flat SET fecha_factura = NULL WHERE manifiesto = %s",
+    (MANIF_FACT,), fetch=False,
+)
+row = sql_direct(
+    "SELECT dias_para_facturar FROM manifiestos_flat WHERE manifiesto = %s",
+    (MANIF_FACT,),
+)
+if row and row[0][0] is None:
+    ok("facturacion", "dias_para_facturar es NULL cuando fecha_factura es NULL")
+else:
+    fail("facturacion", "dias_para_facturar con fecha_factura NULL",
+         f"esperado=None actual={row[0][0] if row else None}")
+
+sql_direct("DELETE FROM manifiestos_flat WHERE manifiesto = %s", (MANIF_FACT,), fetch=False)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

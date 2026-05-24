@@ -198,6 +198,37 @@ class TestAuditLog:
         rows = _audit_rows(TEST_MANIF)
         assert not any(r['campo'] == 'archivo_origen' for r in rows)
 
+    def test_insert_no_audita(self):
+        """El trigger es AFTER UPDATE — los INSERT no deben generar audit_log."""
+        # El fixture _setup() ya hizo el INSERT y limpió audit_log.
+        # Hacer un INSERT adicional (otro manifiesto) y verificar que no audita.
+        otro = TEST_MANIF + 1
+        conn = _conn(); conn.autocommit = False
+        cur = conn.cursor()
+        cur.execute("SET LOCAL request.jwt.claims = %s", (_claims_for(),))
+        cur.execute("DELETE FROM audit_log WHERE manifiesto = %s", (otro,))
+        cur.execute("DELETE FROM manifiestos_flat WHERE manifiesto = %s", (otro,))
+        cur.execute("""
+            INSERT INTO manifiestos_flat (
+                manifiesto, archivo_origen, mes, año, periodo, semana,
+                consecutivo_semanal, fecha_despacho, origen, departamento_origen,
+                destino, departamento_destino, cliente, remesas,
+                placa, tipo_vehiculo, conductor, cedula_conductor
+            ) VALUES (
+                %s,'TEST.xlsx','MAYO',2026,'2026-05-01','S20',1,
+                '2026-05-01','BOGOTA','CUNDINAMARCA','CALI','VALLE DEL CAUCA',
+                'CLIENTE INS','REM','ABC123','SENCILLO','CONDUCTOR INS','12345678'
+            )
+        """, (otro,))
+        conn.commit()
+
+        try:
+            assert _audit_rows(otro) == [], "INSERT no debe generar entradas en audit_log"
+        finally:
+            cur.execute("DELETE FROM manifiestos_flat WHERE manifiesto = %s", (otro,))
+            conn.commit()
+            conn.close()
+
     def test_borrado_de_manifiesto_borra_audit_log_en_cascada(self):
         # Generar algunas entradas
         _update_with('admin', 'x@y.com', cliente='X1')
