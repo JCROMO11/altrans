@@ -740,7 +740,7 @@ export default function CargaPage({ target, clearTarget, user }) {
   const [msg,    setMsg]    = useState(null)
 
   const { catalogos } = useCatalogos()
-  const { search, update, remove, updateLogistico, updateTesoreria, updateFacturacion } = useManifiesto()
+  const { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion } = useManifiesto()
 
   // ── Catalog options ─────────────────────────────────────────────────────────
   const optConductores  = catalogos.conductores.map(c => ({ id: c.nombre, label: c.nombre, sub: c.cedula }))
@@ -903,10 +903,10 @@ export default function CargaPage({ target, clearTarget, user }) {
     if (!formSeg.estado_interno) { toast('error', 'Seleccioná un estado interno.'); return }
     setBusy(true)
     try {
-      // Enviar formSeg completo (cargado desde ficha) para no sobreescribir a NULL
-      // novedades/ajustes/consignación — guardar_logistico no usa COALESCE en esos campos.
-      await updateLogistico(ficha.manifiesto, {
-        ...formSeg,
+      // RPC dedicada: solo actualiza estado_interno + responsable.
+      // financiero/administrativo NO tienen acceso a guardar_logistico.
+      await updateEstadoInterno(ficha.manifiesto, {
+        estado_interno:             formSeg.estado_interno,
         responsable_estado_interno: userName,
       })
       toast('success', 'Estado interno actualizado correctamente.')
