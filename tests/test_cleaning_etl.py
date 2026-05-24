@@ -6,7 +6,7 @@ Ejecutar: python3 -m pytest tests/etl/test_cleaning.py -v
 Solo prueba las funciones puras (sin DataFrames pesados).
 """
 import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'etl_individual'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'etl_individual'))
 
 import re
 import pandas as pd
