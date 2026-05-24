@@ -63,7 +63,7 @@ function App() {
   // Con sesión → app completa
   return (
     <Layout page={page} setPage={setPage} user={session.user}>
-      {page === 'dashboard' && <DashboardPage />}
+      {page === 'dashboard' && <DashboardPage user={session.user} />}
       {page === 'carga'     && (
         <CargaPage
           target={targetManifiesto}
