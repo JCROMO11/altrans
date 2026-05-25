@@ -15,11 +15,24 @@ const pageTitle = {
 }
 
 const ROL_CONFIG = {
-  digitador:  { label: 'Digitador',  color: '#1E6FBF' },
-  operativo:  { label: 'Operativo',  color: '#16A34A' },
-  tesoreria:  { label: 'Tesorería',  color: '#7C3AED' },
-  financiero: { label: 'Financiero', color: '#D97706' },
-  admin:      { label: 'Admin',      color: '#C9A84C' },
+  digitador:      { label: 'Digitador',      color: '#1E6FBF' },
+  logistico:      { label: 'Logístico',      color: '#0891B2' },
+  operativo:      { label: 'Operativo',      color: '#16A34A' },
+  tesoreria:      { label: 'Tesorería',      color: '#7C3AED' },
+  financiero:     { label: 'Financiero',     color: '#D97706' },
+  administrativo: { label: 'Administrativo', color: '#DC2626' },
+  contadora:      { label: 'Contadora',      color: '#BE185D' },
+  gerencia:       { label: 'Gerencia',       color: '#C9A84C' },
+  admin:          { label: 'Admin',          color: '#C9A84C' },
+}
+
+function abreviarNombre(nombre) {
+  if (!nombre) return 'Usuario'
+  const parts = nombre.trim().split(/\s+/)
+  if (parts.length <= 2) return nombre.trim()
+  // Nombres colombianos: nombre1 [nombre2] apellido1 apellido2
+  // El primer apellido es siempre la penúltima palabra.
+  return `${parts[0]} ${parts[parts.length - 2]}`
 }
 
 function RolBadge({ rol, size = 'md' }) {
@@ -50,18 +63,28 @@ function RolBadge({ rol, size = 'md' }) {
 export default function Layout({ children, page, setPage, user }) {
   const [collapsed, setCollapsed] = useState(false)
 
-  const nombre = user?.app_metadata?.nombre || user?.email?.split('@')[0] || 'Usuario'
-  const rol    = user?.app_metadata?.role   || ''
+  const nombreCompleto = user?.user_metadata?.nombre || user?.app_metadata?.nombre || user?.email?.split('@')[0] || 'Usuario'
+  const nombre = abreviarNombre(nombreCompleto)
+  const rol    = user?.app_metadata?.role || ''
 
   return (
     <div className="flex min-h-screen bg-background">
 
       {/* Sidebar */}
-      <aside className={`flex flex-col border-r bg-card transition-all duration-300 ease-in-out ${collapsed ? 'w-15' : 'w-56'}`}>
+      <aside
+        className={`flex flex-col border-r transition-all duration-300 ease-in-out ${collapsed ? 'w-15' : 'w-56'}`}
+        style={{ background: 'var(--gradient-sidebar)' }}
+      >
 
         {/* Logo */}
         <div className={`flex items-center border-b h-14 shrink-0 ${collapsed ? 'justify-center px-0' : 'gap-2 px-4'}`}>
-          <div className="flex items-center justify-center w-7 h-7 rounded-md bg-primary text-primary-foreground shrink-0">
+          <div
+            className="flex items-center justify-center w-7 h-7 rounded-md text-primary-foreground shrink-0"
+            style={{
+              background: 'var(--gradient-brand)',
+              boxShadow: '0 2px 8px 0 rgba(30,111,191,0.25)',
+            }}
+          >
             <Truck size={14} strokeWidth={2.5} />
           </div>
           {!collapsed && (
@@ -86,16 +109,21 @@ export default function Layout({ children, page, setPage, user }) {
                 key={id}
                 onClick={() => setPage(id)}
                 title={collapsed ? label : undefined}
+                style={active ? {
+                  background: 'var(--gradient-brand)',
+                  color: '#FFFFFF',
+                  boxShadow: '0 2px 8px 0 rgba(30,111,191,0.25)',
+                } : undefined}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
                   ${collapsed ? 'justify-center' : ''}
                   ${active
-                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    ? ''
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                   }`}
               >
                 <Icon size={16} strokeWidth={active ? 2.5 : 2} />
                 {!collapsed && <span>{label}</span>}
-                {!collapsed && active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-foreground/60" />}
+                {!collapsed && active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white/70" />}
               </button>
             )
           })}
@@ -105,7 +133,7 @@ export default function Layout({ children, page, setPage, user }) {
         <div className={`border-t p-3 flex ${collapsed ? 'justify-center' : 'items-center justify-between'}`}>
           {!collapsed && (
             <div className="min-w-0 flex flex-col gap-1">
-              <p className="text-[11px] font-medium text-foreground truncate">{nombre}</p>
+              <p className="text-[11px] font-medium text-foreground truncate" title={nombreCompleto}>{nombre}</p>
               <RolBadge rol={rol} size="sm" />
             </div>
           )}
@@ -124,9 +152,15 @@ export default function Layout({ children, page, setPage, user }) {
       <div className="flex flex-col flex-1 min-w-0">
 
         {/* Header */}
-        <header className="flex items-center justify-between border-b px-6 h-14 bg-card shrink-0">
+        <header
+          className="flex items-center justify-between border-b px-6 h-14 shrink-0"
+          style={{
+            background: 'var(--gradient-sidebar)',
+            boxShadow: 'var(--shadow-soft)',
+          }}
+        >
           <div className="flex items-center gap-2">
-            <div className="w-1 h-5 rounded-full bg-primary" />
+            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--gradient-brand)' }} />
             <h1 className="text-sm font-semibold">{pageTitle[page]}</h1>
           </div>
           <div className="flex items-center gap-3">
@@ -136,7 +170,7 @@ export default function Layout({ children, page, setPage, user }) {
             </div>
             <div className="w-px h-4 bg-border" />
             <div className="flex items-center gap-2">
-              <p className="text-xs font-medium leading-none">{nombre}</p>
+              <p className="text-xs font-medium leading-none" title={nombreCompleto}>{nombre}</p>
               <RolBadge rol={rol} size="md" />
             </div>
             <button

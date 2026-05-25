@@ -22,6 +22,8 @@ const TICK = '#0F172A'
 const BLUE = '#1E6FBF'
 const GOLD = '#C9A84C'
 const MUTED = '#64748B'
+const BTN_GRAD = 'linear-gradient(135deg, #1E6FBF 0%, #6366F1 100%)'
+const BTN_SHADOW = '0 2px 8px 0 rgba(30,111,191,0.22)'
 
 // ── Primitives ───────────────────────────────────────────────────────────────
 const inputCls = `w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1
@@ -464,7 +466,7 @@ function ExcelUploadPanel({ onDone }) {
           <div className="flex gap-3">
             <button type="button" onClick={verificarCambios}
               className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
-              style={{ background: BLUE, color: '#fff' }}>
+              style={{ background: BTN_GRAD, color: '#fff', boxShadow: BTN_SHADOW }}>
               <Upload size={14} /> Verificar e importar
             </button>
             <button type="button" onClick={cancelar}
@@ -635,7 +637,7 @@ function ExcelUploadPanel({ onDone }) {
             <button type="button" onClick={confirmarRevision}
               disabled={totalImportar === 0}
               className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ background: BLUE, color: '#fff' }}>
+              style={{ background: BTN_GRAD, color: '#fff', boxShadow: BTN_SHADOW }}>
               <Upload size={14} /> Importar ({totalImportar} registro{totalImportar !== 1 ? 's' : ''})
             </button>
             <button type="button" onClick={cancelar}
@@ -718,11 +720,14 @@ export default function CargaPage({ target, clearTarget, user }) {
   const canEditDespacho      = ['digitador', 'gerencia'].includes(rol)
   // logistico hereda a digitador y tesoreria (per USUARIOS DRIVE: ambos tienen "CUMPLE,")
   const canEditLogistico     = ['logistico', 'digitador', 'tesoreria', 'gerencia'].includes(rol)
+  // tesorería solo edita R-W del Drive en Cumplimiento; campos extra (novedad_conductor,
+  // novedad_empresa, ajustes al flete, consignación) son exclusivos de logístico.
+  const canEditCumplimientoExtra = ['logistico', 'digitador', 'gerencia'].includes(rol)
   // financiero solo puede editar estado_interno dentro de cumplimiento, nada más de esa tab
   const canEditEstadoInterno = canEditLogistico || ['financiero', 'administrativo'].includes(rol)
   const canEditTesoreria     = ['tesoreria', 'contadora', 'gerencia'].includes(rol)
   const canEditFinanciero    = ['financiero', 'contadora', 'gerencia'].includes(rol)
-  const canUploadExcel       = ['digitador',  'gerencia'].includes(rol)
+  const canUploadExcel       = ['digitador', 'gerencia'].includes(rol)
 
   const [query,  setQuery]  = useState('')
   const [view,   setView]   = useState('inicio')
@@ -755,7 +760,7 @@ export default function CargaPage({ target, clearTarget, user }) {
   const newText = (nombre) => ({ id: nombre, nombre, label: nombre, placa: nombre })
 
   // ── Load ficha ──────────────────────────────────────────────────────────────
-  const userName = user?.app_metadata?.nombre || user?.email || ''
+  const userName = user?.user_metadata?.nombre || user?.app_metadata?.nombre || user?.email || ''
 
   const buildEditForm = (data) => ({
     fecha_despacho:       data.fecha_despacho       || '',
@@ -820,8 +825,8 @@ export default function CargaPage({ target, clearTarget, user }) {
     setQuery(String(target))
     search(target).then(data => {
       if (data) { loadFicha(data); setView('ficha') }
-      else toast('error', `Manifiesto ${target} no encontrado`)
-    }).catch(() => toast('error', 'Error al cargar manifiesto'))
+      else toast('error', `Manifiesto ${target} no existe en la base de datos.`)
+    }).catch(err => toast('error', `Error al cargar manifiesto ${target}: ${err.message ?? 'desconocido'}`))
     clearTarget?.()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target])
@@ -842,18 +847,27 @@ export default function CargaPage({ target, clearTarget, user }) {
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleSearch = async (e) => {
     e.preventDefault()
-    if (!query.trim()) return
+    const raw = query.trim()
+    if (!raw) {
+      toast('error', 'Ingresá un número de manifiesto para buscar.')
+      return
+    }
+    const num = Number(raw)
+    if (!Number.isInteger(num) || num <= 0) {
+      toast('error', `"${raw}" no es un número de manifiesto válido. Usá solo dígitos.`)
+      return
+    }
     setBusy(true)
     try {
-      const data = await search(Number(query.trim()))
+      const data = await search(num)
       if (data) {
         loadFicha(data)
         setView('ficha')
       } else {
-        toast('error', `Manifiesto ${query.trim()} no encontrado.`)
+        toast('error', `Manifiesto ${num} no existe en la base de datos. Verificá el número o cargalo desde Excel.`)
       }
     } catch (err) {
-      toast('error', err.message ?? 'Error al buscar')
+      toast('error', `No se pudo buscar el manifiesto ${num}: ${err.message ?? 'error desconocido'}`)
     } finally { setBusy(false) }
   }
 
@@ -969,7 +983,7 @@ export default function CargaPage({ target, clearTarget, user }) {
         </div>
         <button type="submit" disabled={busy || !query.trim()}
           className="px-4 py-2 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-50"
-          style={{ background: BLUE, color: '#FFFFFF' }}>
+          style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
           Buscar
         </button>
       </form>
@@ -1093,7 +1107,7 @@ export default function CargaPage({ target, clearTarget, user }) {
             ].map(t => (
               <button key={t.id} onClick={() => { setTab(t.id); setEditMode(false) }}
                 className="px-4 py-1.5 rounded-md text-xs font-semibold transition-all"
-                style={tab === t.id ? { background: BLUE, color: '#FFFFFF' } : { color: MUTED }}>
+                style={tab === t.id ? { background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW } : { color: MUTED, background: 'transparent' }}>
                 {t.label}
               </button>
             ))}
@@ -1257,7 +1271,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                 </button>
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                  style={{ background: BLUE, color: '#FFFFFF' }}>
+                  style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
                   <Save size={14} /> {busy ? 'Guardando...' : 'Guardar cambios'}
                 </button>
               </div>
@@ -1334,7 +1348,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                 <div className="flex justify-end">
                   <button type="submit" disabled={busy}
                     className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                    style={{ background: BLUE, color: '#FFFFFF' }}>
+                    style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
                     <Save size={14} /> {busy ? 'Guardando...' : 'Guardar estado interno'}
                   </button>
                 </div>
@@ -1367,31 +1381,49 @@ export default function CargaPage({ target, clearTarget, user }) {
                     value={formSeg.novedades} onChange={e => fs('novedades')(e.target.value)} />
                 </Field>
               </SectionCard>
-              <SectionCard icon={ClipboardList} title="Ajuste al flete" cols={2}>
-                <Field label="Novedad del conductor" col={2}>
-                  <textarea rows={2} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
-                    placeholder="Ej. demora en descargue, costos adicionales reconocidos al conductor..."
-                    value={formSeg.novedad_conductor} onChange={e => fs('novedad_conductor')(e.target.value)} />
-                </Field>
-                <Field label="Novedad de la empresa" col={2}>
-                  <textarea rows={2} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
-                    placeholder="Ej. daño de mercancía, incumplimiento del conductor..."
-                    value={formSeg.novedad_empresa} onChange={e => fs('novedad_empresa')(e.target.value)} />
-                </Field>
-                <MoneyInput label="Reajuste"
-                  value={formSeg.ajuste_positivo_flete}
-                  onChange={e => fs('ajuste_positivo_flete')(e.target.value)} />
-                <MoneyInput label="Descuento"
-                  value={formSeg.ajuste_negativo_flete}
-                  onChange={e => fs('ajuste_negativo_flete')(e.target.value)} />
-                <MoneyInput label="Consignación a terceros"
-                  value={formSeg.consignacion_a_terceros}
-                  onChange={e => fs('consignacion_a_terceros')(e.target.value)} />
-              </SectionCard>
+              {canEditCumplimientoExtra ? (
+                <SectionCard icon={ClipboardList} title="Ajuste al flete" cols={2}>
+                  <Field label="Novedad del conductor" col={2}>
+                    <textarea rows={2} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
+                      placeholder="Ej. demora en descargue, costos adicionales reconocidos al conductor..."
+                      value={formSeg.novedad_conductor} onChange={e => fs('novedad_conductor')(e.target.value)} />
+                  </Field>
+                  <Field label="Novedad de la empresa" col={2}>
+                    <textarea rows={2} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
+                      placeholder="Ej. daño de mercancía, incumplimiento del conductor..."
+                      value={formSeg.novedad_empresa} onChange={e => fs('novedad_empresa')(e.target.value)} />
+                  </Field>
+                  <MoneyInput label="Reajuste"
+                    value={formSeg.ajuste_positivo_flete}
+                    onChange={e => fs('ajuste_positivo_flete')(e.target.value)} />
+                  <MoneyInput label="Descuento"
+                    value={formSeg.ajuste_negativo_flete}
+                    onChange={e => fs('ajuste_negativo_flete')(e.target.value)} />
+                  <MoneyInput label="Consignación a terceros"
+                    value={formSeg.consignacion_a_terceros}
+                    onChange={e => fs('consignacion_a_terceros')(e.target.value)} />
+                </SectionCard>
+              ) : (
+                <SectionCard icon={ClipboardList} title="Ajuste al flete" cols={2}>
+                  {[
+                    { l: 'Novedad del conductor',   v: ficha.novedad_conductor,   col: 2 },
+                    { l: 'Novedad de la empresa',   v: ficha.novedad_empresa,     col: 2 },
+                    { l: 'Reajuste',                v: ficha.ajuste_positivo_flete   != null ? `$ ${Number(ficha.ajuste_positivo_flete).toLocaleString('es-CO')}` : null },
+                    { l: 'Descuento',               v: ficha.ajuste_negativo_flete   != null ? `$ ${Number(ficha.ajuste_negativo_flete).toLocaleString('es-CO')}` : null },
+                    { l: 'Consignación a terceros', v: ficha.consignacion_a_terceros != null ? `$ ${Number(ficha.consignacion_a_terceros).toLocaleString('es-CO')}` : null },
+                  ].map(({ l, v, col }) => (
+                    <div key={l} className="rounded-lg px-3 py-2.5"
+                      style={{ background: BG, border: `1px solid ${BDR}`, gridColumn: col ? `span ${col}` : undefined }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>{l}</p>
+                      <p className="text-sm" style={{ color: v ? TICK : MUTED }}>{v ?? '—'}</p>
+                    </div>
+                  ))}
+                </SectionCard>
+              )}
               <div className="flex justify-end">
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                  style={{ background: BLUE, color: '#FFFFFF' }}>
+                  style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
                   <Save size={14} /> {busy ? 'Guardando...' : 'Guardar cumplimiento'}
                 </button>
               </div>
@@ -1443,7 +1475,7 @@ export default function CargaPage({ target, clearTarget, user }) {
               <div className="flex justify-end">
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                  style={{ background: BLUE, color: '#FFFFFF' }}>
+                  style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
                   <Save size={14} /> {busy ? 'Guardando...' : 'Guardar tesorería'}
                 </button>
               </div>
@@ -1501,7 +1533,7 @@ export default function CargaPage({ target, clearTarget, user }) {
               <div className="flex justify-end">
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                  style={{ background: BLUE, color: '#FFFFFF' }}>
+                  style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
                   <Save size={14} /> {busy ? 'Guardando...' : 'Guardar facturación'}
                 </button>
               </div>

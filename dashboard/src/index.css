@@ -50,7 +50,11 @@
 
 /* Paleta corporativa Altrans */
 :root {
-    --background:           #F1F5F9;
+    --background:           #EFF4FB;
+    --gradient-app:         radial-gradient(ellipse 80% 60% at 10% 0%, #E0EEFF 0%, #EFF4FB 60%);
+    --gradient-sidebar:     linear-gradient(180deg, #FFFFFF 0%, #F4F8FE 100%);
+    --gradient-brand:       linear-gradient(135deg, #1E6FBF 0%, #6366F1 100%);
+    --shadow-soft:          0 1px 2px 0 rgba(15,23,42,0.04), 0 4px 16px -4px rgba(30,111,191,0.08);
     --foreground:           #0F172A;
     --card:                 #FFFFFF;
     --card-foreground:      #0F172A;
@@ -85,6 +89,28 @@
   }
   body {
     @apply bg-background text-foreground;
+    background: var(--gradient-app);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  /* Scrollbar coherente con el fondo */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(30, 111, 191, 0.18);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(30, 111, 191, 0.32);
+    background-clip: padding-box;
+    border: 2px solid transparent;
   }
   html {
     @apply font-sans;

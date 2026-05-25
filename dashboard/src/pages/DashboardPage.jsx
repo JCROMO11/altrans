@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Lock } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -8,7 +9,8 @@ import { useDashboard } from '../hooks/useDashboard'
 
 const MESES       = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
 const MESES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-const AÑOS        = [2023, 2024, 2025, 2026]
+const AÑOS_BASE   = 2023
+const AÑOS        = Array.from({ length: new Date().getFullYear() - AÑOS_BASE + 1 }, (_, i) => AÑOS_BASE + i)
 
 // Paleta corporativa Altrans
 const BLUE   = '#1E6FBF'
@@ -56,11 +58,15 @@ function ChartSkeleton({ height = 240 }) {
 function KpiCard({ label, value, textColor, borderColor, loading }) {
   return (
     <div
-      className="rounded-lg border bg-card p-4 flex flex-col gap-2 border-l-[3px] shadow-md transition-shadow duration-200 hover:shadow-lg"
-      style={{ borderColor: TT_BDR, borderLeftColor: borderColor }}
+      className="rounded-lg border p-4 flex flex-col gap-2 border-l-[3px] shadow-md transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+      style={{
+        borderColor: TT_BDR,
+        borderLeftColor: borderColor,
+        background: `linear-gradient(135deg, ${borderColor}0D 0%, #FFFFFF 60%)`,
+      }}
     >
       <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
-      {loading ? <Skeleton /> : <p className="text-2xl font-semibold" style={{ color: textColor }}>{value}</p>}
+      {loading ? <Skeleton /> : <p className="text-2xl font-semibold tracking-tight" style={{ color: textColor }}>{value}</p>}
     </div>
   )
 }
@@ -76,7 +82,7 @@ function SectionLabel({ children }) {
 
 function ChartCard({ title, children }) {
   return (
-    <div className="rounded-lg p-4 flex flex-col gap-3 shadow-md" style={{ background: TT_BG, border: `1px solid ${TT_BDR}` }}>
+    <div className="rounded-lg p-4 flex flex-col gap-3 shadow-md transition-shadow hover:shadow-lg" style={{ background: 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)', border: `1px solid ${TT_BDR}` }}>
       <p className="text-sm font-semibold" style={{ color: TICK }}>{title}</p>
       <div className="-mx-4" style={{ height: 1, background: GRID }} />
       {children}
@@ -84,13 +90,14 @@ function ChartCard({ title, children }) {
   )
 }
 
+
 function FilterPill({ label, active, onClick }) {
   return (
     <button
       onClick={onClick}
       className="px-3 py-1 rounded-full text-xs font-medium transition-all duration-150"
       style={active
-        ? { background: BLUE, color: '#FFFFFF' }
+        ? { background: 'linear-gradient(135deg, #1E6FBF 0%, #6366F1 100%)', color: '#FFFFFF', boxShadow: '0 2px 8px 0 rgba(30,111,191,0.22)' }
         : { background: '#F1F5F9', color: '#64748B' }
       }
     >
@@ -116,9 +123,32 @@ export default function DashboardPage({ user }) {
 
   if (!KPI_ROLES.includes(rol)) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 h-64 text-center">
-        <p className="text-sm font-medium">Esta sección no está disponible para tu perfil.</p>
-        <p className="text-xs text-muted-foreground">Contacta a gerencia si necesitas acceso.</p>
+      <div className="flex items-center justify-center" style={{ minHeight: 420 }}>
+        <div className="flex flex-col items-center gap-5 text-center max-w-xs px-8 py-12 rounded-2xl"
+          style={{
+            background: 'linear-gradient(135deg, #EFF6FF 0%, #F5F3FF 50%, #FDF4FF 100%)',
+            border: '1px solid #BFDBFE',
+            boxShadow: '0 4px 24px 0 rgba(99,102,241,0.08)',
+          }}>
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%)',
+              boxShadow: '0 4px 16px 0 rgba(139,92,246,0.30)',
+            }}>
+            <Lock size={26} color="#FFFFFF" strokeWidth={2.5} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <p className="text-base font-bold" style={{ color: '#1E1B4B' }}>
+              Acceso restringido
+            </p>
+            <p className="text-sm leading-relaxed" style={{ color: '#4338CA' }}>
+              Esta sección no está disponible para tu perfil.
+            </p>
+            <p className="text-xs mt-1" style={{ color: '#6B7280' }}>
+              Contacta a gerencia si necesitas acceso.
+            </p>
+          </div>
+        </div>
       </div>
     )
   }
@@ -194,18 +224,34 @@ export default function DashboardPage({ user }) {
       <SectionLabel>Distribución del período</SectionLabel>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        <ChartCard title="Estado de pago">
+        <ChartCard title="Compromiso de pago">
           {loading ? <ChartSkeleton /> : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
+            <ResponsiveContainer width="100%" height={230}>
+              <PieChart margin={{ top: 24, right: 32, bottom: 24, left: 32 }}>
                 <Pie data={data?.estadoPago ?? []} dataKey="value" nameKey="name"
-                  cx="50%" cy="48%" innerRadius={52} outerRadius={88}
-                  label={({ percent }) => percent > 0.06 ? `${(percent * 100).toFixed(0)}%` : ''}
-                  labelLine={false} paddingAngle={2}
+                  cx="50%" cy="50%" innerRadius={58} outerRadius={92}
+                  label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    if (percent < 0.05) return null
+                    const r = innerRadius + (outerRadius - innerRadius) * 0.5
+                    const x = cx + r * Math.cos(-midAngle * Math.PI / 180)
+                    const y = cy + r * Math.sin(-midAngle * Math.PI / 180)
+                    return (
+                      <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central"
+                        style={{ fontSize: 11, fontWeight: 700, pointerEvents: 'none' }}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
+                  labelLine={false} paddingAngle={3}
                 >
                   {(data?.estadoPago ?? []).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Tooltip
+                  contentStyle={{ ...TOOLTIP_STYLE, borderRadius: 10, padding: '10px 14px', minWidth: 160 }}
+                  itemStyle={{ fontSize: 12, color: TICK, fontWeight: 600 }}
+                  labelStyle={{ display: 'none' }}
+                  formatter={(value, name) => [`${value} ${value === 1 ? 'manifiesto' : 'manifiestos'}`, name]}
+                />
               </PieChart>
             </ResponsiveContainer>
           )}
@@ -260,17 +306,32 @@ export default function DashboardPage({ user }) {
 
         <ChartCard title="Estado interno">
           {loading ? <ChartSkeleton /> : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
+            <ResponsiveContainer width="100%" height={230}>
+              <PieChart margin={{ top: 24, right: 32, bottom: 24, left: 32 }}>
                 <Pie data={data?.chartEstadoInterno ?? []} dataKey="value" nameKey="name"
-                  cx="50%" cy="48%" innerRadius={52} outerRadius={88}
-                  label={({ percent }) => percent > 0.06 ? `${(percent * 100).toFixed(0)}%` : ''}
-                  labelLine={false} paddingAngle={2}
+                  cx="50%" cy="50%" innerRadius={58} outerRadius={92}
+                  label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                    if (percent < 0.05) return null
+                    const r = innerRadius + (outerRadius - innerRadius) * 0.5
+                    const x = cx + r * Math.cos(-midAngle * Math.PI / 180)
+                    const y = cy + r * Math.sin(-midAngle * Math.PI / 180)
+                    return (
+                      <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central"
+                        style={{ fontSize: 11, fontWeight: 700, pointerEvents: 'none' }}>
+                        {`${(percent * 100).toFixed(0)}%`}
+                      </text>
+                    )
+                  }}
+                  labelLine={false} paddingAngle={3}
                 >
                   {(data?.chartEstadoInterno ?? []).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={TOOLTIP_STYLE}
-                  formatter={(v, name) => [v, name.length > 24 ? name.slice(0, 24) + '…' : name]} />
+                <Tooltip
+                  contentStyle={{ ...TOOLTIP_STYLE, borderRadius: 10, padding: '10px 14px', minWidth: 160 }}
+                  itemStyle={{ fontSize: 12, color: TICK, fontWeight: 600 }}
+                  labelStyle={{ display: 'none' }}
+                  formatter={(value, name) => [`${value} ${value === 1 ? 'manifiesto' : 'manifiestos'}`, name]}
+                />
               </PieChart>
             </ResponsiveContainer>
           )}

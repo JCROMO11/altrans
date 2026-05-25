@@ -32,19 +32,28 @@ export default function LoginGate({ children }) {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4"
-      style={{ background: '#F1F5F9' }}>
+      style={{ background: 'radial-gradient(ellipse 80% 60% at 10% 0%, #E0EEFF 0%, #EFF4FB 60%)' }}>
       <div className="w-full max-w-sm flex flex-col gap-6"
-        style={{ background: BG, border: `1px solid ${BDR}`, borderRadius: 16, padding: 32 }}>
+        style={{
+          background: 'linear-gradient(135deg, #FFFFFF 0%, #F5F8FE 60%, #F1F1FB 100%)',
+          border: `1px solid ${BDR}`,
+          borderRadius: 16,
+          padding: 32,
+          boxShadow: '0 4px 24px 0 rgba(30,111,191,0.10), 0 1px 2px 0 rgba(15,23,42,0.04)',
+        }}>
 
         {/* Logo */}
         <div className="flex flex-col items-center gap-2 pb-2">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-1"
-            style={{ background: BLUE + '22', border: `1px solid ${BLUE}44` }}>
+            style={{
+              background: 'linear-gradient(135deg, #1E6FBF 0%, #6366F1 100%)',
+              boxShadow: '0 4px 16px 0 rgba(30,111,191,0.30)',
+            }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
-                stroke={BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               <polyline points="9 22 9 12 15 12 15 22"
-                stroke={BLUE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
           <p className="text-lg font-bold tracking-wide" style={{ color: TICK }}>Altrans</p>
@@ -60,7 +69,7 @@ export default function LoginGate({ children }) {
             autoFocus
             placeholder="Número de cédula"
             onChange={e => setInput(p => ({ ...p, cedula: e.target.value }))}
-            className="w-full rounded-md border px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#1E6FBF] transition-colors bg-transparent"
+            className="w-full rounded-md border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E6FBF]/40 focus:border-[#1E6FBF] transition-all bg-transparent"
             style={{ borderColor: error ? '#ef4444' : BDR, color: TICK }}
           />
 
@@ -70,7 +79,7 @@ export default function LoginGate({ children }) {
               value={input.password}
               placeholder="Contraseña"
               onChange={e => setInput(p => ({ ...p, password: e.target.value }))}
-              className="w-full rounded-md border px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#1E6FBF] transition-colors bg-transparent pr-10"
+              className="w-full rounded-md border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1E6FBF]/40 focus:border-[#1E6FBF] transition-all bg-transparent pr-10"
               style={{ borderColor: error ? '#ef4444' : BDR, color: TICK }}
             />
             <button
@@ -89,8 +98,12 @@ export default function LoginGate({ children }) {
           <button
             type="submit"
             disabled={!input.cedula || !input.password || loading}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity disabled:opacity-40"
-            style={{ background: BLUE, color: '#FFFFFF' }}>
+            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-40 hover:shadow-lg"
+            style={{
+              background: 'linear-gradient(135deg, #1E6FBF 0%, #6366F1 100%)',
+              color: '#FFFFFF',
+              boxShadow: '0 2px 8px 0 rgba(30,111,191,0.25)',
+            }}>
             {loading ? 'Ingresando...' : 'Entrar'}
           </button>
         </form>

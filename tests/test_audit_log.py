@@ -206,8 +206,10 @@ class TestAuditLog:
         conn = _conn(); conn.autocommit = False
         cur = conn.cursor()
         cur.execute("SET LOCAL request.jwt.claims = %s", (_claims_for(),))
-        cur.execute("DELETE FROM audit_log WHERE manifiesto = %s", (otro,))
+        # Borrar manifiesto primero (trigger fn_audit_manifiestos_delete inserta una fila);
+        # luego limpiar audit_log para que el aserto solo vea las filas del INSERT bajo test.
         cur.execute("DELETE FROM manifiestos_flat WHERE manifiesto = %s", (otro,))
+        cur.execute("DELETE FROM audit_log WHERE manifiesto = %s", (otro,))
         cur.execute("""
             INSERT INTO manifiestos_flat (
                 manifiesto, archivo_origen, mes, año, periodo, semana,
@@ -229,20 +231,29 @@ class TestAuditLog:
             conn.commit()
             conn.close()
 
-    def test_borrado_de_manifiesto_borra_audit_log_en_cascada(self):
-        # Generar algunas entradas
+    def test_borrado_de_manifiesto_registra_evento_eliminado(self):
+        # Generar algunas entradas previas
         _update_with('gerencia', 'x@y.com', cliente='X1')
-        assert len(_audit_rows(TEST_MANIF)) > 0
+        previas = _audit_rows(TEST_MANIF)
+        assert len(previas) > 0
 
         # Borrar el manifiesto
         conn = _conn(); conn.autocommit = False
         cur = conn.cursor()
-        cur.execute("SET LOCAL request.jwt.claims = %s", (_claims_for(),))
+        cur.execute("SET LOCAL request.jwt.claims = %s", (_claims_for(email='admin@y.com'),))
         cur.execute("DELETE FROM manifiestos_flat WHERE manifiesto = %s", (TEST_MANIF,))
         conn.commit()
         conn.close()
 
-        assert _audit_rows(TEST_MANIF) == []
+        # Las entradas previas se preservan (audit_log es append-only, sin FK CASCADE)
+        # y se agrega una nueva fila con campo='ELIMINADO' + snapshot JSON.
+        post = _audit_rows(TEST_MANIF)
+        assert len(post) == len(previas) + 1
+        eliminado = [r for r in post if r['campo'] == 'ELIMINADO']
+        assert len(eliminado) == 1
+        assert eliminado[0]['usuario'] == 'admin@y.com'
+        assert eliminado[0]['valor_anterior'] is not None
+        assert '"manifiesto"' in eliminado[0]['valor_anterior']  # snapshot JSON
 
 
 if __name__ == '__main__':

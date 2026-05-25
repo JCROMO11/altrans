@@ -13,6 +13,8 @@ const GOLD  = '#C9A84C'
 const MUTED = '#64748B'
 const RED   = '#DC2626'
 const GREEN = '#16A34A'
+const BTN_GRAD   = 'linear-gradient(135deg, #1E6FBF 0%, #6366F1 100%)'
+const BTN_SHADOW = '0 2px 8px 0 rgba(30,111,191,0.22)'
 
 const ESTADO_PAGO_COLOR = { 'PAGADO': GREEN, 'ANULADO': RED, 'PRIORITARIO': GOLD }
 const ESTADO_INTERNO_COLOR = {
@@ -356,7 +358,7 @@ function AuditoriaPanel() {
         </div>
         <button type="submit"
           className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
-          style={{ background: BLUE, color: '#fff' }}>
+          style={{ background: BTN_GRAD, color: '#fff', boxShadow: BTN_SHADOW }}>
           <Search size={14} /> Consultar
         </button>
       </form>
@@ -486,9 +488,9 @@ export default function ConsultaPage({ openEnCarga, user }) {
               onClick={() => setActiveTab(tab.id)}
               className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-lg transition-all"
               style={{
-                background: activeTab === tab.id ? BG : 'transparent',
-                color:      activeTab === tab.id ? TICK : MUTED,
-                boxShadow:  activeTab === tab.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                background: activeTab === tab.id ? BTN_GRAD : 'transparent',
+                color:      activeTab === tab.id ? '#FFFFFF' : MUTED,
+                boxShadow:  activeTab === tab.id ? BTN_SHADOW : 'none',
               }}>
               {tab.icon}{tab.label}
             </button>
@@ -553,7 +555,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
 
         <button type="submit"
           className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
-          style={{ background: BLUE, color: '#fff' }}>
+          style={{ background: BTN_GRAD, color: '#fff', boxShadow: BTN_SHADOW }}>
           <Search size={14} /> Consultar
         </button>
       </form>

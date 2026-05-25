@@ -149,12 +149,6 @@ def generar_invalidas(output_path):
         _write_row(ws, row, fila, invalida=True)
         row += 1
 
-    # Nota explicativa al pie
-    ws.cell(row=row + 1, column=1,
-            value="Filas en rojo = inválidas (sin manifiesto numérico). "
-                  "El dashboard debería ignorarlas y reportarlas sin trabar la carga.").font = Font(
-        name="Calibri", size=9, italic=True, color="595959")
-
     _auto_width(ws)
     wb.save(output_path)
     return output_path

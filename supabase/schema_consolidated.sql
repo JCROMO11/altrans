@@ -32,8 +32,10 @@
 -- ║ 1. LIMPIEZA — eliminar objetos previos                                  ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝
 
-DROP TRIGGER IF EXISTS trg_audit_manifiestos ON public.manifiestos_flat;
+DROP TRIGGER IF EXISTS trg_audit_manifiestos        ON public.manifiestos_flat;
+DROP TRIGGER IF EXISTS trg_audit_manifiestos_delete ON public.manifiestos_flat;
 DROP FUNCTION IF EXISTS public.fn_audit_manifiestos                CASCADE;
+DROP FUNCTION IF EXISTS public.fn_audit_manifiestos_delete         CASCADE;
 DROP FUNCTION IF EXISTS public.consulta_manifiestos                CASCADE;
 DROP FUNCTION IF EXISTS public.consulta_totales                    CASCADE;
 DROP FUNCTION IF EXISTS public.tendencia_anual                     CASCADE;
@@ -159,6 +161,10 @@ CREATE INDEX IF NOT EXISTS idx_mflat_estado_interno   ON public.manifiestos_flat
 -- ║ 4. AUDIT LOG (cambios sobre manifiestos_flat)                            ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝
 
+-- audit_log es append-only e independiente de manifiestos_flat:
+-- registros de DELETE sobreviven al borrado del manifiesto correspondiente.
+-- Por eso no hay FK (un FK con CASCADE borraría la auditoría del DELETE;
+-- sin CASCADE bloquearía el borrado).
 CREATE TABLE IF NOT EXISTS public.audit_log (
     id              BIGSERIAL   PRIMARY KEY,
     manifiesto      BIGINT      NOT NULL,
@@ -166,11 +172,11 @@ CREATE TABLE IF NOT EXISTS public.audit_log (
     valor_anterior  TEXT,
     valor_nuevo     TEXT,
     usuario         TEXT,
-    ejecutado_en    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT audit_log_manifiesto_fk
-        FOREIGN KEY (manifiesto) REFERENCES public.manifiestos_flat(manifiesto)
-        ON DELETE CASCADE
+    ejecutado_en    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migración: si el FK existe (schemas previos), eliminarlo.
+ALTER TABLE public.audit_log DROP CONSTRAINT IF EXISTS audit_log_manifiesto_fk;
 
 CREATE INDEX IF NOT EXISTS audit_log_manifiesto_idx   ON public.audit_log (manifiesto);
 CREATE INDEX IF NOT EXISTS audit_log_ejecutado_en_idx ON public.audit_log (ejecutado_en DESC);
@@ -183,10 +189,17 @@ SECURITY DEFINER
 SET search_path = ''
 AS $$
 DECLARE
-    col   text;
-    v_old text;
-    v_new text;
+    col      text;
+    v_old    text;
+    v_new    text;
+    v_claims json;
+    v_usuario text;
 BEGIN
+    v_claims  := NULLIF(current_setting('request.jwt.claims', true), '')::json;
+    v_usuario := COALESCE(
+        v_claims->'user_metadata'->>'nombre',
+        v_claims->>'email'
+    );
     FOREACH col IN ARRAY ARRAY[
         'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor',
         'celular','placa','tipo_vehiculo','propietario','agencia_despachadora',
@@ -203,10 +216,7 @@ BEGIN
         EXECUTE format('SELECT ($1).%I::text', col) INTO v_new USING NEW;
         IF v_old IS DISTINCT FROM v_new THEN
             INSERT INTO public.audit_log(manifiesto, campo, valor_anterior, valor_nuevo, usuario)
-            VALUES (
-                NEW.manifiesto, col, v_old, v_new,
-                current_setting('request.jwt.claims', true)::json->>'email'
-            );
+            VALUES (NEW.manifiesto, col, v_old, v_new, v_usuario);
         END IF;
     END LOOP;
     RETURN NEW;
@@ -216,6 +226,34 @@ $$;
 CREATE TRIGGER trg_audit_manifiestos
     AFTER UPDATE ON public.manifiestos_flat
     FOR EACH ROW EXECUTE FUNCTION public.fn_audit_manifiestos();
+
+
+-- ── Audit DELETE: registra un único renglón por borrado, con snapshot completo
+-- de la fila eliminada en valor_anterior (JSON). campo = 'ELIMINADO'.
+CREATE OR REPLACE FUNCTION public.fn_audit_manifiestos_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_claims  json;
+    v_usuario text;
+BEGIN
+    v_claims  := NULLIF(current_setting('request.jwt.claims', true), '')::json;
+    v_usuario := COALESCE(
+        v_claims->'user_metadata'->>'nombre',
+        v_claims->>'email'
+    );
+    INSERT INTO public.audit_log(manifiesto, campo, valor_anterior, valor_nuevo, usuario)
+    VALUES (OLD.manifiesto, 'ELIMINADO', row_to_json(OLD)::text, NULL, v_usuario);
+    RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER trg_audit_manifiestos_delete
+    AFTER DELETE ON public.manifiestos_flat
+    FOR EACH ROW EXECUTE FUNCTION public.fn_audit_manifiestos_delete();
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -658,8 +696,12 @@ $$;
 
 
 -- ── guardar_logistico ───────────────────────────────────────────────────────
--- Acceso: logistico (R-W), digitador (Marcela también tiene CUMPLE per USUARIOS
--- DRIVE), tesoreria (Johana también tiene CUMPLE), gerencia.
+-- Acceso: logistico (R-W completo), digitador (R-W completo), tesoreria (solo
+-- cols R-W del Drive: fecha_cumplido, compromiso_pago, novedades,
+-- estado_interno, responsable_estado_interno), gerencia.
+-- Tesorería NO puede tocar campos extra que solo aplican a logístico:
+-- novedad_conductor, novedad_empresa, ajustes al flete, consignación a terceros.
+-- Esos campos se preservan cuando el caller es tesoreria, ignorando lo que envíe.
 -- Roles financiero/administrativo NO van acá: el Drive los limita a editar solo
 -- estado_interno — usan guardar_estado_interno() abajo.
 -- NULLIF en campos de texto libre: enviar "" desde el frontend equivale a NULL,
@@ -681,6 +723,8 @@ RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
+DECLARE
+    v_es_tesoreria BOOLEAN := public.user_role() = 'tesoreria';
 BEGIN
     IF public.user_role() NOT IN ('logistico', 'digitador', 'tesoreria', 'gerencia') THEN
         RAISE EXCEPTION 'Sin permiso';
@@ -691,11 +735,11 @@ BEGIN
         novedades                  = NULLIF(p_novedades,         ''),
         estado_interno             = COALESCE(p_estado_interno,             estado_interno),
         responsable_estado_interno = COALESCE(p_responsable_estado_interno, responsable_estado_interno),
-        novedad_conductor          = NULLIF(p_novedad_conductor, ''),
-        novedad_empresa            = NULLIF(p_novedad_empresa,   ''),
-        ajuste_positivo_flete      = p_ajuste_positivo_flete,
-        ajuste_negativo_flete      = p_ajuste_negativo_flete,
-        consignacion_a_terceros    = p_consignacion_a_terceros,
+        novedad_conductor          = CASE WHEN v_es_tesoreria THEN novedad_conductor       ELSE NULLIF(p_novedad_conductor, '') END,
+        novedad_empresa            = CASE WHEN v_es_tesoreria THEN novedad_empresa         ELSE NULLIF(p_novedad_empresa,   '') END,
+        ajuste_positivo_flete      = CASE WHEN v_es_tesoreria THEN ajuste_positivo_flete   ELSE p_ajuste_positivo_flete         END,
+        ajuste_negativo_flete      = CASE WHEN v_es_tesoreria THEN ajuste_negativo_flete   ELSE p_ajuste_negativo_flete         END,
+        consignacion_a_terceros    = CASE WHEN v_es_tesoreria THEN consignacion_a_terceros ELSE p_consignacion_a_terceros       END,
         actualizado_en             = now()
     WHERE manifiesto = p_manifiesto;
 END;
@@ -899,17 +943,37 @@ GRANT EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                      
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
--- ║ 12. ASIGNACIÓN DE ROLES                                                  ║
+-- ║ 12. GESTIÓN DE USUARIOS                                                  ║
 -- ║                                                                          ║
--- ║    Ejecutar UNA VEZ por usuario en el SQL Editor:                        ║
+-- ║  MÉTODO PREFERIDO: usar make seed-users (etl_individual/seed_users.py)  ║
+-- ║  que gestiona creación, actualización y listado de forma idempotente.    ║
 -- ║                                                                          ║
--- ║      UPDATE auth.users                                                   ║
--- ║      SET raw_app_meta_data =                                             ║
--- ║          COALESCE(raw_app_meta_data, '{}'::jsonb) ||                     ║
--- ║          '{"role":"<ROL>"}'::jsonb                                       ║
--- ║      WHERE email = '<EMAIL>';                                            ║
+-- ║  Estructura de metadata por usuario:                                     ║
+-- ║    app_metadata  → { "role": "<ROL>" }          (usado por RLS/RPCs)    ║
+-- ║    user_metadata → { "nombre": "...",            (solo display)          ║
+-- ║                      "cedula": "...",                                    ║
+-- ║                      "cargo":  "..." }                                   ║
 -- ║                                                                          ║
--- ║    Roles disponibles:                                                    ║
--- ║      digitador | logistico | tesoreria | financiero |                    ║
--- ║      contadora | administrativo | gerencia                              ║
+-- ║  Roles y columnas del Drive (USUARIOS DRIVE PRODUCCION ALTRANS.xlsx):    ║
+-- ║    gerencia       — A–AE completo + eliminar + dashboard KPIs            ║
+-- ║    digitador      — A–Q (despacho base) + R–W (cumplimiento) + Excel     ║
+-- ║    logistico      — R–W (cumplimiento) · sin A–Q · sin Excel             ║
+-- ║    tesoreria      — R–W (cumplimiento) + X–AA (pago conductor)           ║
+-- ║    financiero     — V (estado interno) + AB–AE (facturación) + dashboard ║
+-- ║    contadora      — X–AA (pago) + AB–AE (facturación)  (pendiente)      ║
+-- ║    administrativo — V (estado interno) + dashboard       (pendiente)     ║
+-- ║                                                                          ║
+-- ║  Si se necesita asignar/corregir un rol manualmente en el SQL Editor:   ║
+-- ║                                                                          ║
+-- ║    UPDATE auth.users                                                     ║
+-- ║    SET raw_app_meta_data =                                               ║
+-- ║        COALESCE(raw_app_meta_data, '{}'::jsonb) ||                       ║
+-- ║        jsonb_build_object('role', '<ROL>')                               ║
+-- ║    WHERE email = '<cedula>@altrans.internal';                            ║
+-- ║                                                                          ║
+-- ║  Para ver todos los usuarios y sus roles actuales:                       ║
+-- ║    SELECT email,                                                         ║
+-- ║           raw_app_meta_data->>'role'   AS rol,                           ║
+-- ║           raw_user_meta_data->>'nombre' AS nombre                        ║
+-- ║    FROM auth.users ORDER BY email;                                       ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝

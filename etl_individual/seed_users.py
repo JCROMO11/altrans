@@ -4,8 +4,58 @@ Crea/actualiza los usuarios de producción en Supabase Auth.
 Login: cédula + contraseña.  El email almacenado en Supabase es
 {cedula}@altrans.internal (sintético, nunca se envía al usuario).
 
-Roles activos: gerencia | logistico | tesoreria | digitador | financiero
-Pendientes (comentados): administrativo, contadora
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ROLES Y PERMISOS  (fuente: USUARIOS DRIVE PRODUCCION ALTRANS.xlsx)
+Columnas referenciadas: Drive interno "PRODUCCIÓN ALTRANS S.A.S."
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  gerencia       ACCESO TOTAL (cols A–AE + eliminar + dashboard KPIs).
+                 RPC: guardar_digitador, guardar_logistico,
+                      guardar_estado_interno, guardar_tesoreria,
+                      guardar_financiero, borrar_manifiesto.
+
+  digitador      Cols A–Q (datos base: manifiesto, ruta, conductor,
+                 vehículo, valores de despacho) + cols R–W (cumplimiento).
+                 Carga masiva via Excel (A–Q).
+                 RPC: guardar_digitador, guardar_logistico,
+                      guardar_estado_interno.
+
+  logistico      Cols R–W (cumplimiento operativo):
+                   R=fecha_cumplido, T=condicion_pago, U=novedades,
+                   V=estado_interno, W=responsable_estado_interno.
+                 + campos adicionales de la app no presentes en el Drive:
+                   novedad_conductor, novedad_empresa, ajustes al flete,
+                   consignacion_a_terceros.
+                 NO escribe A–Q. NO puede cargar Excel.
+                 RPC: guardar_logistico, guardar_estado_interno.
+
+  tesoreria      Cols R–W (CUMPLE, igual que logístico) +
+                 cols X–AA (pago conductor):
+                   X=fecha_pago, Y=valor_pagado,
+                   Z=entidad_financiera, AA=responsable.
+                 RPC: guardar_logistico, guardar_tesoreria,
+                      guardar_estado_interno.
+
+  financiero     Col V (estado_interno) +
+                 cols AB–AE (facturación):
+                   AB=factura_no, AC=fecha_factura,
+                   AD=mes_facturacion(auto), AE=factura_electronica.
+                 Ve KPIs del dashboard.
+                 RPC: guardar_estado_interno, guardar_financiero.
+
+  contadora      Cols X–AA (pago conductor) + cols AB–AE (facturación).
+                 (pendiente — descomentar en USUARIOS)
+                 RPC: guardar_tesoreria, guardar_financiero.
+
+  administrativo Col V (estado_interno) + supervisión dashboard KPIs.
+                 (pendiente — descomentar en USUARIOS)
+                 RPC: guardar_estado_interno.
+
+Notas sobre metadata en Supabase:
+  - `role` → app_metadata  (JWT claim, usado por RLS y RPCs en la DB).
+  - `nombre`, `cedula`, `cargo` → user_metadata  (solo display, no seguridad).
+  - El dashboard lee nombre de user_metadata con fallback a app_metadata.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Idempotente: si el usuario ya existe lo actualiza; si no, lo crea.
 
