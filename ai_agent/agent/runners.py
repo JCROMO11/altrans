@@ -22,7 +22,7 @@ MAX_TOOL_ITERS = 6
 MODELS = {
     "groq":     "meta-llama/llama-4-scout-17b-16e-instruct",
     "deepseek": "deepseek-v4-flash",
-    "gemini":   "gemini-2.5-flash",
+    "gemini":   "gemini-3.5-flash",
     "claude":   "claude-haiku-4-5-20251001",
 }
 
@@ -69,9 +69,11 @@ def _get_claude():
     return _clients["claude"]
 
 
-def _exec_tool(name: str, args: dict, cedula: str | None) -> str:
+def _exec_tool(name: str, args: dict, cedula: str | None, placa: str | None = None) -> str:
     if cedula:
         args["_conductor_cedula"] = cedula
+    if placa:
+        args["_placa"] = placa
     return tool_executor.execute(name, args)
 
 
@@ -79,23 +81,26 @@ def _empty_metrics() -> dict:
     return {"tokens_in": 0, "tokens_out": 0, "tool_calls": 0, "tool_names": []}
 
 
-def _tools_for(cedula: str | None) -> list:
-    return tool_executor.TOOLS_CONDUCTOR if cedula else tool_executor.TOOLS
+def _tools_for(cedula: str | None, placa: str | None = None) -> list:
+    # Propietarios y conductores usan el mismo subset (sin herramientas admin)
+    if cedula or placa:
+        return tool_executor.TOOLS_CONDUCTOR
+    return tool_executor.TOOLS
 
 
 # ── Runner común para APIs OpenAI-compatibles (Groq + DeepSeek) ───────────────
 
 def _run_openai_like(client, model: str, mensaje: str, system_prompt: str,
-                     cedula: str | None, max_tokens_kw: str) -> tuple[str, dict]:
+                     cedula: str | None, placa: str | None, max_tokens_kw: str) -> tuple[str, dict]:
     messages = [{"role": "system", "content": system_prompt},
                 {"role": "user",   "content": mensaje}]
     m = _empty_metrics()
-    tools = _tools_for(cedula)
+    tools = _tools_for(cedula, placa)
 
     for _ in range(MAX_TOOL_ITERS):
         kwargs = {"model": model, "messages": messages, "tools": tools,
                   "tool_choice": "auto", "temperature": 0.2,
-                  max_tokens_kw: 1000}
+                  max_tokens_kw: 2000}
         resp = client.chat.completions.create(**kwargs)
         if resp.usage:
             m["tokens_in"]  += resp.usage.prompt_tokens or 0
@@ -109,38 +114,44 @@ def _run_openai_like(client, model: str, mensaje: str, system_prompt: str,
             m["tool_names"].append(tc.function.name)
             args = json.loads(tc.function.arguments)
             messages.append({"role": "tool", "tool_call_id": tc.id,
-                             "content": _exec_tool(tc.function.name, args, cedula)})
+                             "content": _exec_tool(tc.function.name, args, cedula, placa)})
 
     # Salida forzada sin más tools tras el tope
     resp = client.chat.completions.create(
         model=model, messages=messages, temperature=0.2,
-        **{max_tokens_kw: 1000})
+        **{max_tokens_kw: 2000})
     if resp.usage:
         m["tokens_in"]  += resp.usage.prompt_tokens or 0
         m["tokens_out"] += resp.usage.completion_tokens or 0
     return resp.choices[0].message.content or "", m
 
 
-def run_groq(mensaje: str, nombre: str | None, cedula: str | None) -> tuple[str, dict]:
-    sp = build_system_prompt(nombre, cedula)
-    return _run_openai_like(_get_groq(), MODELS["groq"], mensaje, sp, cedula,
+def run_groq(mensaje: str, nombre: str | None, cedula: str | None,
+             placa: str | None = None) -> tuple[str, dict]:
+    tipo = "propietario" if placa else None
+    sp = build_system_prompt(nombre, cedula, placa=placa, tipo_usuario=tipo)
+    return _run_openai_like(_get_groq(), MODELS["groq"], mensaje, sp, cedula, placa,
                             "max_completion_tokens")
 
 
-def run_deepseek(mensaje: str, nombre: str | None, cedula: str | None) -> tuple[str, dict]:
-    sp = build_system_prompt(nombre, cedula)
-    return _run_openai_like(_get_deepseek(), MODELS["deepseek"], mensaje, sp, cedula,
+def run_deepseek(mensaje: str, nombre: str | None, cedula: str | None,
+                 placa: str | None = None) -> tuple[str, dict]:
+    tipo = "propietario" if placa else None
+    sp = build_system_prompt(nombre, cedula, placa=placa, tipo_usuario=tipo)
+    return _run_openai_like(_get_deepseek(), MODELS["deepseek"], mensaje, sp, cedula, placa,
                             "max_tokens")
 
 
 # ── Runner: Gemini ────────────────────────────────────────────────────────────
 
-def run_gemini(mensaje: str, nombre: str | None, cedula: str | None) -> tuple[str, dict]:
+def run_gemini(mensaje: str, nombre: str | None, cedula: str | None,
+               placa: str | None = None) -> tuple[str, dict]:
     from google.genai import types as gtypes
     client = _get_gemini()
-    sp = build_system_prompt(nombre, cedula)
+    tipo = "propietario" if placa else None
+    sp = build_system_prompt(nombre, cedula, placa=placa, tipo_usuario=tipo)
 
-    tools_def = _tools_for(cedula)
+    tools_def = _tools_for(cedula, placa)
     gemini_tools = gtypes.Tool(function_declarations=[
         {
             "name": t["function"]["name"],
@@ -154,7 +165,7 @@ def run_gemini(mensaje: str, nombre: str | None, cedula: str | None) -> tuple[st
         system_instruction=sp,
         tools=[gemini_tools] if with_tools else None,
         temperature=0.2,
-        max_output_tokens=1000,
+        max_output_tokens=2000,
     )
 
     contents = [gtypes.Content(role="user", parts=[gtypes.Part(text=mensaje)])]
@@ -180,7 +191,7 @@ def run_gemini(mensaje: str, nombre: str | None, cedula: str | None) -> tuple[st
             m["tool_calls"] += 1
             m["tool_names"].append(p.function_call.name)
             args = dict(p.function_call.args)
-            result_str = _exec_tool(p.function_call.name, args, cedula)
+            result_str = _exec_tool(p.function_call.name, args, cedula, placa)
             result_parts.append(gtypes.Part(
                 function_response=gtypes.FunctionResponse(
                     name=p.function_call.name,
@@ -199,11 +210,13 @@ def run_gemini(mensaje: str, nombre: str | None, cedula: str | None) -> tuple[st
 
 # ── Runner: Claude ────────────────────────────────────────────────────────────
 
-def run_claude(mensaje: str, nombre: str | None, cedula: str | None) -> tuple[str, dict]:
+def run_claude(mensaje: str, nombre: str | None, cedula: str | None,
+               placa: str | None = None) -> tuple[str, dict]:
     client = _get_claude()
-    sp = build_system_prompt(nombre, cedula)
+    tipo = "propietario" if placa else None
+    sp = build_system_prompt(nombre, cedula, placa=placa, tipo_usuario=tipo)
 
-    tools_def = _tools_for(cedula)
+    tools_def = _tools_for(cedula, placa)
     claude_tools = [
         {
             "name": t["function"]["name"],
@@ -234,7 +247,7 @@ def run_claude(mensaje: str, nombre: str | None, cedula: str | None) -> tuple[st
             m["tool_names"].append(tu.name)
             args = dict(tu.input)
             results.append({"type": "tool_result", "tool_use_id": tu.id,
-                            "content": _exec_tool(tu.name, args, cedula)})
+                            "content": _exec_tool(tu.name, args, cedula, placa)})
         messages.append({"role": "user", "content": results})
 
     resp = client.messages.create(

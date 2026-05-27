@@ -50,18 +50,18 @@ NOMBRE_SIN_VIAJES   = None
 
 # Fixtures de pago por compromiso_pago — llenar con scripts/descubrir_fixtures.py
 # None desactiva el caso si no se configura.
-MANIFIESTO_PAGO_15       = 33403  # PAGO A 15 DIAS, pendiente, con fecha_cumplido
-CEDULA_PAGO_15           = "16461672"
-NOMBRE_PAGO_15           = "JORGE ENRIQUE CHAVARRIAGA"
+MANIFIESTO_PAGO_15       = 33642  # PAGO A 15 DIAS, pendiente, con fecha_cumplido
+CEDULA_PAGO_15           = "1004756992"
+NOMBRE_PAGO_15           = "WILMER ALEXIS GRANADA"
 
 MANIFIESTO_PAGO_20       = None   # PAGO A 20 DIAS — sin pendientes en DB
 MANIFIESTO_PAGO_30       = None   # PAGO A 30 DIAS — sin pendientes en DB
 MANIFIESTO_PAGO_5_8      = None   # PAGO A 5-8 DIAS — sin pendientes en DB
 MANIFIESTO_INMEDIATO     = None   # PAGO INMEDIATO — sin pendientes en DB
 
-MANIFIESTO_CONTRAENTREGA = 33721  # CONTRAENTREGA, pendiente, con fecha_cumplido
-CEDULA_CONTRAENTREGA     = "6228821"
-NOMBRE_CONTRAENTREGA     = "CARLOS FERNEY ANDRADE"
+MANIFIESTO_CONTRAENTREGA = 33756  # CONTRAENTREGA, pendiente, con fecha_cumplido
+CEDULA_CONTRAENTREGA     = "16661181"
+NOMBRE_CONTRAENTREGA     = "ARMANDO SANCHEZ"
 
 MANIFIESTO_CONTINGENCIA  = 29616  # CONTINGENCIA 20-25 DH, pendiente, con fecha_cumplido
 CEDULA_CONTINGENCIA      = "1087418782"
@@ -70,7 +70,9 @@ NOMBRE_CONTINGENCIA      = "DIEGO ARMANDO MELO"
 MANIFIESTO_URBANO        = None   # URBANO — sin pendientes en DB
 MANIFIESTO_OTROS         = None   # OTROS — sin pendientes en DB
 MANIFIESTO_SIN_COMPROMISO = None  # compromiso_pago IS NULL — sin pendientes en DB
-MANIFIESTO_SIN_CUMPLIDO   = 34017 # viaje no cerrado por logística (usa conductor de prueba)
+MANIFIESTO_SIN_CUMPLIDO   = 33311 # viaje no cerrado por logística — JESUS GIOVANNI DELGADO
+CEDULA_SIN_CUMPLIDO       = "6537897"
+NOMBRE_SIN_CUMPLIDO       = "JESUS GIOVANNI DELGADO"
 MANIFIESTO_PRIORITARIO   = None   # PRIORITARIO — sin pendientes en DB
 
 MANIFIESTO_PRONTO_PAGO   = 33857  # PRONTO PAGO, pendiente, con fecha_cumplido
@@ -1023,8 +1025,8 @@ CASOS_BASE = [
         "titulo": "Sin fecha_cumplido — viaje no cerrado, no puede calcular fecha",
         "pregunta_template": "¿Para cuándo está el pago del manifiesto {MANIFIESTO_SIN_CUMPLIDO}?",
         "depende_de": "MANIFIESTO_SIN_CUMPLIDO",
-        "cedula_override": CEDULA_OTRO_CONDUCTOR,
-        "nombre_override": OTRO_CONDUCTOR,
+        "cedula_override": CEDULA_SIN_CUMPLIDO,
+        "nombre_override": NOMBRE_SIN_CUMPLIDO,
         "judge_criterio": (
             "El manifiesto no tiene fecha_cumplido registrada (el viaje aún no fue cerrado por logística). "
             "El bot dice claramente que no puede calcular la fecha estimada de pago sin fecha de cumplido. "
@@ -1498,7 +1500,7 @@ def _invocar_modelo(modelo: str, pregunta: str, nombre: str | None, cedula: str 
     runner = RUNNERS.get(modelo)
     if not runner:
         raise ValueError(f"Modelo desconocido: {modelo}. Opciones: {list(RUNNERS)}")
-    respuesta, _metricas = runner(pregunta, nombre, cedula)
+    respuesta, _metricas = runner(pregunta, nombre, cedula, placa)
     return respuesta
 
 
