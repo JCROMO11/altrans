@@ -29,6 +29,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://localhost:${PORT}/health || exit 1
 
-# uvicorn con 2 workers (Railway Hobby = 0.5 vCPU; subir si se actualiza el plan)
-# Cada worker corre el agent independientemente — sesiones se sincronizan vía Supabase.
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 2"]
+# 1 worker async es suficiente para el chatbot (I/O-bound); Railway Hobby 512MB RAM.
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 1"]

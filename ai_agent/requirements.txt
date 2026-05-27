@@ -9,7 +9,5 @@ pyjwt
 openai     # DeepSeek (OpenAI-compatible) — agente principal
 groq       # Moderación anti-jailbreak (llama-3.1-8b-instant)
 
-# Solo para scripts/test_agent.py --modelos (A/B contra Gemini/Claude).
-# Si no usas A/B testing, puedes quitarlos del deploy.
-anthropic
-google-genai
+# anthropic y google-genai solo para scripts/test_agent.py --modelos (A/B local).
+# No instalar en producción — instala manualmente si necesitas correr A/B testing.
