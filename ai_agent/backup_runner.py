@@ -130,3 +130,12 @@ def run_backup_and_email(recipients: list[str] | None = None) -> dict[str, int]:
     _send_email(zip_bytes, counts, recipients)
     logger.info("backup_sent", extra={"counts": counts, "zip_kb": len(zip_bytes) // 1024})
     return counts
+
+
+if __name__ == "__main__":
+    import sys
+    from logging_config import setup_logging
+    setup_logging(os.getenv("LOG_LEVEL", "INFO"))
+    counts = run_backup_and_email()
+    print("Backup enviado:", counts)
+    sys.exit(0)
