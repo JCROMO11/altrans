@@ -2,7 +2,7 @@
         db-reset etl load backup verify-backup seed-users seed-users-dry list-users \
         chatbot-status \
         test-db test-etl test-webhook test-dashboard test-agent \
-        test-agent-propietario test-agent-multi test-concurrency test-all \
+        test-agent-propietario test-agent-multi test-concurrency test-moderacion test-all \
         test-excel-pre test-excel-post test-excel-generar \
         serve ngrok probar-todo clean install-dashboard-deps \
         deploy-chatbot deploy-notifications deploy-all
@@ -44,6 +44,7 @@ help:
 	@echo "    test-agent-propietario - Solo casos de propietario (placa)"
 	@echo "    test-agent-multi   - A/B contra deepseek,gemini,claude"
 	@echo "    test-concurrency   - Suite completa + 30 conductores paralelos (--n-concurrencia N para cambiar)"
+	@echo "    test-moderacion    - Test de la capa de seguridad (prompt-guard-2): recall/precision"
 	@echo "    test-all           - TODOS los tests (db + etl + webhook + agent)"
 	@echo ""
 	@echo "  Excel upload (2.6)"
@@ -180,6 +181,9 @@ test-agent-multi:
 
 test-concurrency:
 	cd ai_agent && $(PY) scripts/test_agent.py --tipo todos --concurrencia
+
+test-moderacion:
+	cd ai_agent && $(PY) scripts/test_agent.py --moderacion
 
 test-all: test-db test-etl test-webhook test-agent
 	@echo ""
