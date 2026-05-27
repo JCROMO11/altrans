@@ -358,6 +358,9 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
             logger.warning("empty_agent_reply", extra={"wa_from": wa_from, "cedula": cedula, "len_in": len(texto)})
             respuesta = "No pude completar tu consulta. Intenta reformularla o pregúntame de otra forma."
 
+        # Normalizar negritas: ** → * (WhatsApp solo soporta un asterisco)
+        respuesta = re.sub(r'\*\*(.+?)\*\*', r'*\1*', respuesta)
+
         session["historial"].append({"role": "user",      "content": texto})
         session["historial"].append({"role": "assistant", "content": respuesta})
         if len(session["historial"]) > MAX_HISTORIAL:
