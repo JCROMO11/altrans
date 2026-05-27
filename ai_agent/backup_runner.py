@@ -112,7 +112,8 @@ def _send_email(zip_bytes: bytes, counts: dict[str, int], recipients: list[str])
     fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
     msg.add_attachment(zip_bytes, maintype="application", subtype="zip", filename=fname)
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as s:
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as s:
+        s.starttls()
         s.login(smtp_user, smtp_pass)
         s.send_message(msg)
 
