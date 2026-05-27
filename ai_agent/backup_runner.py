@@ -8,14 +8,13 @@ imagen de Railway.
 
 Trigger: endpoint protegido en main.py (ver POST /admin/backup).
 """
+import base64
 import csv
 import io
 import logging
 import os
-import smtplib
 import zipfile
 from datetime import datetime
-from email.message import EmailMessage
 
 import httpx
 
@@ -90,8 +89,8 @@ def _build_zip() -> tuple[bytes, dict[str, int]]:
 
 
 def _send_email(zip_bytes: bytes, counts: dict[str, int], recipients: list[str]) -> None:
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_pass = os.environ["SMTP_APP_PASSWORD"]
+    api_key    = os.environ["SENDGRID_API_KEY"]
+    from_email = os.environ["SMTP_USER"]  # remitente verificado en SendGrid
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"  · {t}: {n:,} filas" if n >= 0 else f"  · {t}: ERROR (revisar logs)"
@@ -103,19 +102,26 @@ def _send_email(zip_bytes: bytes, counts: dict[str, int], recipients: list[str])
         f"\n\nTamaño ZIP: {len(zip_bytes) // 1024} KB\n"
     )
 
-    msg = EmailMessage()
-    msg["Subject"] = f"Backup Altrans — {ts}"
-    msg["From"]    = smtp_user
-    msg["To"]      = ", ".join(recipients)
-    msg.set_content(body)
-
     fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
-    msg.add_attachment(zip_bytes, maintype="application", subtype="zip", filename=fname)
+    payload = {
+        "personalizations": [{"to": [{"email": r} for r in recipients]}],
+        "from":    {"email": from_email},
+        "subject": f"Backup Altrans — {ts}",
+        "content": [{"type": "text/plain", "value": body}],
+        "attachments": [{
+            "content":  base64.b64encode(zip_bytes).decode(),
+            "type":     "application/zip",
+            "filename": fname,
+        }],
+    }
 
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as s:
-        s.starttls()
-        s.login(smtp_user, smtp_pass)
-        s.send_message(msg)
+    with httpx.Client(timeout=30) as c:
+        r = c.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=payload,
+        )
+        r.raise_for_status()
 
 
 def run_backup_and_email(recipients: list[str] | None = None) -> dict[str, int]:
