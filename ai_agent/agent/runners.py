@@ -100,7 +100,7 @@ def _run_openai_like(client, model: str, mensaje: str, system_prompt: str,
     for _ in range(MAX_TOOL_ITERS):
         kwargs = {"model": model, "messages": messages, "tools": tools,
                   "tool_choice": "auto", "temperature": 0.2,
-                  max_tokens_kw: 2000}
+                  max_tokens_kw: 8192}
         resp = client.chat.completions.create(**kwargs)
         if resp.usage:
             m["tokens_in"]  += resp.usage.prompt_tokens or 0
@@ -119,7 +119,7 @@ def _run_openai_like(client, model: str, mensaje: str, system_prompt: str,
     # Salida forzada sin más tools tras el tope
     resp = client.chat.completions.create(
         model=model, messages=messages, temperature=0.2,
-        **{max_tokens_kw: 2000})
+        **{max_tokens_kw: 8192})
     if resp.usage:
         m["tokens_in"]  += resp.usage.prompt_tokens or 0
         m["tokens_out"] += resp.usage.completion_tokens or 0
@@ -165,7 +165,7 @@ def run_gemini(mensaje: str, nombre: str | None, cedula: str | None,
         system_instruction=sp,
         tools=[gemini_tools] if with_tools else None,
         temperature=0.2,
-        max_output_tokens=2000,
+        max_output_tokens=8192,
     )
 
     contents = [gtypes.Content(role="user", parts=[gtypes.Part(text=mensaje)])]

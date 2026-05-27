@@ -67,7 +67,7 @@ def run(
             messages=messages,
             tools=active_tools,
             tool_choice="auto",
-            max_tokens=800,
+            max_tokens=8192,
             temperature=0.2,
         )
         msg = response.choices[0].message
@@ -81,7 +81,7 @@ def run(
                 recovery = _client.chat.completions.create(
                     model=MODEL,
                     messages=messages,
-                    max_tokens=800,
+                    max_tokens=8192,
                     temperature=0.3,
                 )
                 content = recovery.choices[0].message.content or "Lo siento, no pude procesar tu consulta. Intenta de nuevo."
@@ -117,7 +117,7 @@ def run(
     response = _client.chat.completions.create(
         model=MODEL,
         messages=messages,
-        max_tokens=512,
+        max_tokens=8192,
         temperature=0.2,
     )
     content = response.choices[0].message.content or "No pude completar tu consulta. Intenta reformularla."
