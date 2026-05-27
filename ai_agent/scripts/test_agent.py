@@ -1714,7 +1714,8 @@ def main():
     ap.add_argument("--tipo", choices=["conductor", "admin", "propietario", "todos"],
                     default="todos", help="Tipo de usuario: conductor | admin | propietario | todos (default)")
     ap.add_argument("--workers", type=int, default=10, help="Hilos paralelos (10 por defecto)")
-    ap.add_argument("--concurrencia", action="store_true", help="Incluir test de 10 conductores en paralelo")
+    ap.add_argument("--concurrencia", action="store_true", help="Incluir test de concurrencia con N conductores en paralelo")
+    ap.add_argument("--n-concurrencia", type=int, default=30, help="Número de conductores paralelos en el test de concurrencia (default: 30)")
     ap.add_argument("--solo-asserts", action="store_true", help="Saltar judge LLM (más rápido y barato)")
     ap.add_argument("--modelos", default="deepseek",
                     help=f"Modelos separados por coma. Opciones: {','.join(['deepseek'] + [k for k in MODELS if k != 'deepseek'])}")
@@ -1759,8 +1760,9 @@ def main():
 
     conc = None
     if args.concurrencia:
-        print("\nProbando concurrencia con 10 conductores paralelos (DeepSeek)…")
-        conc = test_concurrencia(10)
+        n = args.n_concurrencia
+        print(f"\nProbando concurrencia con {n} conductores paralelos (DeepSeek)…")
+        conc = test_concurrencia(n)
         print(f"  → {'OK' if conc['pass'] else 'FALLÓ'} · {conc['elapsed_s']}s · errores {conc['errores']}")
 
     # Guardar reporte
@@ -1835,7 +1837,7 @@ def generar_reporte_comparativo(resultados: list[dict], modelos: list[str],
             row.append(f"{pasaron}/{total}")
         lines.append("| " + " | ".join(row) + " |")
 
-    # Detalle de fallos por modelo
+    # Detalle de fallos por modelo (con respuesta del modelo)
     lines.append("")
     lines.append("## Fallos por modelo")
     for m in modelos:
@@ -1846,7 +1848,30 @@ def generar_reporte_comparativo(resultados: list[dict], modelos: list[str],
             lines.append("Ninguno ✅")
             continue
         for r in rs_fail:
-            lines.append(f"- **{r['categoria']} / {r['titulo']}** — {r.get('judge_razon', '')[:160]}")
+            lines.append(f"\n#### ❌ {r['categoria']} / {r['titulo']}")
+            lines.append(f"\n**Pregunta:** {r.get('pregunta', '')}")
+            respuesta = r.get("respuesta", "")
+            lines.append(f"\n**Respuesta del modelo:**\n```\n{respuesta}\n```")
+            lines.append(f"\n**Judge:** {r.get('judge_razon', '')}")
+
+    # Detalle de todos los casos por modelo
+    lines.append("")
+    lines.append("## Detalle completo por modelo")
+    for m in modelos:
+        rs_m = [r for r in resultados if r.get("modelo") == m and not r.get("skip")]
+        lines.append("")
+        lines.append(f"### {m}")
+        cats_m = sorted({r.get("categoria", "") for r in rs_m})
+        for cat in cats_m:
+            rs_cat = [r for r in rs_m if r.get("categoria") == cat]
+            lines.append(f"\n#### {cat}")
+            for r in rs_cat:
+                mark = "✅" if r.get("pass") else "❌"
+                lines.append(f"\n**{mark} {r['titulo']}** · ⏱ {r.get('latencia_s', 0):.2f}s")
+                lines.append(f"\n**Pregunta:** {r.get('pregunta', '')}")
+                respuesta = r.get("respuesta", "")
+                lines.append(f"\n**Respuesta:**\n```\n{respuesta}\n```")
+                lines.append(f"\n**Judge:** {'✓' if r.get('judge_pass') else '✗'} — {r.get('judge_razon', '')}")
 
     lines.append(f"\n_Workers paralelos: {workers}_")
     return "\n".join(lines)

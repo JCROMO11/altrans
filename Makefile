@@ -4,7 +4,8 @@
         test-db test-etl test-webhook test-dashboard test-agent \
         test-agent-propietario test-agent-multi test-concurrency test-all \
         test-excel-pre test-excel-post test-excel-generar \
-        serve ngrok probar-todo clean install-dashboard-deps
+        serve ngrok probar-todo clean install-dashboard-deps \
+        deploy-chatbot deploy-notifications deploy-all
 
 SHELL   := /bin/bash
 PY      := python3
@@ -42,7 +43,7 @@ help:
 	@echo "    test-agent         - Suite completa del chatbot (conductor+admin+propietario+concurrencia)"
 	@echo "    test-agent-propietario - Solo casos de propietario (placa)"
 	@echo "    test-agent-multi   - A/B contra deepseek,gemini,claude"
-	@echo "    test-concurrency   - Suite completa + 10 conductores paralelos"
+	@echo "    test-concurrency   - Suite completa + 30 conductores paralelos (--n-concurrencia N para cambiar)"
 	@echo "    test-all           - TODOS los tests (db + etl + webhook + agent)"
 	@echo ""
 	@echo "  Excel upload (2.6)"
@@ -56,6 +57,11 @@ help:
 	@echo "  Dev server"
 	@echo "    serve              - uvicorn FastAPI puerto $$PORT (2 workers)"
 	@echo "    ngrok              - Túnel ngrok al puerto $$PORT"
+	@echo ""
+	@echo "  Deploy Railway"
+	@echo "    deploy-chatbot       - Deploy manual del chatbot a Railway"
+	@echo "    deploy-notifications - Deploy manual del servicio de notificaciones"
+	@echo "    deploy-all           - Deploy manual de ambos servicios"
 	@echo ""
 	@echo "  Atajo del día"
 	@echo "    probar-todo        - db-reset + etl (revisar informe antes de make load)"
@@ -222,6 +228,16 @@ probar-todo: db-reset etl
 	@echo ""
 	@echo "👉 Revisa cleaned_data/informe_calidad/informe_etl.xlsx"
 	@echo "    Si OK:   make load && make seed-users && make verify-load && make test-all"
+
+# ── Deploy Railway ────────────────────────────────────────────────────────────
+
+deploy-chatbot:
+	cd ai_agent && railway up --service "Altrans Chatbot" --detach
+
+deploy-notifications:
+	cd notifications && railway up --service "Altrans Notifications" --detach
+
+deploy-all: deploy-chatbot deploy-notifications
 
 clean:
 	@find . -type d \( -name __pycache__ -o -name .pytest_cache \) -exec rm -rf {} + 2>/dev/null || true
