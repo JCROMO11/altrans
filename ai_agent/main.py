@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from agent.graph import run
 from auth import create_token, get_current_conductor
+from backup_runner import run_backup_and_email
 from db import queries
 from logging_config import setup_logging
 from whatsapp import webhook as wa_webhook
@@ -67,6 +68,24 @@ def chat(req: ChatRequest, conductor: dict = Depends(get_current_conductor)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ── Admin: backup manual / cron ───────────────────────────────────────────────
+
+@app.post("/admin/backup")
+def admin_backup(request: Request, background_tasks: BackgroundTasks):
+    """Dispara backup CSV de todas las tablas y lo envía por email.
+    Protegido con header X-Admin-Token (debe coincidir con ADMIN_TOKEN del entorno).
+    Responde 202 inmediatamente; el envío ocurre en background.
+    """
+    expected = os.environ.get("ADMIN_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="ADMIN_TOKEN no configurado en el servidor")
+    if request.headers.get("x-admin-token") != expected:
+        raise HTTPException(status_code=403, detail="Token inválido")
+
+    background_tasks.add_task(run_backup_and_email)
+    return {"status": "scheduled", "detail": "Backup en curso, el email llegará en 1-2 minutos."}
 
 
 # ── WhatsApp Webhook ──────────────────────────────────────────────────────────
