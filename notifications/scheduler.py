@@ -31,10 +31,10 @@ def start() -> BackgroundScheduler:
     global _scheduler
     _scheduler = BackgroundScheduler(timezone="UTC")
 
-    # TEST: hoy 27 mayo a las 18:00 UTC = 1:00 PM Colombia — revertir después
+    # Domingos a las 11:00 UTC = 6:00 AM Colombia (UTC-5)
     _scheduler.add_job(
         _job_backup,
-        CronTrigger(hour=18, minute=0),
+        CronTrigger(day_of_week="sun", hour=11, minute=0),
         id="backup_semanal",
         name="Backup semanal → email",
         replace_existing=True,
