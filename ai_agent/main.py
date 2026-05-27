@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from agent.graph import run
 from auth import create_token, get_current_conductor
-from backup_runner import run_backup_and_email
+from scripts.backup_runner import run_backup_and_email
 from db import queries
 from logging_config import setup_logging
 from whatsapp import webhook as wa_webhook
