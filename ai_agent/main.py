@@ -3,8 +3,10 @@ import hmac
 import logging
 import os
 
+import httpx
+
 from fastapi import FastAPI, Depends, HTTPException, Request, BackgroundTasks
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from agent.graph import run
@@ -67,6 +69,23 @@ def chat(req: ChatRequest, conductor: dict = Depends(get_current_conductor)):
 @app.get("/")
 @app.get("/health")
 def health():
+    url = os.getenv("SUPABASE_URL", "")
+    key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not url or not key:
+        return JSONResponse(status_code=503, content={"status": "degraded", "detail": "Supabase no configurado"})
+    try:
+        r = httpx.head(
+            f"{url}/rest/v1/manifiestos_flat",
+            headers={
+                "apikey":        key,
+                "Authorization": f"Bearer {key}",
+                "Range":         "0-0",
+            },
+            timeout=3,
+        )
+        r.raise_for_status()
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "degraded", "detail": str(exc)})
     return {"status": "ok"}
 
 

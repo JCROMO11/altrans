@@ -14,7 +14,10 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
+import httpx
+
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backup_email import run_backup_and_email
@@ -60,6 +63,23 @@ def _check_admin_token(request: Request) -> None:
 @app.get("/")
 @app.get("/health")
 def health():
+    url = os.getenv("SUPABASE_URL", "")
+    key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not url or not key:
+        return JSONResponse(status_code=503, content={"status": "degraded", "detail": "Supabase no configurado"})
+    try:
+        r = httpx.head(
+            f"{url}/rest/v1/manifiestos_flat",
+            headers={
+                "apikey":        key,
+                "Authorization": f"Bearer {key}",
+                "Range":         "0-0",
+            },
+            timeout=3,
+        )
+        r.raise_for_status()
+    except Exception as exc:
+        return JSONResponse(status_code=503, content={"status": "degraded", "detail": str(exc)})
     jobs = []
     if sched._scheduler:
         jobs = [{"id": j.id, "next_run": str(j.next_run_time)} for j in sched._scheduler.get_jobs()]

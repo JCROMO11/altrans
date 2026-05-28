@@ -64,6 +64,49 @@ def _rows_to_csv(rows: list[dict]) -> bytes:
     return buf.getvalue().encode("utf-8-sig")
 
 
+def _count_live(client: httpx.Client, table: str) -> int:
+    """Retorna el conteo exacto de filas en Supabase para una tabla.
+    Usa HEAD para que el servidor sólo devuelva el header Content-Range con el total,
+    sin transferir filas. Funciona para cualquier tabla (no requiere columna `id`)."""
+    url = f"{os.environ['SUPABASE_URL']}/rest/v1/{table}"
+    headers = {
+        "apikey":        os.environ["SUPABASE_SERVICE_KEY"],
+        "Authorization": f"Bearer {os.environ['SUPABASE_SERVICE_KEY']}",
+        "Prefer":        "count=exact",
+        "Range":         "0-0",
+    }
+    r = client.head(url, headers=headers)
+    r.raise_for_status()
+    # Content-Range: 0-0/12410  →  extraer el total después de '/'
+    content_range = r.headers.get("content-range", "")
+    total_str = content_range.split("/")[-1]
+    return int(total_str) if total_str.isdigit() else -1
+
+
+def verify_consistency(backup_counts: dict[str, int]) -> dict[str, dict]:
+    """
+    Compara los conteos del backup contra la DB en vivo.
+    Retorna un dict por tabla con {backup, live, ok}.
+    """
+    results: dict[str, dict] = {}
+    with httpx.Client(timeout=30) as client:
+        for table, backup_count in backup_counts.items():
+            if backup_count < 0:
+                results[table] = {"backup": backup_count, "live": -1, "ok": False}
+                continue
+            try:
+                live_count = _count_live(client, table)
+                results[table] = {
+                    "backup": backup_count,
+                    "live":   live_count,
+                    "ok":     backup_count == live_count,
+                }
+            except Exception as exc:
+                logger.warning("consistency_check_failed", extra={"table": table, "error": str(exc)})
+                results[table] = {"backup": backup_count, "live": -1, "ok": False}
+    return results
+
+
 def _build_zip() -> tuple[bytes, dict[str, int]]:
     counts: dict[str, int] = {}
     buf = io.BytesIO()
@@ -82,18 +125,42 @@ def _build_zip() -> tuple[bytes, dict[str, int]]:
     return buf.getvalue(), counts
 
 
-def _send_email(zip_bytes: bytes, counts: dict[str, int], recipients: list[str]) -> None:
+def _send_email(
+    zip_bytes: bytes,
+    counts: dict[str, int],
+    recipients: list[str],
+    consistency: dict[str, dict] | None = None,
+) -> None:
     resend.api_key = os.environ["RESEND_API_KEY"]
     from_email = os.environ.get("BACKUP_EMAIL_FROM", "backup@altrans.dev")
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"  · {t}: {n:,} filas" if n >= 0 else f"  · {t}: ERROR (revisar logs)"
              for t, n in counts.items()]
+
+    if consistency:
+        all_ok = all(v["ok"] for v in consistency.values())
+        status_icon = "✅" if all_ok else "⚠️"
+        check_lines = []
+        for t, v in consistency.items():
+            if v["ok"]:
+                check_lines.append(f"  ✅ {t}: {v['backup']:,} filas (coincide con DB)")
+            else:
+                check_lines.append(
+                    f"  ⚠️  {t}: backup={v['backup']:,} | DB en vivo={v['live']:,} — REVISAR"
+                )
+        consistency_block = (
+            f"\nVerificación de consistencia {status_icon}:\n" + "\n".join(check_lines) + "\n"
+        )
+    else:
+        consistency_block = ""
+
     body = (
         "Backup semanal Altrans\n"
         f"Generado: {ts}\n\n"
         "Tablas incluidas:\n" + "\n".join(lines) +
         f"\n\nTamaño ZIP: {len(zip_bytes) // 1024} KB\n"
+        + consistency_block
     )
 
     fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
@@ -110,8 +177,8 @@ def _send_email(zip_bytes: bytes, counts: dict[str, int], recipients: list[str])
     })
 
 
-def run_backup_and_email(recipients: list[str] | None = None) -> dict[str, int]:
-    """Ejecuta el backup completo y envía email. Retorna conteo por tabla."""
+def run_backup_and_email(recipients: list[str] | None = None) -> dict:
+    """Ejecuta el backup completo, verifica consistencia y envía email."""
     if recipients is None:
         env_to = os.environ.get("BACKUP_EMAIL_TO", "")
         recipients = [r.strip() for r in env_to.split(",") if r.strip()]
@@ -120,9 +187,13 @@ def run_backup_and_email(recipients: list[str] | None = None) -> dict[str, int]:
 
     logger.info("backup_started", extra={"recipients": recipients})
     zip_bytes, counts = _build_zip()
-    _send_email(zip_bytes, counts, recipients)
-    logger.info("backup_sent", extra={"counts": counts, "zip_kb": len(zip_bytes) // 1024})
-    return counts
+    consistency = verify_consistency(counts)
+    all_ok = all(v["ok"] for v in consistency.values())
+    if not all_ok:
+        logger.warning("backup_consistency_mismatch", extra={"consistency": consistency})
+    _send_email(zip_bytes, counts, recipients, consistency)
+    logger.info("backup_sent", extra={"counts": counts, "zip_kb": len(zip_bytes) // 1024, "consistent": all_ok})
+    return {"counts": counts, "consistency": consistency, "consistent": all_ok}
 
 
 if __name__ == "__main__":
