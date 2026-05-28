@@ -1,5 +1,5 @@
 .PHONY: help setup status count dedup-check verify-load verify-schema \
-        db-reset etl load backup verify-backup seed-users seed-users-dry list-users \
+        db-reset etl load backup verify-backup verify-backup-email seed-users seed-users-dry list-users \
         chatbot-status \
         test-db test-etl test-webhook test-dashboard test-agent \
         test-agent-propietario test-agent-multi test-concurrency test-moderacion test-all \
@@ -28,7 +28,8 @@ help:
 	@echo "    verify-load        - DB vs CSV cleaned + dedup-check (validar tras load)"
 	@echo "    verify-schema      - Verifica tablas + RPCs (usar tras db-reset)"
 	@echo "    backup             - Backup CSV de todas las tablas"
-	@echo "    verify-backup      - Verifica integridad del último backup vs DB (conteo + PKs + sumas)"
+	@echo "    verify-backup      - Verifica integridad del último backup local vs DB (conteo + PKs + sumas)"
+	@echo "    verify-backup-email - Genera el backup de producción (Supabase REST) y verifica conteos vs DB (no envía email)"
 	@echo ""
 	@echo "  Usuarios"
 	@echo "    seed-users         - Crea/actualiza usuarios de producción (login por cédula)"
@@ -137,6 +138,9 @@ backup:
 
 verify-backup:
 	$(PY) -m etl_individual.verify_backup
+
+verify-backup-email:
+	cd notifications && $(PY) test_backup_consistency.py
 
 # ── Usuarios ─────────────────────────────────────────────────────────────────
 
