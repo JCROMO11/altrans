@@ -11,9 +11,12 @@ logger = logging.getLogger(__name__)
 
 _cfg = get_settings()
 
-# Agente principal: DeepSeek v4 Flash (OpenAI-compatible API)
-_client = OpenAI(api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com")
-MODEL   = "deepseek-v4-flash"
+# Agente principal: OpenRouter con failover automático
+# Primario: DeepSeek v4 Flash — Fallback: Claude Haiku 4.5 (Anthropic, proveedor distinto)
+_client        = OpenAI(api_key=os.environ["OPENROUTER_API_KEY"], base_url="https://openrouter.ai/api/v1")
+MODEL          = "deepseek/deepseek-v4-flash"
+MODEL_FALLBACK = "anthropic/claude-haiku-4.5"
+_OR_MODELS     = {"models": [MODEL, MODEL_FALLBACK]}  # OpenRouter intenta en orden; si DeepSeek falla, usa Haiku
 
 # Moderación: gpt-oss-safeguard-20b — clasificador con política custom (inyección + exfiltración)
 _mod_client    = Groq()
@@ -69,6 +72,7 @@ def run(
             tool_choice="auto",
             max_tokens=8192,
             temperature=0.2,
+            extra_body=_OR_MODELS,
         )
         msg = response.choices[0].message
 
@@ -83,6 +87,7 @@ def run(
                     messages=messages,
                     max_tokens=8192,
                     temperature=0.3,
+                    extra_body=_OR_MODELS,
                 )
                 content = recovery.choices[0].message.content or "Lo siento, no pude procesar tu consulta. Intenta de nuevo."
             return content, tools_called
@@ -119,6 +124,7 @@ def run(
         messages=messages,
         max_tokens=8192,
         temperature=0.2,
+        extra_body=_OR_MODELS,
     )
     content = response.choices[0].message.content or "No pude completar tu consulta. Intenta reformularla."
     return content, tools_called
