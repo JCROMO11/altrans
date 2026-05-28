@@ -5,15 +5,15 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 
 def get_settings() -> dict:
-    # DEEPSEEK_API_KEY → agente principal (producción)
-    # GROQ_API_KEY     → solo moderación (clasificador rápido y barato)
-    required = ["DEEPSEEK_API_KEY", "GROQ_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "JWT_SECRET"]
+    # OPENROUTER_API_KEY → agente principal (DeepSeek + failover a Haiku 4.5)
+    # GROQ_API_KEY       → solo moderación (clasificador rápido y barato)
+    required = ["OPENROUTER_API_KEY", "GROQ_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "JWT_SECRET"]
     missing = [k for k in required if not os.getenv(k)]
     if missing:
         raise RuntimeError(f"Variables de entorno faltantes: {', '.join(missing)}")
 
     return {
-        # DEEPSEEK_API_KEY y GROQ_API_KEY las leen sus clientes directo del entorno
+        # OPENROUTER_API_KEY y GROQ_API_KEY las leen sus clientes directo del entorno
         "supabase_url":         os.environ["SUPABASE_URL"],
         "supabase_service_key": os.environ["SUPABASE_SERVICE_KEY"],
     }

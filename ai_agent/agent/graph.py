@@ -67,7 +67,7 @@ def run(
 
     # Cuando hay override (p.ej. tests de fallback), usar ese modelo sin failover.
     _active_model   = _model_override or MODEL
-    _active_or_body = {"models": [_model_override]} if _model_override else _OR_MODELS
+    _active_or_body = {} if _model_override else _OR_MODELS
 
     tools_called = False
 

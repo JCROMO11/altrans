@@ -27,7 +27,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from agent.graph import run as run_deepseek_prod, moderate, moderate_label, MODEL_MODERATE
 
-# Modelos disponibles en la suite. deepseek = primario (via OpenRouter), haiku = fallback.
+# Modelos disponibles en la suite, todos via OpenRouter.
+# deepseek = primario de producción (con failover automático a haiku si OpenRouter detecta fallo).
+# haiku    = fallback; aquí se puede testear aislado pasando --modelos haiku.
 MODELS = {
     "deepseek": "deepseek/deepseek-v4-flash",
     "haiku":    "anthropic/claude-haiku-4.5",
@@ -1841,18 +1843,18 @@ def main():
     ap.add_argument("--concurrencia", action="store_true", help="Incluir test de concurrencia con N conductores en paralelo")
     ap.add_argument("--n-concurrencia", type=int, default=30, help="Número de conductores paralelos en el test de concurrencia (default: 30)")
     ap.add_argument("--solo-asserts", action="store_true", help="Saltar judge LLM (más rápido y barato)")
-    ap.add_argument("--moderacion", action="store_true", help="Correr SOLO el test de la capa de moderación (prompt-guard-2)")
+    ap.add_argument("--moderacion", action="store_true", help="Correr SOLO el test de la capa de moderación (gpt-oss-safeguard-20b)")
     ap.add_argument("--modelos", default="deepseek",
-                    help=f"Modelos separados por coma. Opciones: {','.join(['deepseek'] + [k for k in MODELS if k != 'deepseek'])}")
+                    help=f"Modelos separados por coma. Opciones: {','.join(MODELS)}")
     args = ap.parse_args()
 
     if args.moderacion:
         sys.exit(_run_moderacion())
 
     modelos = [m.strip() for m in args.modelos.split(",") if m.strip()]
-    desconocidos = [m for m in modelos if m not in (set(MODELS) | {"deepseek"})]
+    desconocidos = [m for m in modelos if m not in MODELS]
     if desconocidos:
-        sys.exit(f"Modelos desconocidos: {desconocidos}. Opciones: deepseek, {', '.join(MODELS)}")
+        sys.exit(f"Modelos desconocidos: {desconocidos}. Opciones: {', '.join(MODELS)}")
 
     _pool_por_tipo = {
         "conductor":   CASOS_BASE,
