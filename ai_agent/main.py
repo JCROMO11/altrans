@@ -64,6 +64,7 @@ def chat(req: ChatRequest, conductor: dict = Depends(get_current_conductor)):
     return ChatResponse(respuesta=respuesta)
 
 
+@app.get("/")
 @app.get("/health")
 def health():
     return {"status": "ok"}

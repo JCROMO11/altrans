@@ -57,6 +57,7 @@ def _check_admin_token(request: Request) -> None:
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+@app.get("/")
 @app.get("/health")
 def health():
     jobs = []
