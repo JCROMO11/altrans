@@ -27,9 +27,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from agent.graph import run as run_deepseek_prod, moderate, moderate_label, MODEL_MODERATE
 
-# Modelo de producción. El A/B multi-modelo (gemini/claude) se removió junto con
-# agent/runners.py; la suite corre contra DeepSeek v4 Flash.
-MODELS = {"deepseek": "deepseek-v4-flash"}
+# Modelos disponibles en la suite. deepseek = primario (via OpenRouter), haiku = fallback.
+MODELS = {
+    "deepseek": "deepseek/deepseek-v4-flash",
+    "haiku":    "anthropic/claude-haiku-4.5",
+}
 from openai import OpenAI
 
 # ── CONFIG: ajusta a tus datos reales ─────────────────────────────────────────
@@ -87,9 +89,9 @@ PLACA_TEST          = "TTN719"
 PROPIETARIO_NOMBRE  = "DAVID ALEJANDRO MORALES"
 MANIFIESTO_PLACA    = 34017
 
-# Judge: DeepSeek v4 Flash (mismo modelo que el agente, vía OpenAI SDK).
-_judge = OpenAI(api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com")
-JUDGE_MODEL = "deepseek-v4-flash"
+# Judge: DeepSeek v4 Flash via OpenRouter (mismo modelo que el agente primario).
+_judge = OpenAI(api_key=os.environ["OPENROUTER_API_KEY"], base_url="https://openrouter.ai/api/v1")
+JUDGE_MODEL = "deepseek/deepseek-v4-flash"
 
 # ── Casos de prueba ───────────────────────────────────────────────────────────
 # Cada caso: dict con:
@@ -1491,16 +1493,18 @@ def _aplicar_template(caso: dict) -> dict | None:
 
 def _invocar_modelo(modelo: str, pregunta: str, nombre: str | None, cedula: str | None,
                     placa: str | None = None) -> str:
-    """Dispatch al runner del modelo. `deepseek` usa el de producción (sin métricas)."""
-    if modelo == "deepseek":
-        kwargs: dict = {}
-        if cedula:
-            kwargs = {"nombre": nombre, "conductor_cedula": cedula}
-        elif placa:
-            kwargs = {"nombre": nombre, "placa": placa, "tipo_usuario": "propietario"}
-        respuesta, _tools_called = run_deepseek_prod(pregunta, [], **kwargs)
-        return respuesta
-    raise ValueError(f"Modelo desconocido: {modelo}. Solo se soporta: {list(MODELS)}")
+    """Dispatch al runner del modelo via OpenRouter. deepseek = primario, haiku = fallback."""
+    if modelo not in MODELS:
+        raise ValueError(f"Modelo desconocido: {modelo}. Opciones: {list(MODELS)}")
+    model_id = MODELS[modelo]
+    override = None if modelo == "deepseek" else model_id
+    kwargs: dict = {}
+    if cedula:
+        kwargs = {"nombre": nombre, "conductor_cedula": cedula}
+    elif placa:
+        kwargs = {"nombre": nombre, "placa": placa, "tipo_usuario": "propietario"}
+    respuesta, _tools_called = run_deepseek_prod(pregunta, [], _model_override=override, **kwargs)
+    return respuesta
 
 
 def correr_caso(caso: dict, modelo: str = "deepseek") -> dict:

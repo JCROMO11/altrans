@@ -33,6 +33,7 @@ def run(
     placa: str = None,
     nombre: str = None,
     tipo_usuario: str = None,
+    _model_override: str = None,
 ) -> tuple[str, bool]:
     """Ejecuta el agente. Filtra por cédula (conductor) o placa (propietario).
 
@@ -42,6 +43,8 @@ def run(
 
     Compatibilidad: si se pasa `conductor_cedula`, se trata como conductor
     autenticado (modo legacy). Para propietarios usar `placa` + `nombre`.
+
+    `_model_override`: solo para tests — fuerza un modelo específico sin failover.
     """
     # Normalizar parámetros — soportar firma legacy y nueva.
     if conductor_cedula and not tipo_usuario:
@@ -62,32 +65,34 @@ def run(
 
     active_tools = tool_executor.TOOLS_CONDUCTOR if autenticado else tool_executor.TOOLS
 
+    # Cuando hay override (p.ej. tests de fallback), usar ese modelo sin failover.
+    _active_model   = _model_override or MODEL
+    _active_or_body = {"models": [_model_override]} if _model_override else _OR_MODELS
+
     tools_called = False
 
     for _ in range(MAX_TOOL_ITERS):
         response = _client.chat.completions.create(
-            model=MODEL,
+            model=_active_model,
             messages=messages,
             tools=active_tools,
             tool_choice="auto",
             max_tokens=8192,
             temperature=0.2,
-            extra_body=_OR_MODELS,
+            extra_body=_active_or_body,
         )
         msg = response.choices[0].message
 
         if not msg.tool_calls:
             content = msg.content
             if not content:
-                # DeepSeek ocasionalmente devuelve content=None sin tool_calls.
-                # Reintentamos sin tools para forzar una respuesta de texto.
                 logger.warning("empty_response_retry", extra={"mensaje": mensaje[:100]})
                 recovery = _client.chat.completions.create(
-                    model=MODEL,
+                    model=_active_model,
                     messages=messages,
                     max_tokens=8192,
                     temperature=0.3,
-                    extra_body=_OR_MODELS,
+                    extra_body=_active_or_body,
                 )
                 content = recovery.choices[0].message.content or "Lo siento, no pude procesar tu consulta. Intenta de nuevo."
             return content, tools_called
@@ -120,11 +125,11 @@ def run(
 
     # Si el modelo entra en bucle, forzar respuesta sin más tools
     response = _client.chat.completions.create(
-        model=MODEL,
+        model=_active_model,
         messages=messages,
         max_tokens=8192,
         temperature=0.2,
-        extra_body=_OR_MODELS,
+        extra_body=_active_or_body,
     )
     content = response.choices[0].message.content or "No pude completar tu consulta. Intenta reformularla."
     return content, tools_called
