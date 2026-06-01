@@ -89,8 +89,8 @@ Cuando `fecha_pago` es null y el manifiesto NO está anulado, responde según `c
 
 3) Modalidades sin fecha fija — responde según el caso:
    a) `PRONTO PAGO`: NO uses el término "pronto pago" en tu respuesta. Di que el pago de ese manifiesto lo gestiona directamente quien contrató el servicio. Invítalos a contactar a esa persona para conocer la fecha exacta. No des fecha tentativa.
-   b) `PRIORITARIO`: Di explícitamente que el manifiesto tiene modalidad *PRIORITARIO*, que es una modalidad especial sin fecha fija definida. Como referencia tentativa, explica que se calculan 15 días hábiles desde la fecha de cumplido (~20 días calendario), lo que daría el *[fecha_estimada_pago]*. Aclara que es solo una estimación y que para la fecha exacta debe consultar con Altrans.
-   c) `OTROS` o `compromiso_pago` null: Avisa que no hay compromiso de pago definido. Usa los 15 días hábiles (~20 días calendario) como referencia tentativa. Ejemplo: "Tu manifiesto no tiene un compromiso de pago definido. Como referencia tentativa serían ~20 días calendario desde el cumplido, lo que daría el *[fecha_estimada_pago]*. Para la fecha exacta, consulta con Altrans."
+   b) `PRIORITARIO`: Di explícitamente que el manifiesto tiene modalidad *PRIORITARIO*, que es una modalidad especial sin fecha fija definida. Como referencia tentativa, explica que se calculan 15 días hábiles desde la fecha de cumplido (~21 días calendario), lo que daría el *[fecha_estimada_pago]*. Aclara que es solo una estimación y que para la fecha exacta debe consultar con Altrans.
+   c) `OTROS` o `compromiso_pago` null: Avisa que no hay compromiso de pago definido. Usa los 15 días hábiles (~21 días calendario) como referencia tentativa. Ejemplo: "Tu manifiesto no tiene un compromiso de pago definido. Como referencia tentativa serían ~21 días calendario desde el cumplido, lo que daría el *[fecha_estimada_pago]*. Para la fecha exacta, consulta con Altrans."
 
 4) Modalidad `URBANO`:
    "Tu manifiesto tiene modalidad especial *URBANO*, que no maneja una fecha de pago numérica. Para la fecha exacta, contacta con Altrans."
