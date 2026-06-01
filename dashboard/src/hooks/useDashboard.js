@@ -32,7 +32,7 @@ export function useDashboard(mes, año) {
           fetchAll(() => {
             let q = supabase
               .from('manifiestos_flat')
-              .select('manifiesto, conductor, cliente, agencia_despachadora, origen, destino, valor_remesa, flete_conductor, flete_neto_conductor, anticipo, fecha_despacho, fecha_factura, compromiso_pago, fecha_cumplido, novedades, fecha_pago, valor_pagado, estado_interno, factura_no, dias_para_facturar')
+              .select('manifiesto, conductor, cliente, agencia_despachadora, origen, destino, valor_remesa, flete_conductor, saldo, anticipo, fecha_despacho, fecha_factura, compromiso_pago, fecha_cumplido, novedades, fecha_pago, valor_pagado, estado_interno, factura_no, dias_para_facturar')
             if (mes) q = q.eq('mes', mes)
             if (año) q = q.eq('año', año)
             return q
@@ -56,12 +56,13 @@ export function useDashboard(mes, año) {
         const totalFletes        = rows.filter(r => !isAnulado(r)).reduce((s, r) => s + (r.flete_conductor ?? 0), 0)
         const totalAnticipo      = rows.filter(r => !isAnulado(r)).reduce((s, r) => s + (r.anticipo        ?? 0), 0)
 
-        // Pendiente por pagar: usa flete_neto (incluye ajustes + consignación)
-        // — alineado con consulta_totales en SQL.
+        // Pendiente por pagar: usa saldo, que YA descuenta ajustes,
+        // retención (1%) y anticipo — alineado con consulta_totales en SQL.
+        // Solo resta lo ya pagado; el anticipo NO se vuelve a restar acá.
         const pendientePagar = rows.reduce((s, r) => {
           if (isAnulado(r) || isPagado(r)) return s
-          const neto = r.flete_neto_conductor ?? r.flete_conductor ?? 0
-          return s + neto - (r.anticipo ?? 0) - (r.valor_pagado ?? 0)
+          const saldo = r.saldo ?? r.flete_conductor ?? 0
+          return s + saldo - (r.valor_pagado ?? 0)
         }, 0)
 
         const sinFechaCumplido = rows.filter(r => !r.fecha_cumplido && !isAnulado(r)).length

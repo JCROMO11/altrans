@@ -1144,7 +1144,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                       { l: 'Responsable',     v: ficha.nombre_responsable },
                       { l: 'Valor remesa',        v: ficha.valor_remesa         != null ? `$${Number(ficha.valor_remesa).toLocaleString('es-CO')}` : null },
                       { l: 'Flete conductor',     v: ficha.flete_conductor      != null ? `$${Number(ficha.flete_conductor).toLocaleString('es-CO')}` : null },
-                      { l: 'Flete neto conductor',v: ficha.flete_neto_conductor != null ? `$${Number(ficha.flete_neto_conductor).toLocaleString('es-CO')}` : null },
+                      { l: 'Saldo',v: ficha.saldo != null ? `$${Number(ficha.saldo).toLocaleString('es-CO')}` : null },
                       { l: 'Anticipo',            v: ficha.anticipo             != null ? `$${Number(ficha.anticipo).toLocaleString('es-CO')}` : null },
                       { l: 'Remesas',         v: ficha.remesas || null, col: 2 },
                     ].map(({ l, v, col }) => (

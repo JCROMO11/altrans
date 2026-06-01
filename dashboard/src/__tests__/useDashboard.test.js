@@ -8,7 +8,8 @@ const baseRow = {
   manifiesto: 100, conductor: 'JUAN PEREZ', cliente: 'ACME',
   agencia_despachadora: 'CALI', origen: 'CALI', destino: 'BOGOTA',
   valor_remesa: 1000000, flete_conductor: 500000,
-  flete_neto_conductor: 480000, anticipo: 100000,
+  // saldo ya descuenta retención (1% = 5k) y anticipo (100k): 500k-5k-100k=395k
+  saldo: 395000, anticipo: 100000,
   fecha_despacho: '2026-05-01', fecha_factura: null, compromiso_pago: 'PAGO A 15 DIAS',
   fecha_cumplido: '2026-05-02', novedades: null, fecha_pago: null,
   valor_pagado: null, estado_interno: 'CUMPLIDO', factura_no: 'F-001',
@@ -53,25 +54,27 @@ describe('useDashboard', () => {
     expect(d.conductoresActivos).toBe(1)   // JUAN PEREZ, no incluye 'NADIE' (anulado)
   })
 
-  it('pendientePagar usa flete_neto_conductor cuando existe', async () => {
-    // baseRow: neto=480k, anticipo=100k, no pagado → 380k pendiente
+  it('pendientePagar usa saldo cuando existe', async () => {
+    // baseRow: neto=395k (ya con retención + anticipo descontados), no pagado.
+    // El hook NO vuelve a restar anticipo → 395k pendiente.
     // rowPagado: tiene fecha_pago → excluido
     // rowAnulado: anulado → excluido
     mockSupabaseChain([baseRow, rowAnulado, rowPagado])
     const { result } = renderHook(() => useDashboard('MAYO', 2026))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    expect(result.current.data.pendientePagar).toBe(380_000)
+    expect(result.current.data.pendientePagar).toBe(395_000)
   })
 
-  it('cae a flete_conductor si flete_neto_conductor es null', async () => {
-    const sinNeto = { ...baseRow, flete_neto_conductor: null }
+  it('cae a flete_conductor si saldo es null', async () => {
+    const sinNeto = { ...baseRow, saldo: null }
     mockSupabaseChain([sinNeto])
     const { result } = renderHook(() => useDashboard('MAYO', 2026))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    // flete_conductor 500k - anticipo 100k = 400k
-    expect(result.current.data.pendientePagar).toBe(400_000)
+    // Fallback a flete_conductor 500k (sin neto disponible); el hook ya no
+    // resta anticipo aparte → 500k.
+    expect(result.current.data.pendientePagar).toBe(500_000)
   })
 
   it('cuenta sinFactura, conNovedad excluyendo anulados', async () => {

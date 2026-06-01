@@ -225,7 +225,7 @@ const CAMPOS_OPTS = [
   'fecha_cumplido','compromiso_pago','novedades','estado_interno',
   'responsable_estado_interno','novedad_conductor','novedad_empresa',
   'ajuste_positivo_flete','ajuste_negativo_flete','consignacion_a_terceros',
-  'flete_neto_conductor','fecha_pago','valor_pagado','entidad_financiera',
+  'saldo','fecha_pago','valor_pagado','entidad_financiera',
   'responsable','factura_no','fecha_factura','factura_electronica',
   'mes_facturacion','valor_factura',
 ]
@@ -636,7 +636,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
                       <Td muted width="140px">{r.departamento_destino ?? '—'}</Td>
                       <Td width="140px">{r.cliente ?? '—'}</Td>
                       <Td mono width="110px">{money(r.valor_remesa)}</Td>
-                      <Td mono width="110px">{money(r.flete_neto_conductor ?? r.flete_conductor)}</Td>
+                      <Td mono width="110px">{money(r.saldo ?? r.flete_conductor)}</Td>
                       <Td mono muted width="95px">{money(r.anticipo)}</Td>
                       <Td mono muted width="80px">{r.placa ?? '—'}</Td>
                       <Td muted width="105px">{r.tipo_vehiculo ?? '—'}</Td>
