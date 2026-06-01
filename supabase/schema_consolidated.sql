@@ -49,6 +49,10 @@ DROP FUNCTION IF EXISTS public.get_usuarios                        CASCADE;
 DROP FUNCTION IF EXISTS public.get_catalogos                       CASCADE;
 DROP FUNCTION IF EXISTS public.user_role                           CASCADE;
 DROP VIEW     IF EXISTS public.v_manifiestos                       CASCADE;
+-- Tabla principal: DROP explícito para que el CREATE TABLE siempre recree
+-- la estructura completa (columnas generadas, constraints). Sin esto,
+-- IF NOT EXISTS la preserva con el esquema viejo y las columnas nuevas no se crean.
+DROP TABLE    IF EXISTS public.manifiestos_flat                    CASCADE;
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -107,12 +111,30 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
     ajuste_positivo_flete       NUMERIC(14, 2)  CHECK (ajuste_positivo_flete >= 0),
     ajuste_negativo_flete       NUMERIC(14, 2)  CHECK (ajuste_negativo_flete >= 0),
     consignacion_a_terceros     NUMERIC(14, 2),
-    flete_neto_conductor        NUMERIC(14, 2)
+    -- Retención en la fuente: siempre 1% del flete total (regla de gerencia,
+    -- sin excepciones a hoy). Columna generada para que el saldo quede auditado
+    -- en cada fila sin que el chatbot tenga que inferir la regla.
+    retencion_conductor         NUMERIC(14, 2)
+        GENERATED ALWAYS AS (
+            CASE WHEN flete_conductor IS NOT NULL
+                 THEN ROUND(flete_conductor * 0.01, 2)
+            END
+        ) STORED,
+    -- Saldo del conductor = flete + ajuste_positivo - ajuste_negativo
+    --                       - retención (1%) - anticipo.
+    -- El anticipo se entrega ANTES de salir a ruta (obligatorio), por eso ya
+    -- no forma parte del saldo: el saldo es lo que QUEDA por pagar al cumplido,
+    -- a ~15 días hábiles. La conciliación del pago (saldo - valor_pagado) se
+    -- calcula aparte contra valor_pagado.
+    -- (Antes se llamaba flete_neto_conductor; renombrada a saldo por claridad.)
+    saldo                       NUMERIC(14, 2)
         GENERATED ALWAYS AS (
             CASE WHEN flete_conductor IS NOT NULL
                  THEN flete_conductor
                       + COALESCE(ajuste_positivo_flete, 0)
                       - COALESCE(ajuste_negativo_flete, 0)
+                      - ROUND(flete_conductor * 0.01, 2)
+                      - COALESCE(anticipo, 0)
             END
         ) STORED,
 
@@ -207,7 +229,7 @@ BEGIN
         'fecha_cumplido','compromiso_pago','novedades','estado_interno',
         'responsable_estado_interno','novedad_conductor','novedad_empresa',
         'ajuste_positivo_flete','ajuste_negativo_flete','consignacion_a_terceros',
-        'flete_neto_conductor','fecha_pago','valor_pagado','entidad_financiera',
+        'saldo','fecha_pago','valor_pagado','entidad_financiera',
         'responsable','factura_no','fecha_factura','factura_electronica',
         'mes_facturacion','valor_factura'
     ]
@@ -344,7 +366,7 @@ SELECT
     m.nombre_responsable, m.fecha_cumplido, m.compromiso_pago, m.novedades,
     m.novedad_conductor, m.novedad_empresa,
     m.ajuste_positivo_flete, m.ajuste_negativo_flete, m.consignacion_a_terceros,
-    m.flete_neto_conductor,
+    m.retencion_conductor, m.saldo,
     m.fecha_pago, m.valor_pagado, m.entidad_financiera, m.responsable,
     m.factura_no, m.fecha_factura, m.factura_electronica, m.mes_facturacion,
     CASE WHEN public.user_role() IN ('financiero', 'contadora', 'administrativo', 'gerencia')
@@ -458,7 +480,7 @@ AS $$
         COALESCE(SUM(flete_conductor),      0),
         COALESCE(SUM(anticipo),             0),
         COALESCE(SUM(valor_pagado),         0),
-        COALESCE(SUM(flete_neto_conductor), 0) - COALESCE(SUM(valor_pagado), 0)
+        COALESCE(SUM(saldo), 0) - COALESCE(SUM(valor_pagado), 0)
     FROM public.manifiestos_flat
     WHERE (p_fecha_desde     IS NULL OR fecha_despacho       >= p_fecha_desde)
       AND (p_fecha_hasta     IS NULL OR fecha_despacho       <= p_fecha_hasta)
