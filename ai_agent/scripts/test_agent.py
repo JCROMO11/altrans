@@ -855,6 +855,68 @@ CASOS_BASE = [
         ),
     },
 
+    # ── 33a. SALDO — concepto y monto ─────────────────────────────────────────
+    {
+        "categoria": "saldo",
+        "titulo": "'¿Cuál es mi saldo?' — monto + cuándo lo pagan",
+        "pregunta": "¿Cuál es mi saldo?",
+        "judge_criterio": (
+            "Entiende que 'saldo' = lo pendiente por cobrar. Llama manifiestos_pendientes_pago "
+            "(o resumen) y da el monto del saldo en formato $ (ej: $690.000 o $0 si está al día). "
+            "Idealmente también menciona para cuándo se paga (compromiso o fecha estimada). "
+            "FAIL si inventa cifras, no consulta nada, o confunde saldo con el flete total bruto."
+        ),
+    },
+    {
+        "categoria": "saldo",
+        "titulo": "'¿Para cuándo está mi saldo?' — pregunta por la fecha del saldo",
+        "pregunta": "¿Para cuándo está mi saldo?",
+        "judge_criterio": (
+            "Entiende que pregunta CUÁNDO le pagan el saldo pendiente. "
+            "Llama manifiestos_pendientes_pago y da compromisos de pago o fechas estimadas. "
+            "Puede mencionar que el saldo se paga a ~15 días hábiles (~21 días calendario) del cumplido. "
+            "PASS si consulta y da fechas o compromisos. FAIL si inventa fechas o no consulta."
+        ),
+    },
+    {
+        "categoria": "saldo",
+        "titulo": "Saldo de un manifiesto específico — monto + fecha estimada",
+        "pregunta": f"¿Cuánto es el saldo del manifiesto {MANIFIESTO_OK} y para cuándo me lo pagan?",
+        "judge_criterio": (
+            "Llama consultar_manifiesto. "
+            "Si está PENDIENTE: da el saldo (campo `saldo`) en formato $ Y la fecha estimada de pago "
+            "(o días restantes / compromiso de pago). "
+            "Si YA ESTÁ PAGADO: dice que se pagó con fecha y valor — PASS igualmente. "
+            "FAIL si inventa el monto, no consulta la herramienta, o da el flete bruto en vez del saldo neto."
+        ),
+    },
+    {
+        "categoria": "saldo",
+        "titulo": "Saldo a 15 días hábiles — fecha calculada (PAGO A 15 DIAS)",
+        "pregunta_template": "¿Cuál es el saldo del manifiesto {MANIFIESTO_PAGO_15} y cuándo me cae?",
+        "depende_de": "MANIFIESTO_PAGO_15",
+        "cedula_override": CEDULA_PAGO_15,
+        "nombre_override": NOMBRE_PAGO_15,
+        "judge_criterio": (
+            "El manifiesto es modalidad *PAGO A 15 DIAS*. "
+            "Da el saldo en formato $ Y la fecha_estimada_pago en formato natural (los días restantes ayudan). "
+            "Puede aclarar que son 15 días hábiles (~21 días calendario) desde el cumplido. "
+            "FAIL si no da el saldo, no da fecha estimada, o dice que no puede calcular."
+        ),
+    },
+    {
+        "categoria": "saldo",
+        "titulo": "Por qué el saldo difiere del flete (retención + anticipo)",
+        "pregunta": f"¿Por qué el saldo del manifiesto {MANIFIESTO_OK} es menor que el flete?",
+        "judge_criterio": (
+            "Explica de forma natural que al flete se le descuenta el anticipo ya entregado "
+            "y la retención (1%), por eso el saldo es menor. "
+            "Puede mencionar ajustes si el manifiesto los tiene. "
+            "PASS si la explicación es coherente y no inventa cifras (usa los datos del manifiesto). "
+            "FAIL si dice que el saldo es igual al flete o inventa un desglose sin consultar."
+        ),
+    },
+
     # ── 34. PRONTO PAGO en manifiesto — redirige sin usar el término ──────────
     {
         "categoria": "pronto_pago",
@@ -1346,6 +1408,29 @@ CASOS_PROPIETARIO = [
             "PASS si da un monto pendiente en formato $ (ej: $690.000 o $0) para el vehículo del propietario. "
             "No es necesario que mencione la placa explícitamente — el contexto es de propietario. "
             "FAIL solo si no da cifra en $ o mezcla datos de otro vehículo."
+        ),
+    },
+    {
+        "categoria": "propietario_saldo",
+        "titulo": "'¿Cuál es el saldo de mi vehículo?' — monto pendiente",
+        "pregunta": "¿Cuál es el saldo pendiente de mi vehículo?",
+        "propietario": True,
+        "judge_criterio": (
+            "PASS si da el saldo/pendiente del vehículo en formato $ (ej: $690.000 o $0). "
+            "Entiende 'saldo' como lo que queda por cobrar del vehículo. "
+            "No se puede verificar la herramienta — evalúa el contenido. "
+            "FAIL solo si inventa cifras, da el flete bruto en vez del saldo, o mezcla otro vehículo."
+        ),
+    },
+    {
+        "categoria": "propietario_saldo",
+        "titulo": "'¿Para cuándo el saldo del vehículo?' — fecha",
+        "pregunta": "¿Para cuándo me pagan el saldo de mi vehículo?",
+        "propietario": True,
+        "judge_criterio": (
+            "PASS si da compromisos de pago o fechas estimadas de los manifiestos pendientes del vehículo. "
+            "Puede mencionar el saldo a ~15 días hábiles (~21 calendario). "
+            "FAIL si inventa fechas exactas sin base o da datos de otro vehículo."
         ),
     },
     {
