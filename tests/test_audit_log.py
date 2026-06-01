@@ -171,13 +171,13 @@ class TestAuditLog:
         assert f['valor_anterior'] in ('500000', '500000.00')
         assert f['valor_nuevo']    in ('600000', '600000.00')
 
-    def test_cambio_de_flete_genera_audit_de_flete_neto_tambien(self):
-        """flete_neto_conductor es GENERATED — se recalcula y debe loguearse."""
+    def test_cambio_de_flete_genera_audit_de_saldo_tambien(self):
+        """saldo es GENERATED — se recalcula al cambiar el flete y debe loguearse."""
         _update_with('gerencia', 'x@y.com', flete_conductor=700000)
         rows = _audit_rows(TEST_MANIF)
         campos = {r['campo'] for r in rows}
-        assert 'flete_conductor'      in campos
-        assert 'flete_neto_conductor' in campos
+        assert 'flete_conductor' in campos
+        assert 'saldo'           in campos
 
     def test_cambios_secuenciales_acumulan_filas(self):
         _update_with('gerencia', 'a@x.com', cliente='V1')

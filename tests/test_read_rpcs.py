@@ -184,12 +184,15 @@ class TestConsultaTotales:
         assert float(t['suma_fletes']) == 400_000
 
     def test_pendiente_pagar_formula(self):
-        """pendiente_pagar = suma(flete_neto) - suma(valor_pagado). Como nadie pagó,
-        debe ser igual a la suma de flete_neto = flete (sin ajustes en fixtures)."""
+        """pendiente_pagar = suma(saldo) - suma(valor_pagado). Como nadie pagó,
+        equivale a la suma de saldo, que ya descuenta retención (1%) y anticipo
+        (sin ajustes en estos fixtures)."""
         r = _rpc('consulta_totales', {'p_conductor': 'TEST CONDUCTOR A', 'p_mes': 'MAYO', 'p_año': 2026})
         t = r[0]
-        # 500k + 800k = 1.3M de flete; 0 pagado → 1.3M pendiente
-        assert float(t['pendiente_pagar']) == 1_300_000
+        # 999001: 500k - 1% (5k) - anticipo 100k = 395k
+        # 999002: 800k - 1% (8k) - anticipo 200k = 592k
+        # 0 pagado → 987k pendiente
+        assert float(t['pendiente_pagar']) == 987_000
 
 
 # ── tendencia_anual ──────────────────────────────────────────────────────────

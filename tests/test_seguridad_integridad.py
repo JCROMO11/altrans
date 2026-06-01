@@ -7,7 +7,7 @@ Cubre:
   3. Permisos de RPCs por rol (guardar_digitador / logistico / tesoreria / financiero / borrar)
   4. Upsert idempotente de guardar_digitador
   5. CASCADE en audit_log
-  6. Fórmula flete_neto_conductor (NO incluye consignacion_a_terceros)
+  6. Fórmula saldo (flete ± ajustes − retención 1% − anticipo; NO incluye consignacion_a_terceros)
   7. ANULADO oculto a conductores en RPCs del chatbot
 
 Manifiestos de prueba reservados: 999000-999999.
@@ -349,36 +349,40 @@ else:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-print("\n── 6. Fórmula flete_neto_conductor (sin consignacion) ─────────────────")
+print("\n── 6. Fórmula saldo (retención 1% + anticipo, sin consignacion) ───────")
 
-# Insertar manifiesto con todos los componentes y verificar el GENERATED
+# Insertar manifiesto con todos los componentes y verificar el GENERATED.
+# saldo = flete + ajuste⁺ - ajuste⁻ - retención(1% del flete) - anticipo.
+# La consignacion_a_terceros NO entra en la fórmula.
 sql_direct("""
     UPDATE manifiestos_flat SET
         flete_conductor       = 500000,
         ajuste_positivo_flete = 50000,
         ajuste_negativo_flete = 20000,
+        anticipo              = 100000,
         consignacion_a_terceros = 100000
     WHERE manifiesto = 999100
 """, fetch=False)
 
-neto = sql_direct("SELECT flete_neto_conductor FROM manifiestos_flat WHERE manifiesto = 999100")[0][0]
-esperado = 500000 + 50000 - 20000  # SIN restar consignacion
-if neto is not None and float(neto) == float(esperado):
-    ok("formula", f"flete_neto = 500k + 50k - 20k = {neto} (consignacion NO se resta)")
+saldo = sql_direct("SELECT saldo FROM manifiestos_flat WHERE manifiesto = 999100")[0][0]
+# 500k + 50k - 20k - 5k (retención 1%) - 100k (anticipo) = 425k
+esperado = 500000 + 50000 - 20000 - 5000 - 100000
+if saldo is not None and float(saldo) == float(esperado):
+    ok("formula", f"saldo = 500k + 50k - 20k - 5k ret - 100k ant = {saldo} (consignacion NO se resta)")
 else:
-    fail("formula", "flete_neto sin consignacion",
-         f"obtuvo {neto}, esperado {esperado}. ¿Migración aplicada?")
+    fail("formula", "saldo con retención y anticipo",
+         f"obtuvo {saldo}, esperado {esperado}. ¿Schema aplicado?")
 
-# Caso flete_conductor NULL → neto NULL
+# Caso flete_conductor NULL → saldo NULL
 sql_direct("""
     UPDATE manifiestos_flat SET flete_conductor = NULL
     WHERE manifiesto = 999100
 """, fetch=False)
-neto_null = sql_direct("SELECT flete_neto_conductor FROM manifiestos_flat WHERE manifiesto = 999100")[0][0]
-if neto_null is None:
-    ok("formula", "flete_conductor NULL → flete_neto NULL")
+saldo_null = sql_direct("SELECT saldo FROM manifiestos_flat WHERE manifiesto = 999100")[0][0]
+if saldo_null is None:
+    ok("formula", "flete_conductor NULL → saldo NULL")
 else:
-    fail("formula", "flete_conductor NULL → flete_neto NULL", f"obtuvo {neto_null}")
+    fail("formula", "flete_conductor NULL → saldo NULL", f"obtuvo {saldo_null}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
