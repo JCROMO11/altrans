@@ -147,7 +147,8 @@ def load_flat(df: pd.DataFrame, engine, dry_run: bool = False) -> dict:
             cur.execute("""
                 ALTER TABLE _tmp_flat
                 DROP COLUMN IF EXISTS dias_para_facturar,
-                DROP COLUMN IF EXISTS flete_neto_conductor,
+                DROP COLUMN IF EXISTS retencion_conductor,
+                DROP COLUMN IF EXISTS saldo,
                 DROP COLUMN IF EXISTS dias_cumplido,
                 DROP COLUMN IF EXISTS cargado_en,
                 DROP COLUMN IF EXISTS actualizado_en

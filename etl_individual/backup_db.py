@@ -52,7 +52,7 @@ _QUERY_MANIFIESTOS = """
         compromiso_pago, novedades, estado_interno, responsable_estado_interno,
         novedad_conductor, novedad_empresa,
         ajuste_positivo_flete, ajuste_negativo_flete, consignacion_a_terceros,
-        flete_neto_conductor,
+        retencion_conductor, saldo,
         fecha_pago, valor_pagado, entidad_financiera, responsable,
         factura_no, fecha_factura, factura_electronica, mes_facturacion,
         valor_factura, dias_para_facturar,
@@ -71,7 +71,7 @@ def backup_manifiestos_flat(db_url: str, out_path: Path) -> int:
     df = pd.DataFrame(rows, columns=cols)
     for col in ("valor_remesa", "flete_conductor", "anticipo", "valor_pagado",
                 "ajuste_positivo_flete", "ajuste_negativo_flete",
-                "consignacion_a_terceros", "flete_neto_conductor", "valor_factura"):
+                "consignacion_a_terceros", "retencion_conductor", "saldo", "valor_factura"):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").round(0).astype("Int64")
 

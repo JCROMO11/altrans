@@ -38,7 +38,7 @@ _PK = {
 # Campos numéricos a verificar en manifiestos_flat (suma CSV == suma DB)
 _NUMERIC_CHECKS = [
     "flete_conductor", "valor_remesa", "anticipo",
-    "flete_neto_conductor", "valor_pagado", "valor_factura",
+    "retencion_conductor", "saldo", "valor_pagado", "valor_factura",
 ]
 
 
