@@ -91,10 +91,10 @@ def listar_manifiestos(cedula: str = None, mes: str = None, año: int = None,
     # Para propietarios mostramos también la placa y el conductor del viaje.
     if placa:
         select = ("manifiesto,fecha_despacho,origen,destino,cliente,conductor,placa,"
-                  "flete_neto_conductor,flete_conductor,fecha_pago,estado_interno,mes,año")
+                  "saldo,flete_conductor,fecha_pago,estado_interno,mes,año")
     else:
         select = ("manifiesto,fecha_despacho,origen,destino,cliente,"
-                  "flete_neto_conductor,flete_conductor,fecha_pago,estado_interno,mes,año")
+                  "saldo,flete_conductor,fecha_pago,estado_interno,mes,año")
     params = {
         "select": select,
         "order":  "manifiesto.desc",
@@ -115,7 +115,7 @@ def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> 
             "manifiesto,fecha_despacho,origen,destino,cliente,"
             "conductor,cedula_conductor,celular,placa,tipo_vehiculo,propietario,"
             "agencia_despachadora,remesas,valor_remesa,"
-            "flete_conductor,ajuste_positivo_flete,ajuste_negativo_flete,consignacion_a_terceros,flete_neto_conductor,anticipo,"
+            "flete_conductor,ajuste_positivo_flete,ajuste_negativo_flete,consignacion_a_terceros,retencion_conductor,saldo,anticipo,"
             "fecha_cumplido,compromiso_pago,fecha_estimada_pago,novedades,novedad_conductor,novedad_empresa,"
             "estado_interno,responsable_estado_interno,"
             "fecha_pago,valor_pagado,entidad_financiera,"
@@ -137,7 +137,7 @@ def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> 
 def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
                     placa: str = None) -> dict:
     params = {
-        "select": "manifiesto,valor_remesa,flete_conductor,flete_neto_conductor,anticipo,valor_pagado,estado_interno,fecha_pago",
+        "select": "manifiesto,valor_remesa,flete_conductor,saldo,anticipo,valor_pagado,estado_interno,fecha_pago",
         # Excluir ANULADOS desde la query: para el usuario no existen.
         "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
@@ -151,7 +151,7 @@ def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
     total_remesa = sum(r.get("valor_remesa") or 0 for r in rows)
     total_flete  = sum(r.get("flete_conductor") or 0 for r in rows)
     pendiente    = sum(
-        (r.get("flete_neto_conductor") or r.get("flete_conductor") or 0) - (r.get("valor_pagado") or 0)
+        (r.get("saldo") or r.get("flete_conductor") or 0) - (r.get("valor_pagado") or 0)
         for r in rows
         if not r.get("fecha_pago")
     )
@@ -177,7 +177,7 @@ def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
 def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str = None,
                                 placa: str = None) -> list[dict]:
     params = {
-        "select": "manifiesto,fecha_despacho,conductor,flete_neto_conductor,flete_conductor,anticipo,valor_pagado,fecha_cumplido,compromiso_pago,fecha_estimada_pago,estado_interno",
+        "select": "manifiesto,fecha_despacho,conductor,saldo,flete_conductor,anticipo,valor_pagado,fecha_cumplido,compromiso_pago,fecha_estimada_pago,estado_interno",
         "fecha_pago": "is.null",
         "or":         "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
