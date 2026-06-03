@@ -236,7 +236,12 @@ def load_all(folder: str | Path) -> pd.DataFrame:
     frames = []
 
     for path in sorted(folder.glob("*.csv")):
-        df = read_csv_with_header_detection(path)
+        # Salta hojas vacías exportadas desde Excel (p.ej. "Hoja 180")
+        try:
+            df = read_csv_with_header_detection(path)
+        except pd.errors.EmptyDataError:
+            print(f"  {path.name}: vacío, omitido")
+            continue
         df = normalize_columns(df, source_file=str(path))
         # Eliminar columnas duplicadas conservando la primera aparición
         df = df.loc[:, ~df.columns.duplicated()]
