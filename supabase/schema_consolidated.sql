@@ -50,6 +50,7 @@ DROP FUNCTION IF EXISTS public.borrar_manifiesto                   CASCADE;
 DROP FUNCTION IF EXISTS public.get_usuarios                        CASCADE;
 DROP FUNCTION IF EXISTS public.get_catalogos                       CASCADE;
 DROP FUNCTION IF EXISTS public.user_role                           CASCADE;
+DROP VIEW     IF EXISTS public.v_chatbot_manifiestos               CASCADE;
 DROP VIEW     IF EXISTS public.v_manifiestos                       CASCADE;
 -- Tabla principal: DROP explícito para que el CREATE TABLE siempre recree
 -- la estructura completa (columnas generadas, constraints). Sin esto,
@@ -474,6 +475,48 @@ SELECT
             WHEN 'CONTRAENTREGA'          THEN 0
             WHEN 'CONTINGENCIA 20-25 DH'  THEN 35
             ELSE 21  -- PRONTO PAGO, PRIORITARIO, OTROS, NULL (tentativo)
+        END)
+    END AS fecha_estimada_pago
+FROM public.manifiestos_flat m;
+
+
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║ 7b. VISTA v_chatbot_manifiestos (solo datos que ve el conductor/dueño)  ║
+-- ║    - Sin security_invoker: el chatbot usa service_role y no hay RLS.    ║
+-- ║    - Proyecta SOLO las columnas operativas que conductores y            ║
+-- ║      propietarios necesitan. Sin datos financieros internos.            ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+
+CREATE VIEW public.v_chatbot_manifiestos
+AS
+SELECT
+    m.manifiesto, m.fecha_despacho,
+    m.origen, m.departamento_origen, m.destino, m.departamento_destino,
+    m.cliente,
+    m.placa, m.tipo_vehiculo, m.conductor, m.celular, m.cedula_conductor, m.propietario,
+    m.flete_conductor, m.saldo, m.valor_pagado, m.fecha_pago,
+    m.fecha_cumplido, m.compromiso_pago, m.estado_interno,
+    m.novedades, m.novedad_conductor,
+    m.mes, m.año,
+    CASE WHEN m.fecha_cumplido IS NOT NULL
+         THEN CURRENT_DATE - m.fecha_cumplido
+    END AS dias_cumplido,
+    CASE
+        WHEN m.fecha_cumplido IS NULL                THEN NULL
+        WHEN m.fecha_pago     IS NOT NULL            THEN NULL
+        WHEN m.estado_interno  = 'ANULADO'           THEN NULL
+        WHEN m.compromiso_pago = 'URBANO'            THEN NULL
+        WHEN m.compromiso_pago = 'ANULADO'           THEN NULL
+        WHEN m.compromiso_pago = 'PAGADO'            THEN NULL
+        ELSE m.fecha_cumplido + (CASE m.compromiso_pago
+            WHEN 'PAGO A 15 DIAS'         THEN 21
+            WHEN 'PAGO A 20 DIAS'         THEN 28
+            WHEN 'PAGO A 30 DIAS'         THEN 42
+            WHEN 'PAGO A 5-8 DIAS'        THEN 11
+            WHEN 'PAGO INMEDIATO'         THEN 0
+            WHEN 'CONTRAENTREGA'          THEN 0
+            WHEN 'CONTINGENCIA 20-25 DH'  THEN 35
+            ELSE 21
         END)
     END AS fecha_estimada_pago
 FROM public.manifiestos_flat m;

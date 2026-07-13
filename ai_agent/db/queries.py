@@ -16,6 +16,9 @@ TABLE = "manifiestos_flat"
 # Vista enriquecida con campos calculados (fecha_estimada_pago, dias_cumplido).
 # Usar para queries que necesitan esos campos; el resto puede seguir contra la tabla.
 VIEW = "v_manifiestos"
+# Vista restringida para el chatbot: solo columnas operativas visibles
+# a conductores y propietarios. Sin datos financieros internos.
+CHATBOT_VIEW = "v_chatbot_manifiestos"
 
 
 def _add_dias_restantes(rows: list[dict]) -> list[dict]:
@@ -88,7 +91,6 @@ def _apply_identificador(params: dict, identificador: str = None, tipo_usuario: 
 
 def listar_manifiestos(cedula: str = None, mes: str = None, año: int = None,
                        placa: str = None) -> list[dict]:
-    # Para propietarios mostramos también la placa y el conductor del viaje.
     if placa:
         select = ("manifiesto,fecha_despacho,origen,destino,cliente,conductor,placa,"
                   "saldo,flete_conductor,fecha_pago,estado_interno,mes,año")
@@ -99,13 +101,12 @@ def listar_manifiestos(cedula: str = None, mes: str = None, año: int = None,
         "select": select,
         "order":  "manifiesto.desc",
         "limit":  "50",
-        # Manifiestos ANULADOS no existen para el usuario (decisión de negocio)
         "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
     _apply_periodo(params, mes, año)
-    return _get(TABLE, params)
+    return _get(CHATBOT_VIEW, params)
 
 
 def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> dict | None:
@@ -114,17 +115,15 @@ def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> 
         "select": (
             "manifiesto,fecha_despacho,origen,destino,cliente,"
             "conductor,cedula_conductor,celular,placa,tipo_vehiculo,propietario,"
-            "agencia_despachadora,remesas,valor_remesa,"
-            "flete_conductor,ajuste_positivo_flete,ajuste_negativo_flete,consignacion_a_terceros,retencion_conductor,saldo,anticipo,"
-            "fecha_cumplido,compromiso_pago,fecha_estimada_pago,novedades,novedad_conductor,novedad_empresa,"
-            "estado_interno,responsable_estado_interno,"
-            "fecha_pago,valor_pagado,entidad_financiera,"
-            "factura_no,fecha_factura,factura_electronica,valor_factura,mes,año"
+            "flete_conductor,saldo,"
+            "fecha_cumplido,compromiso_pago,fecha_estimada_pago,novedades,novedad_conductor,"
+            "estado_interno,"
+            "fecha_pago,valor_pagado,mes,año"
         ),
     }
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
-    rows = _get(VIEW, params)
+    rows = _get(CHATBOT_VIEW, params)
     if not rows:
         return None
     # Si está anulado, ocultarlo: para el usuario el manifiesto no existe.
@@ -137,21 +136,19 @@ def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> 
 def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
                     placa: str = None) -> dict:
     params = {
-        "select": "manifiesto,valor_remesa,flete_conductor,saldo,anticipo,valor_pagado,estado_interno,fecha_pago",
-        # Excluir ANULADOS desde la query: para el usuario no existen.
+        "select": "manifiesto,flete_conductor,saldo,valor_pagado,estado_interno,fecha_pago",
         "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
     _apply_periodo(params, mes, año)
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
 
-    rows = _get(TABLE, params)
+    rows = _get(CHATBOT_VIEW, params)
 
     total        = len(rows)
-    total_remesa = sum(r.get("valor_remesa") or 0 for r in rows)
     total_flete  = sum(r.get("flete_conductor") or 0 for r in rows)
     pendiente    = sum(
-        (r.get("saldo") or r.get("flete_conductor") or 0) - (r.get("valor_pagado") or 0)
+        (r.get("saldo") or 0) - (r.get("valor_pagado") or 0)
         for r in rows
         if not r.get("fecha_pago")
     )
@@ -168,7 +165,6 @@ def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
     return {
         "periodo":        periodo,
         "total":          total,
-        "total_remesa":   total_remesa,
         "total_flete":    total_flete,
         "pendiente_pago": pendiente,
     }
@@ -177,7 +173,7 @@ def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
 def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str = None,
                                 placa: str = None) -> list[dict]:
     params = {
-        "select": "manifiesto,fecha_despacho,conductor,saldo,flete_conductor,anticipo,valor_pagado,fecha_cumplido,compromiso_pago,fecha_estimada_pago,estado_interno",
+        "select": "manifiesto,fecha_despacho,conductor,saldo,flete_conductor,valor_pagado,fecha_cumplido,compromiso_pago,fecha_estimada_pago,estado_interno",
         "fecha_pago": "is.null",
         "or":         "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
@@ -185,7 +181,7 @@ def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str =
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
 
-    rows = _get(VIEW, params)
+    rows = _get(CHATBOT_VIEW, params)
     _add_dias_restantes(rows)
     return rows[:50]
 
@@ -271,7 +267,7 @@ def manifiestos_con_novedad(mes: str = None, año: int = None, cedula: str = Non
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
 
-    rows = _get(TABLE, params)
+    rows = _get(CHATBOT_VIEW, params)
     # Devolvemos solo novedades REALES (las que requieren atención).
     # Ruido como "TIPO VEHICULO: TURBO" se filtra aquí, no en el modelo,
     # para mantener la respuesta breve y permitirle resumir sin saturarse.
@@ -313,7 +309,7 @@ def conductor_info(nombre: str = None, cedula: str = None, cedula_auth: str = No
     else:
         return []
 
-    rows = _get(TABLE, params)
+    rows = _get(CHATBOT_VIEW, params)
     if not rows:
         return []
 
