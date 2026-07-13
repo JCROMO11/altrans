@@ -2,6 +2,8 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
+
 from db import queries
 from agent.graph import run, moderate
 from whatsapp.client import send_text, mark_as_read
@@ -185,6 +187,37 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
     session = _load_session(wa_from)
 
     if not session:
+        admin = queries.get_admin_by_wa_from(wa_from)
+        if admin:
+            session = {
+                "wa_from":               wa_from,
+                "estado":                "esperando_admin_pass",
+                "tipo_usuario":          None,
+                "identificador_temp":    None,
+                "identificador_auth":    None,
+                "nombre_temp":           admin["nombre"],
+                "nombre":                None,
+                "cedula_temp":           None,
+                "conductor_nombre_temp": None,
+                "conductor_cedula":      None,
+                "conductor_nombre":      None,
+                "historial":             [],
+                "msg_count":             0,
+                "last_activity":         _now().isoformat(),
+                "auth_fails":            0,
+                "locked_until":          None,
+            }
+            queries.upsert_session(session)
+            nombre_admin = _primer_nombre(admin["nombre"])
+            send_text(
+                wa_from,
+                f"Bienvenido {nombre_admin}. 👋\n\n"
+                "Tienes acceso a datos consolidados de Altrans.\n\n"
+                "Ingresa tu contraseña de administrador para continuar."
+            )
+            logger.info("admin_auth_prompt", extra={"wa_from": wa_from, "nombre": admin["nombre"]})
+            return
+
         session = _new_session(wa_from)
         send_text(
             wa_from,
@@ -204,6 +237,37 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
 
     texto  = text.strip()
     estado = session["estado"]
+
+    # ── Admin: validar contraseña ─────────────────────────────────────────────
+    if estado == "esperando_admin_pass":
+        admin = queries.get_admin_by_wa_from(wa_from)
+        if not admin:
+            # Si por alguna razón no se encuentra al admin, volver al inicio
+            queries.delete_session(wa_from)
+            send_text(wa_from, "Error de sesión. Escribe de nuevo para empezar.")
+            return
+
+        if bcrypt.checkpw(texto.encode("utf-8"), admin["password_hash"].encode("utf-8")):
+            session["estado"]             = "activa"
+            session["tipo_usuario"]       = "admin"
+            session["nombre"]             = admin["nombre"]
+            session["auth_fails"]         = 0
+            session["nombre_temp"]        = None
+            _save(session)
+            queries.update_admin_ultimo_acceso(wa_from)
+            nombre_admin = _primer_nombre(admin["nombre"])
+            send_text(wa_from, f"Verificado. Bienvenido {nombre_admin}, tienes acceso a los datos consolidados de la empresa. ¿En qué te puedo ayudar?")
+            logger.info("admin_auth_ok", extra={"wa_from": wa_from, "nombre": admin["nombre"]})
+        else:
+            bloqueado = _register_fail(session)
+            _save(session)
+            if bloqueado:
+                send_text(wa_from, f"Contraseña incorrecta. Acceso bloqueado por {LOCKOUT_MIN} minutos.")
+                logger.warning("admin_auth_locked", extra={"wa_from": wa_from})
+            else:
+                restantes = MAX_AUTH_FAILS - session["auth_fails"]
+                send_text(wa_from, f"Contraseña incorrecta. ({restantes} intento(s) restante(s))")
+        return
 
     # ── Paso 1: identificador (cédula o placa) ──────────────────────────────
     if estado in ("esperando_identificador", "esperando_cedula"):
@@ -303,8 +367,8 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
         # Nombre para los logs y compatibilidad con código existente
         cedula = identificador  # usado solo para logging/jailbreak; ya no implica conductor
 
-        # Capa 1: regex barata
-        if _JAILBREAK_RE.search(texto):
+        # Capa 1: regex barata (solo para no-admins)
+        if session.get("tipo_usuario") != "admin" and _JAILBREAK_RE.search(texto):
             queries.log_jailbreak(wa_from, cedula, texto, "regex")
             logger.warning("jailbreak_blocked", extra={
                 "wa_from": wa_from, "cedula": cedula, "layer": "regex",
@@ -312,9 +376,8 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
             send_text(wa_from, "Ese tipo de mensaje no está permitido. Si tienes una consulta sobre tus manifiestos, con gusto te ayudo.")
             return
 
-        # Capa 2: moderación LLM (solo si la regex no detectó nada y el texto
-        # es sospechoso por longitud o caracteres raros)
-        if len(texto) > 60 or any(c in texto for c in ("{", "<", "[INST]", "```")):
+        # Capa 2: moderación LLM (solo para no-admins)
+        if session.get("tipo_usuario") != "admin" and (len(texto) > 60 or any(c in texto for c in ("{", "<", "[INST]", "```"))):
             try:
                 if moderate(texto):
                     queries.log_jailbreak(wa_from, cedula, texto, "llm")
@@ -327,8 +390,8 @@ def handle_message(wa_from: str, message_id: str, text: str) -> None:
                 logger.exception("moderation_failed", extra={"wa_from": wa_from})
                 # No bloquear el flujo si la moderación falla — la regex ya filtró
 
-        # Límite de mensajes por sesión
-        if session["msg_count"] >= MAX_MSGS_PER_SESSION:
+        # Límite de mensajes por sesión (no aplica a admins)
+        if session.get("tipo_usuario") != "admin" and session["msg_count"] >= MAX_MSGS_PER_SESSION:
             send_text(wa_from, f"Has alcanzado el límite de {MAX_MSGS_PER_SESSION} consultas en esta sesión. Tu acceso se renovará en unas horas o puedes contactar a tu supervisor.")
             logger.info("msg_limit_reached", extra={"wa_from": wa_from, "cedula": cedula})
             return

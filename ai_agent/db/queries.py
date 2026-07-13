@@ -388,6 +388,27 @@ def verificar_manifiesto_propietario(manifiesto: int, placa: str) -> bool:
     return len(rows) > 0
 
 
+# ── Admin Auth ────────────────────────────────────────────────────────────────
+
+def get_admin_by_wa_from(wa_from: str) -> dict | None:
+    rows = _get("admin_usuarios", {
+        "wa_from": f"eq.{wa_from}",
+        "select": "wa_from,nombre,password_hash,ultimo_acceso",
+    })
+    return rows[0] if rows else None
+
+
+def update_admin_ultimo_acceso(wa_from: str) -> None:
+    from datetime import datetime, timezone
+    _request(
+        "PATCH",
+        "admin_usuarios",
+        params={"wa_from": f"eq.{wa_from}"},
+        json_body={"ultimo_acceso": datetime.now(timezone.utc).isoformat()},
+        headers_extra={"Prefer": "return=minimal"},
+    )
+
+
 # ── Sesiones del chatbot (persistencia en Supabase) ──────────────────────────
 
 def _request(method: str, path: str, params: dict = None, json_body=None, headers_extra: dict = None):

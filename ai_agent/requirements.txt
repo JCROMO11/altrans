@@ -4,6 +4,7 @@ uvicorn[standard]
 httpx
 python-dotenv
 pyjwt
+bcrypt
 
 # LLM clients de producción
 openai     # DeepSeek (OpenAI-compatible) — agente principal

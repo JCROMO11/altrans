@@ -57,6 +57,7 @@ DROP VIEW     IF EXISTS public.v_manifiestos                       CASCADE;
 -- IF NOT EXISTS la preserva con el esquema viejo y las columnas nuevas no se crean.
 DROP TABLE    IF EXISTS public.messages_sent                       CASCADE;
 DROP TABLE    IF EXISTS public.manifiestos_flat                    CASCADE;
+DROP TABLE    IF EXISTS public.admin_usuarios                    CASCADE;
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -407,6 +408,22 @@ CREATE INDEX IF NOT EXISTS idx_ms_manifiesto  ON public.messages_sent (manifiest
 CREATE INDEX IF NOT EXISTS idx_ms_sent_at     ON public.messages_sent (sent_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ms_lookup      ON public.messages_sent (manifiesto, template_name, sent_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ms_pending_dedup ON public.messages_sent (manifiesto, template_name) WHERE status = 'pending';
+
+
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║ 5b. ADMIN USUARIOS (autenticación de gerentes en el chatbot)            ║
+-- ║    Solo 2 registros (Julio y Julian) por ahora. Contraseñas hasheadas   ║
+-- ║    con bcrypt. El chatbot detecta el número de WhatsApp y pide          ║
+-- ║    contraseña en lugar del flujo conductor/propietario.                 ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+
+CREATE TABLE IF NOT EXISTS public.admin_usuarios (
+    wa_from        TEXT PRIMARY KEY,   -- número WhatsApp +57...
+    nombre         TEXT NOT NULL,
+    password_hash  TEXT NOT NULL,      -- bcrypt(contraseña)
+    ultimo_acceso  TIMESTAMPTZ,
+    creado_en      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -1146,6 +1163,9 @@ CREATE POLICY ms_gerencia_select ON public.messages_sent
     FOR SELECT TO authenticated
     USING (public.user_role() = 'gerencia');
 
+-- ── admin_usuarios: solo service_role puede leer/escribir ────────────────────
+ALTER TABLE public.admin_usuarios ENABLE ROW LEVEL SECURITY;
+
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
 -- ║ 11. GRANTS                                                               ║
@@ -1170,6 +1190,8 @@ REVOKE INSERT, UPDATE, DELETE ON public.jailbreak_log      FROM authenticated, a
 REVOKE ALL                    ON public.messages_sent      FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.messages_sent TO authenticated;
 GRANT ALL    ON public.messages_sent TO postgres;
+
+REVOKE ALL                    ON public.admin_usuarios      FROM PUBLIC, anon, authenticated;
 
 -- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
 REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) FROM PUBLIC;
