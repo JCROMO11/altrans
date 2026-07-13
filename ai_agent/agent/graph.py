@@ -18,6 +18,42 @@ MODEL          = "deepseek/deepseek-v4-flash"
 MODEL_FALLBACK = "anthropic/claude-haiku-4.5"
 _OR_MODELS     = {"models": [MODEL, MODEL_FALLBACK]}  # OpenRouter intenta en orden; si DeepSeek falla, usa Haiku
 
+# Fallback extremo: si OpenRouter entero está caído, usamos Groq directo
+GROQ_MODEL = "llama-3.3-70b-versatile"
+
+
+def _call_llm(messages: list, tools: list = None, tool_choice: str = "auto",
+              max_tokens: int = 8192, temperature: float = 0.2,
+              extra_body: dict = None, model: str = None) -> tuple[object, bool]:
+    """Llama al LLM con fallback automático: OpenRouter → Groq.
+    Devuelve (response, usó_groq). Si ambos fallan, lanza excepción."""
+    try:
+        response = _client.chat.completions.create(
+            model=model or MODEL,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            extra_body=extra_body or _OR_MODELS,
+        )
+        return response, False
+    except Exception as or_err:
+        logger.warning("llm_fallback_groq", extra={"reason": str(or_err)[:200]})
+        try:
+            response = _mod_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return response, True
+        except Exception as groq_err:
+            logger.error("llm_both_failed", extra={"or": str(or_err)[:200], "groq": str(groq_err)[:200]})
+            raise
+
 # Moderación: gpt-oss-safeguard-20b — clasificador con política custom (inyección + exfiltración)
 _mod_client    = Groq()
 MODEL_MODERATE = "openai/gpt-oss-safeguard-20b"
@@ -65,21 +101,19 @@ def run(
 
     active_tools = tool_executor.TOOLS_CONDUCTOR if autenticado else tool_executor.TOOLS
 
-    # Cuando hay override (p.ej. tests de fallback), usar ese modelo sin failover.
-    _active_model   = _model_override or MODEL
+    # Cuando hay override (p.ej. tests de fallback), no enviar OR models.
     _active_or_body = {} if _model_override else _OR_MODELS
 
     tools_called = False
+    usando_groq = False
 
     for _ in range(MAX_TOOL_ITERS):
-        response = _client.chat.completions.create(
-            model=_active_model,
+        response, usando_groq = _call_llm(
             messages=messages,
             tools=active_tools,
             tool_choice="auto",
-            max_tokens=8192,
-            temperature=0.2,
             extra_body=_active_or_body,
+            model=_model_override,
         )
         msg = response.choices[0].message
 
@@ -87,14 +121,16 @@ def run(
             content = msg.content
             if not content:
                 logger.warning("empty_response_retry", extra={"mensaje": mensaje[:100]})
-                recovery = _client.chat.completions.create(
-                    model=_active_model,
+                recovery, _ = _call_llm(
                     messages=messages,
-                    max_tokens=8192,
+                    tools=active_tools if active_tools else None,
+                    tool_choice="auto" if active_tools else None,
                     temperature=0.3,
                     extra_body=_active_or_body,
                 )
                 content = recovery.choices[0].message.content or "Lo siento, no pude procesar tu consulta. Intenta de nuevo."
+            if usando_groq:
+                logger.info("groq_served_prompt", extra={"mensaje": mensaje[:80]})
             return content, tools_called
 
         tools_called = True
@@ -124,12 +160,10 @@ def run(
             })
 
     # Si el modelo entra en bucle, forzar respuesta sin más tools
-    response = _client.chat.completions.create(
-        model=_active_model,
+    response, _ = _call_llm(
         messages=messages,
-        max_tokens=8192,
-        temperature=0.2,
-        extra_body=_active_or_body,
+        tools=None,
+        tool_choice=None,
     )
     content = response.choices[0].message.content or "No pude completar tu consulta. Intenta reformularla."
     return content, tools_called
