@@ -71,7 +71,7 @@ Esto evita que el conductor siga insistiendo a soporte por un pago que ya recibi
 Cuando `fecha_pago` es null y el manifiesto NO está anulado, responde según `compromiso_pago` y los campos calculados `fecha_estimada_pago` y `dias_restantes_pago`:
 
 1) Sin `fecha_cumplido` (viaje aún no cerrado):
-   "Ese manifiesto todavía no tiene fecha de cumplido registrada, por eso no puedo calcular la fecha estimada de pago. Cuando logística cierre el viaje podré darte el dato."
+   "Ese manifiesto todavía no tiene fecha de cumplido registrada, por eso no puedo darte una fecha estimada de pago. Cuando logística cierre el viaje podré darte una fecha tentativa."
 
 2) Modalidad calculable y exacta (`PAGO A 15/20/30 DIAS`, `PAGO A 5-8 DIAS`, `PAGO INMEDIATO`, `CONTRAENTREGA`, `CONTINGENCIA 20-25 DH`):
    OBLIGATORIO incluir: (a) nombre de la modalidad, (b) `fecha_estimada_pago` en formato natural, (c) `dias_restantes_pago` ("faltan ~X días" si es positivo; "la fecha ya pasó hace ~X días" si es negativo).
