@@ -39,6 +39,7 @@ DROP FUNCTION IF EXISTS public.fn_audit_manifiestos                CASCADE;
 DROP FUNCTION IF EXISTS public.fn_audit_manifiestos_delete         CASCADE;
 DROP FUNCTION IF EXISTS public.consulta_manifiestos                CASCADE;
 DROP FUNCTION IF EXISTS public.consulta_totales                    CASCADE;
+DROP FUNCTION IF EXISTS public.dashboard_kpis                      CASCADE;
 DROP FUNCTION IF EXISTS public.tendencia_anual                     CASCADE;
 DROP FUNCTION IF EXISTS public.get_pendientes_notificacion         CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_digitador                   CASCADE;
@@ -93,7 +94,8 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
     placa                       TEXT,
     tipo_vehiculo               TEXT,
     conductor                   TEXT,
-    celular                     TEXT,
+    celular                     TEXT
+        CHECK (celular IS NULL OR celular ~ '^\d{10}$'),
     cedula_conductor            TEXT,
     propietario                 TEXT,
 
@@ -646,8 +648,8 @@ AS $$
                  THEN 'saldo_novedad_pendiente'
             WHEN b.factura_no IS NULL
                  THEN 'saldo_falta_factura'
-            WHEN b.fecha_cumplido < CURRENT_DATE - 21  -- pasó el plazo de 15 dh
-                 THEN 'saldo_falta_documentacion'      -- y no se pagó
+            WHEN b.fecha_cumplido < CURRENT_DATE - 21
+                 THEN 'saldo_falta_documentacion'
             WHEN b.fecha_cumplido IS NOT NULL
                  THEN 'saldo_plazo_vigente'
             ELSE 'saldo_falta_documentacion'
@@ -687,6 +689,63 @@ AS $$
           END
     )
     ORDER BY b.manifiesto;
+$$;
+
+-- ── dashboard_kpis ──────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.dashboard_kpis(p_mes TEXT DEFAULT NULL, p_año INTEGER DEFAULT NULL)
+RETURNS JSON
+LANGUAGE sql STABLE
+SET search_path = ''
+AS $$
+    WITH base AS (
+        SELECT * FROM public.manifiestos_flat
+        WHERE (p_mes IS NULL OR mes = p_mes)
+          AND (p_año IS NULL OR año = p_año)
+    ),
+    activos AS (
+        SELECT * FROM base WHERE estado_interno IS DISTINCT FROM 'ANULADO'
+    )
+    SELECT json_build_object(
+        'totalManifiestos',   (SELECT COUNT(*)            FROM base),
+        'anulados',           (SELECT COUNT(*)            FROM base    WHERE estado_interno = 'ANULADO'),
+        'conductoresActivos', (SELECT COUNT(DISTINCT conductor)        FROM activos WHERE conductor IS NOT NULL),
+        'rutasActivas',       (SELECT COUNT(DISTINCT origen || '|' || destino) FROM activos WHERE origen IS NOT NULL AND destino IS NOT NULL),
+        'totalRemesas',       (SELECT COALESCE(SUM(valor_remesa),    0) FROM activos),
+        'totalFletes',        (SELECT COALESCE(SUM(flete_conductor), 0) FROM activos),
+        'totalAnticipo',      (SELECT COALESCE(SUM(anticipo),        0) FROM activos),
+        'pendientePagar',     (SELECT COALESCE(SUM(saldo), 0) - COALESCE(SUM(valor_pagado), 0) FROM activos WHERE fecha_pago IS NULL),
+        'sinFechaCumplido',   (SELECT COUNT(*)            FROM activos WHERE fecha_cumplido IS NULL),
+        'sinFactura',         (SELECT COUNT(*)            FROM activos WHERE factura_no IS NULL),
+        'conNovedad',         (SELECT COUNT(*)            FROM activos WHERE novedades IS NOT NULL AND TRIM(novedades) != ''),
+        'diasPromFacturar',   (SELECT COALESCE(ROUND(AVG(dias_para_facturar))::INT, 0) FROM activos WHERE dias_para_facturar IS NOT NULL),
+
+        'topClientes',        (SELECT COALESCE(json_agg(sub ORDER BY sub.count DESC), '[]'::json)
+                               FROM (SELECT cliente AS nombre, COUNT(*)::INT AS count
+                                     FROM base WHERE cliente IS NOT NULL
+                                     GROUP BY cliente) sub LIMIT 7),
+
+        'topRutas',           (SELECT COALESCE(json_agg(sub ORDER BY sub.count DESC), '[]'::json)
+                               FROM (SELECT origen || ' → ' || destino AS ruta, COUNT(*)::INT AS count
+                                     FROM base WHERE origen IS NOT NULL AND destino IS NOT NULL
+                                     GROUP BY origen, destino) sub LIMIT 7),
+
+        'topConductores',     (SELECT COALESCE(json_agg(sub ORDER BY sub.count DESC), '[]'::json)
+                               FROM (SELECT conductor AS nombre, COUNT(*)::INT AS count
+                                     FROM base WHERE conductor IS NOT NULL
+                                     GROUP BY conductor) sub LIMIT 7),
+
+        'chartAgencias',      (SELECT COALESCE(json_agg(sub ORDER BY sub.count DESC), '[]'::json)
+                               FROM (SELECT COALESCE(agencia_despachadora, 'SIN AGENCIA') AS nombre, COUNT(*)::INT AS count
+                                     FROM base GROUP BY agencia_despachadora) sub),
+
+        'chartEstadoInterno', (SELECT COALESCE(json_agg(sub ORDER BY sub.value DESC), '[]'::json)
+                               FROM (SELECT COALESCE(estado_interno, 'SIN ESTADO') AS name, COUNT(*)::INT AS value
+                                     FROM base GROUP BY estado_interno) sub),
+
+        'estadoPago',         (SELECT COALESCE(json_agg(sub ORDER BY sub.value DESC), '[]'::json)
+                               FROM (SELECT COALESCE(compromiso_pago, 'SIN ESTADO') AS name, COUNT(*)::INT AS value
+                                     FROM base GROUP BY compromiso_pago) sub)
+    );
 $$;
 
 
@@ -1131,6 +1190,7 @@ GRANT ALL    ON public.messages_sent TO postgres;
 -- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
 REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT)                                                  FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               FROM PUBLIC;
@@ -1147,6 +1207,7 @@ REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                     
 -- Otorgar a authenticated
 GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT)                                                  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               TO authenticated;

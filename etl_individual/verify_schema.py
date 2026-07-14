@@ -29,6 +29,7 @@ TABLAS = [
 RPCS = [
     "consulta_manifiestos",
     "consulta_totales",
+    "dashboard_kpis",
     "tendencia_anual",
     "get_catalogos",
     "get_usuarios",

@@ -3,37 +3,16 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { supabase } from '../lib/supabase'
 import { useDashboard } from '../hooks/useDashboard'
 
-// Fixture de filas mínimas, suficientes para validar la lógica de agregación.
-const baseRow = {
-  manifiesto: 100, conductor: 'JUAN PEREZ', cliente: 'ACME',
-  agencia_despachadora: 'CALI', origen: 'CALI', destino: 'BOGOTA',
-  valor_remesa: 1000000, flete_conductor: 500000,
-  // saldo ya descuenta retención (1% = 5k) y anticipo (100k): 500k-5k-100k=395k
-  saldo: 395000, anticipo: 100000,
-  fecha_despacho: '2026-05-01', fecha_factura: null, compromiso_pago: 'PAGO A 15 DIAS',
-  fecha_cumplido: '2026-05-02', novedades: null, fecha_pago: null,
-  valor_pagado: null, estado_interno: 'CUMPLIDO', factura_no: 'F-001',
-  dias_para_facturar: 5,
-}
-const rowAnulado = { ...baseRow, manifiesto: 101, estado_interno: 'ANULADO', conductor: 'NADIE', valor_remesa: 9_999_999 }
-const rowPagado  = { ...baseRow, manifiesto: 102, fecha_pago: '2026-05-10', valor_pagado: 380000 }
-const rowSinFactura = { ...baseRow, manifiesto: 103, factura_no: null }
-const rowConNovedad = { ...baseRow, manifiesto: 104, novedades: 'REAJUSTE' }
-
-function mockSupabaseChain(rows, anualData = []) {
-  // useDashboard hace: supabase.from(...).select(...).eq(...).eq(...).range(from, to)
-  // y en paralelo supabase.rpc('tendencia_anual', ...)
-  const chain = {
-    select: vi.fn().mockReturnThis(),
-    eq:     vi.fn().mockReturnThis(),
-    range:  vi.fn((from) => {
-      if (from === 0) return Promise.resolve({ data: rows, error: null })
-      return Promise.resolve({ data: [], error: null })
-    }),
-  }
-  supabase.from.mockReturnValue(chain)
-  supabase.rpc.mockResolvedValue({ data: anualData, error: null })
-  return chain
+function mockRpc(dashboardKpisData, anualData = []) {
+  supabase.rpc.mockImplementation((fnName, params) => {
+    if (fnName === 'dashboard_kpis') {
+      return Promise.resolve({ data: dashboardKpisData, error: null })
+    }
+    if (fnName === 'tendencia_anual') {
+      return Promise.resolve({ data: anualData, error: null })
+    }
+    return Promise.resolve({ data: null, error: null })
+  })
 }
 
 describe('useDashboard', () => {
@@ -41,53 +20,67 @@ describe('useDashboard', () => {
     vi.clearAllMocks()
   })
 
-  it('excluye ANULADOS de totales y métricas activas', async () => {
-    mockSupabaseChain([baseRow, rowAnulado, rowPagado])
+  it('llama a dashboard_kpis y tendencia_anual con los parametros correctos', async () => {
+    mockRpc({}, [])
+    const { result } = renderHook(() => useDashboard('MAYO', 2026))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(supabase.rpc).toHaveBeenCalledWith('dashboard_kpis', { p_mes: 'MAYO', p_año: 2026 })
+    expect(supabase.rpc).toHaveBeenCalledWith('tendencia_anual', { p_año: 2026 })
+  })
+
+  it('pasa null cuando no hay filtro de mes/año', async () => {
+    mockRpc({}, [])
+    const { result } = renderHook(() => useDashboard(null, null))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(supabase.rpc).toHaveBeenCalledWith('dashboard_kpis', { p_mes: null, p_año: null })
+    expect(supabase.rpc).toHaveBeenCalledWith('tendencia_anual', { p_año: null })
+  })
+
+  it('pasa las metricas del RPC directamente al data del hook', async () => {
+    const kpis = {
+      totalManifiestos: 5,
+      anulados: 1,
+      conductoresActivos: 3,
+      rutasActivas: 2,
+      totalRemesas: 3_000_000,
+      totalFletes: 1_500_000,
+      totalAnticipo: 300_000,
+      pendientePagar: 395_000,
+      sinFechaCumplido: 0,
+      sinFactura: 1,
+      conNovedad: 1,
+      diasPromFacturar: 5,
+      topClientes: [{ nombre: 'ACME', count: 2 }],
+      topRutas: [{ ruta: 'CALI → BOGOTA', count: 2 }],
+      topConductores: [{ nombre: 'JUAN PEREZ', count: 2 }],
+      chartAgencias: [{ nombre: 'CALI', count: 2 }],
+      chartEstadoInterno: [{ name: 'CUMPLIDO', value: 2 }],
+      estadoPago: [{ name: 'PAGO A 15 DIAS', value: 2 }],
+    }
+    mockRpc(kpis)
     const { result } = renderHook(() => useDashboard('MAYO', 2026))
     await waitFor(() => expect(result.current.loading).toBe(false))
 
     const d = result.current.data
-    expect(d.totalManifiestos).toBe(3)  // count total sí incluye anulados
+    expect(d.totalManifiestos).toBe(5)
     expect(d.anulados).toBe(1)
-    // Las sumas SÍ excluyen anulados — bug que se arregló
-    expect(d.totalRemesas).toBe(2_000_000) // 2 × 1M, no 12M
-    expect(d.conductoresActivos).toBe(1)   // JUAN PEREZ, no incluye 'NADIE' (anulado)
+    expect(d.conductoresActivos).toBe(3)
+    expect(d.rutasActivas).toBe(2)
+    expect(d.totalRemesas).toBe(3_000_000)
+    expect(d.totalFletes).toBe(1_500_000)
+    expect(d.totalAnticipo).toBe(300_000)
+    expect(d.pendientePagar).toBe(395_000)
+    expect(d.sinFactura).toBe(1)
+    expect(d.conNovedad).toBe(1)
+    expect(d.diasPromFacturar).toBe(5)
+    expect(d.topClientes).toEqual([{ nombre: 'ACME', count: 2 }])
+    expect(d.estadoPago).toEqual([{ name: 'PAGO A 15 DIAS', value: 2 }])
   })
 
-  it('pendientePagar usa saldo cuando existe', async () => {
-    // baseRow: neto=395k (ya con retención + anticipo descontados), no pagado.
-    // El hook NO vuelve a restar anticipo → 395k pendiente.
-    // rowPagado: tiene fecha_pago → excluido
-    // rowAnulado: anulado → excluido
-    mockSupabaseChain([baseRow, rowAnulado, rowPagado])
-    const { result } = renderHook(() => useDashboard('MAYO', 2026))
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    expect(result.current.data.pendientePagar).toBe(395_000)
-  })
-
-  it('cae a flete_conductor si saldo es null', async () => {
-    const sinNeto = { ...baseRow, saldo: null }
-    mockSupabaseChain([sinNeto])
-    const { result } = renderHook(() => useDashboard('MAYO', 2026))
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    // Fallback a flete_conductor 500k (sin neto disponible); el hook ya no
-    // resta anticipo aparte → 500k.
-    expect(result.current.data.pendientePagar).toBe(500_000)
-  })
-
-  it('cuenta sinFactura, conNovedad excluyendo anulados', async () => {
-    mockSupabaseChain([baseRow, rowAnulado, rowSinFactura, rowConNovedad])
-    const { result } = renderHook(() => useDashboard('MAYO', 2026))
-    await waitFor(() => expect(result.current.loading).toBe(false))
-
-    expect(result.current.data.sinFactura).toBe(1)
-    expect(result.current.data.conNovedad).toBe(1)
-  })
-
-  it('lineChart usa los 12 meses ordenados desde tendencia_anual', async () => {
-    mockSupabaseChain([baseRow], [
+  it('construye lineChart con los 12 meses ordenados desde tendencia_anual', async () => {
+    mockRpc({}, [
       { mes: 'ENERO', facturado: 100, ganancia: 10 },
       { mes: 'MAYO',  facturado: 500, ganancia: 50 },
     ])
@@ -99,5 +92,24 @@ describe('useDashboard', () => {
     expect(lc[0]).toEqual({ mes: 'ENE', facturado: 100, ganancia: 10 })
     expect(lc[4]).toEqual({ mes: 'MAY', facturado: 500, ganancia: 50 })
     expect(lc[1]).toEqual({ mes: 'FEB', facturado: 0,   ganancia: 0  })
+    expect(lc[11]).toEqual({ mes: 'DIC', facturado: 0,  ganancia: 0  })
+  })
+
+  it('maneja RPC con data null gracefully', async () => {
+    supabase.rpc.mockResolvedValue({ data: null, error: null })
+    const { result } = renderHook(() => useDashboard('MAYO', 2026))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(result.current.data).not.toBeNull()
+    expect(result.current.data.totalManifiestos).toBeUndefined()
+    expect(result.current.data.lineChart).toHaveLength(12)
+  })
+
+  it('maneja error de RPC sin crashear', async () => {
+    supabase.rpc.mockRejectedValue(new Error('DB timeout'))
+    const { result } = renderHook(() => useDashboard('MAYO', 2026))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(result.current.data).toBeNull()
   })
 })

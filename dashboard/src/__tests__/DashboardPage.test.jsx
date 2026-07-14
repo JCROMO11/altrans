@@ -51,6 +51,8 @@ vi.mock('recharts', () => {
 
 import DashboardPage from '../pages/DashboardPage'
 
+const defaultUser = { app_metadata: { role: 'gerencia' } }
+
 describe('DashboardPage', () => {
   beforeEach(() => {
     useDashboardMock.mockReset()
@@ -59,7 +61,7 @@ describe('DashboardPage', () => {
   it('renderiza KPIs financieros y operativos en formato $', async () => {
     useDashboardMock.mockReturnValue({ data: mockData, loading: false })
 
-    render(<DashboardPage />)
+    render(<DashboardPage user={defaultUser} />)
 
     await waitFor(() => {
       // Formato COP: $50.000.000 (o variantes)
@@ -77,7 +79,7 @@ describe('DashboardPage', () => {
 
   it('cambiar mes/año dispara nueva llamada al hook', () => {
     useDashboardMock.mockReturnValue({ data: mockData, loading: false })
-    render(<DashboardPage />)
+    render(<DashboardPage user={defaultUser} />)
 
     // Hay un botón "Ene" en los filtros de mes
     const eneBtn = screen.getAllByText('Ene')[0]
@@ -89,7 +91,7 @@ describe('DashboardPage', () => {
 
   it('botón "Todos los meses" pone mes=null', () => {
     useDashboardMock.mockReturnValue({ data: mockData, loading: false })
-    render(<DashboardPage />)
+    render(<DashboardPage user={defaultUser} />)
 
     // hay un "Todos" para mes — está en el segundo grupo
     const todosBtns = screen.getAllByText('Todos')
@@ -102,6 +104,6 @@ describe('DashboardPage', () => {
   it('con data=null muestra placeholders (no rompe)', () => {
     useDashboardMock.mockReturnValue({ data: null, loading: true })
     // No debe lanzar
-    expect(() => render(<DashboardPage />)).not.toThrow()
+    expect(() => render(<DashboardPage user={defaultUser} />)).not.toThrow()
   })
 })
