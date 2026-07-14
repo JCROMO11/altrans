@@ -174,7 +174,7 @@ async def _load_block(clave: str, fallback: str) -> str:
         contenido = await get_prompt(clave)
         if contenido:
             return contenido
-    except Exception:
+    except (ImportError, OSError):
         pass
     return fallback
 

@@ -170,7 +170,7 @@ async def moderate_label(texto: str) -> str:
     try:
         from db.queries import get_prompt
         policy = await get_prompt("moderate_policy") or _INLINE_MODERATE_POLICY
-    except Exception:
+    except (ImportError, OSError):
         policy = _INLINE_MODERATE_POLICY
     response = await _mod_client.chat.completions.create(
         model=MODEL_MODERATE,

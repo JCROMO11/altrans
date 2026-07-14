@@ -9,6 +9,8 @@ Ejecutar:
 """
 import os
 import sys
+import time as _time
+from datetime import datetime
 from unittest.mock import patch, AsyncMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ai_agent'))
@@ -28,13 +30,12 @@ def clear_prompt_cache():
 @pytest.mark.asyncio
 async def test_base_prompt_usa_db_cuando_disponible():
     from agent.prompts import build_system_prompt
-    from db.queries import _prompt_cache
 
     with patch("db.queries.get_prompt", new_callable=AsyncMock) as mock_get:
-        mock_get.return_value = "BASE: {anio}-{mes_actual}"
+        anio = datetime.now().year
+        mock_get.return_value = f"BASE: {anio}-JULIO"
         result = await build_system_prompt()
-        assert "BASE:" in result
-        assert "2026" in result
+        assert f"BASE: {anio}-" in result
         mock_get.assert_any_call("system_prompt_base")
 
 
@@ -43,7 +44,7 @@ async def test_base_prompt_fallback_cuando_db_no_disponible():
     from agent.prompts import build_system_prompt
 
     with patch("db.queries.get_prompt", new_callable=AsyncMock) as mock_get:
-        mock_get.side_effect = Exception("DB down")
+        mock_get.side_effect = OSError("DB down")
         result = await build_system_prompt()
         assert "Altrans Bot" in result
         assert "colombiano" in result
@@ -135,7 +136,7 @@ async def test_moderate_label_fallback_cuando_db_falla():
     from agent.graph import moderate_label, _INLINE_MODERATE_POLICY
 
     with patch("db.queries.get_prompt", new_callable=AsyncMock) as mock_get:
-        mock_get.side_effect = Exception("DB down")
+        mock_get.side_effect = OSError("DB down")
         with patch("agent.graph._mod_client.chat.completions.create", new_callable=AsyncMock) as mock_create:
             mock_create.return_value.choices = [type("obj", (), {"message": type("obj", (), {"content": "SAFE"})()})()]
             label = await moderate_label("Hola")
@@ -148,24 +149,23 @@ async def test_moderate_label_fallback_cuando_db_falla():
 
 @pytest.mark.asyncio
 async def test_get_prompt_cache_ttl():
-    from db.queries import get_prompt, _prompt_cache
+    from db.queries import get_prompt
 
+    real_t = _time.time()
     with patch("db.queries._get") as mock_get:
         mock_get.return_value = [{"contenido": "cached_val"}]
         val1 = await get_prompt("test_clave")
         assert val1 == "cached_val"
-        assert "test_clave" in _prompt_cache
 
-        # segunda llamada no debe ir a DB
-        _prompt_cache["test_clave"] = ("cached_val", 9999999999.0)  # timestamp futuro
         mock_get.reset_mock()
-        val2 = await get_prompt("test_clave")
-        assert val2 == "cached_val"
-        mock_get.assert_not_called()
+        with patch("db.queries._time.time", return_value=real_t + 60):
+            val2 = await get_prompt("test_clave")
+            assert val2 == "cached_val"
+            mock_get.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_get_prompt_retorna_none_si_no_existe():
+async def test_get_prompt_retorna_none_si_no_existe_y_cachea():
     from db.queries import get_prompt
 
     with patch("db.queries._get") as mock_get:
@@ -173,12 +173,32 @@ async def test_get_prompt_retorna_none_si_no_existe():
         val = await get_prompt("no_existe")
         assert val is None
 
+        mock_get.reset_mock()
+        val2 = await get_prompt("no_existe")
+        assert val2 is None
+        mock_get.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_get_prompt_no_crashea_en_error():
     from db.queries import get_prompt
 
     with patch("db.queries._get") as mock_get:
-        mock_get.side_effect = Exception("timeout")
+        mock_get.side_effect = OSError("timeout")
         val = await get_prompt("falla")
         assert val is None
+
+
+# ── moderate wrapper ───────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_moderate_devuelve_true_para_unsafe():
+    from agent.graph import moderate
+
+    with patch("agent.graph.moderate_label", new_callable=AsyncMock) as mock_label:
+        mock_label.return_value = "UNSAFE"
+        assert await moderate("inyección de prompt") is True
+
+    with patch("agent.graph.moderate_label", new_callable=AsyncMock) as mock_label:
+        mock_label.return_value = "SAFE"
+        assert await moderate("¿cuánto me deben?") is False

@@ -446,8 +446,7 @@ async def log_jailbreak(wa_from: str | None, identificador: str | None,
 
 # ── System prompts from DB ─────────────────────────────────────────────────────
 
-_PromptCache = dict[str, tuple[str, float]]  # clave → (contenido, timestamp)
-_prompt_cache: _PromptCache = {}
+_prompt_cache: dict[str, tuple[str, float]] = {}
 _PROMPT_CACHE_TTL = 300  # 5 min
 
 
@@ -466,6 +465,7 @@ async def get_prompt(clave: str) -> str | None:
             contenido = rows[0]["contenido"]
             _prompt_cache[clave] = (contenido, now)
             return contenido
+        _prompt_cache[clave] = (None, now)
         return None
-    except Exception:
+    except (httpx.HTTPError, OSError, ValueError):
         return None
