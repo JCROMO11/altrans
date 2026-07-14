@@ -98,19 +98,26 @@ class TestLoggingConfig:
 
     def test_agrega_sink_archivo(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("logging_config.os.path.dirname", return_value=tmpdir):
-                import logging_config
-                logging_config.setup_logging("DEBUG")
-                assert any("logs" in str(s) for s in logger._core.handlers.values())
+            with patch("config.get_settings", return_value={
+                "supabase_url": "https://test.supabase.co",
+                "supabase_service_key": "test-key",
+            }):
+                with patch("logging_config.os.path.dirname", return_value=tmpdir):
+                    import logging_config
+                    logging_config.setup_logging("DEBUG")
+                    assert any("logs" in str(s) for s in logger._core.handlers.values())
 
     def test_agrega_sink_supabase(self):
-        with patch("core.log_sink.httpx.Client") as mock_client_class:
-            mock_client = MagicMock()
-            mock_client_class.return_value = mock_client
-            import logging_config
-            logging_config.setup_logging("DEBUG")
-            # El handler de Supabase se registró sin error
-            assert True
+        with patch("config.get_settings", return_value={
+            "supabase_url": "https://test.supabase.co",
+            "supabase_service_key": "test-key",
+        }):
+            with patch("core.log_sink.httpx.Client") as mock_client_class:
+                mock_client = MagicMock()
+                mock_client_class.return_value = mock_client
+                import logging_config
+                logging_config.setup_logging("DEBUG")
+                assert len(logger._core.handlers) == 3
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
