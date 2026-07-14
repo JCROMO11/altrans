@@ -1,3 +1,4 @@
+import time as _time
 from datetime import date, datetime
 
 import httpx
@@ -441,3 +442,30 @@ async def log_jailbreak(wa_from: str | None, identificador: str | None,
         )
     except Exception:
         pass
+
+
+# ── System prompts from DB ─────────────────────────────────────────────────────
+
+_PromptCache = dict[str, tuple[str, float]]  # clave → (contenido, timestamp)
+_prompt_cache: _PromptCache = {}
+_PROMPT_CACHE_TTL = 300  # 5 min
+
+
+async def get_prompt(clave: str) -> str | None:
+    now = _time.time()
+    cached = _prompt_cache.get(clave)
+    if cached and (now - cached[1]) < _PROMPT_CACHE_TTL:
+        return cached[0]
+    try:
+        rows = await _get("system_prompts", {
+            "clave": f"eq.{clave}",
+            "select": "contenido",
+            "limit": "1",
+        })
+        if rows:
+            contenido = rows[0]["contenido"]
+            _prompt_cache[clave] = (contenido, now)
+            return contenido
+        return None
+    except Exception:
+        return None

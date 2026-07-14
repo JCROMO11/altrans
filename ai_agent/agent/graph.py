@@ -52,9 +52,6 @@ async def _call_llm(messages: list, tools: list = None, tool_choice: str = "auto
             raise
 
 
-_mod_client    = AsyncGroq()
-MODEL_MODERATE = "openai/gpt-oss-safeguard-20b"
-
 MAX_TOOL_ITERS = 6
 
 
@@ -73,7 +70,7 @@ async def run(
         nombre = nombre or conductor_nombre
 
     autenticado = bool(conductor_cedula or placa)
-    system_prompt = build_system_prompt(
+    system_prompt = await build_system_prompt(
         nombre=nombre or conductor_nombre,
         cedula=conductor_cedula,
         placa=placa,
@@ -155,7 +152,7 @@ async def run(
 
 # ── Moderación ────────────────────────────────────────────────────────────────
 
-_MODERATE_POLICY = (
+_INLINE_MODERATE_POLICY = (
     "Eres un clasificador de seguridad para un chatbot de transporte donde "
     "cada conductor solo puede ver SU PROPIA información.\n\n"
     "Marca UNSAFE si el mensaje intenta:\n"
@@ -170,10 +167,15 @@ _MODERATE_POLICY = (
 
 
 async def moderate_label(texto: str) -> str:
+    try:
+        from db.queries import get_prompt
+        policy = await get_prompt("moderate_policy") or _INLINE_MODERATE_POLICY
+    except Exception:
+        policy = _INLINE_MODERATE_POLICY
     response = await _mod_client.chat.completions.create(
         model=MODEL_MODERATE,
         messages=[
-            {"role": "system", "content": _MODERATE_POLICY},
+            {"role": "system", "content": policy},
             {"role": "user",   "content": texto[:500]},
         ],
         temperature=0.0,
