@@ -2,9 +2,10 @@
 Servicio de notificaciones Altrans — segundo servicio Railway.
 
 Endpoints:
-  GET  /health           → liveness check
-  POST /admin/backup     → dispara backup manual (requiere X-Admin-Token)
-  POST /admin/notify/wa  → envía mensaje WA manual a lista de números
+  GET  /health            → liveness check
+  POST /admin/backup      → dispara backup manual (requiere X-Admin-Token)
+  POST /admin/notify/wa   → envía mensaje WA manual a lista de números
+  POST /admin/auto-notify → dispara ronda de notificaciones automáticas
 """
 import logging
 import os
@@ -20,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from auto_notify import run_auto_notify
 from backup_email import run_backup_and_email
 from whatsapp_notify import send_whatsapp_bulk
 from logging_config import setup_logging
@@ -104,3 +106,11 @@ def admin_notify_wa(request: Request, body: WaNotifyRequest, background_tasks: B
         raise HTTPException(status_code=400, detail="Mensaje vacío")
     background_tasks.add_task(send_whatsapp_bulk, body.phones, body.message)
     return {"status": "scheduled", "recipients": len(body.phones)}
+
+
+@app.post("/admin/auto-notify")
+def admin_auto_notify(request: Request, background_tasks: BackgroundTasks):
+    """Dispara la ronda de notificaciones automáticas."""
+    _check_admin_token(request)
+    background_tasks.add_task(run_auto_notify)
+    return {"status": "scheduled", "detail": "Notificaciones automáticas en curso."}

@@ -2,5 +2,5 @@ fastapi
 uvicorn[standard]
 httpx
 python-dotenv
-resend
+sendgrid
 apscheduler
