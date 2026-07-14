@@ -113,12 +113,6 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.5)
       llenar fecha_cumplido
     
     
-    
-    3.4 Módulo TemplateManager / WhatsApp Templates — ⚠️ 35%
-    (sin cambios — pendiente)
-    
-    
-    
     4. PLAN DE ACCIÓN FUNCIONAL (ACTUALIZADO)
     
     ✅ COMPLETADO — Chatbot
@@ -168,14 +162,14 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.5)
     
       | #   | Tarea                                                     | Horas  |
       |-----|-----------------------------------------------------------|--------|
-      | 8   | Vista detalle inline en ConsultaPage                      | 2h     |
-      | 9   | Confirmación de entrega WhatsApp (webhook)                | 2h     |
-      | 10  | Dashboard de monitoreo de notificaciones                  | 3h     |
+      | 7   | Vista detalle inline en ConsultaPage                      | 2h     |
+      | 8   | Confirmación de entrega WhatsApp (webhook)                | 2h     |
+      | 9   | Dashboard de monitoreo de notificaciones                  | 3h     |
     
     🔵 BAJA — Nice to have
     
       | #   | Tarea                                                     |
       |-----|-----------------------------------------------------------|
-      | 11  | Exportar gráficos del dashboard                            |
-      | 12  | Estados visuales en UI de WhatsApp                         |
-      | 13  | Control de costos LLM (chatbot)                            |
+      | 10  | Exportar gráficos del dashboard                            |
+      | 11  | Estados visuales en UI de WhatsApp                         |
+      | 12  | Control de costos LLM (chatbot)                            |
