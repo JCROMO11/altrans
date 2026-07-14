@@ -13,17 +13,11 @@ _HEADERS = {
 }
 
 TABLE = "manifiestos_flat"
-# Vista enriquecida con campos calculados (fecha_estimada_pago, dias_cumplido).
-# Usar para queries que necesitan esos campos; el resto puede seguir contra la tabla.
 VIEW = "v_manifiestos"
-# Vista restringida para el chatbot: solo columnas operativas visibles
-# a conductores y propietarios. Sin datos financieros internos.
 CHATBOT_VIEW = "v_chatbot_manifiestos"
 
 
 def _add_dias_restantes(rows: list[dict]) -> list[dict]:
-    """Calcula dias_restantes_pago = fecha_estimada_pago - hoy.
-    NULL si fecha_estimada_pago no aplica (anulado, pagado, sin cumplido, modalidad sin plazo)."""
     hoy = date.today()
     for r in rows:
         fep = r.get("fecha_estimada_pago")
@@ -37,11 +31,8 @@ def _add_dias_restantes(rows: list[dict]) -> list[dict]:
             r["dias_restantes_pago"] = None
     return rows
 
-# ── Cliente HTTP reutilizado (HTTP keep-alive + pool) ────────────────────────
-# Antes: cada request abría una conexión TCP+TLS nueva (~200ms overhead).
-# Ahora: pool de 20 conexiones mantenidas vivas → throughput ~3-5x mejor
-# bajo carga concurrente. Esencial cuando varios conductores escriben a la vez.
-_CLIENT = httpx.Client(
+
+_CLIENT = httpx.AsyncClient(
     base_url=_BASE,
     headers=_HEADERS,
     timeout=15.0,
@@ -53,15 +44,13 @@ _CLIENT = httpx.Client(
 )
 
 
-def _get(path: str, params: dict = None) -> list[dict]:
+async def _get(path: str, params: dict = None) -> list[dict]:
     qs = "&".join(f"{k}={v}" for k, v in (params or {}).items())
     url = f"/{path}?{qs}" if qs else f"/{path}"
-    r = _CLIENT.get(url)
+    r = await _CLIENT.get(url)
     r.raise_for_status()
     return r.json()
 
-
-# ── Helpers de filtro ─────────────────────────────────────────────────────────
 
 def _apply_periodo(params: dict, mes: str = None, año: int = None):
     if mes:
@@ -78,7 +67,6 @@ def _apply_placa(params: dict, placa: str = None):
         params["placa"] = f"eq.{placa.upper()}"
 
 def _apply_identificador(params: dict, identificador: str = None, tipo_usuario: str = None):
-    """Aplica el filtro correcto según el tipo de usuario autenticado."""
     if not identificador or not tipo_usuario:
         return
     if tipo_usuario == "propietario":
@@ -87,10 +75,8 @@ def _apply_identificador(params: dict, identificador: str = None, tipo_usuario: 
         _apply_conductor(params, identificador)
 
 
-# ── Queries ───────────────────────────────────────────────────────────────────
-
-def listar_manifiestos(cedula: str = None, mes: str = None, año: int = None,
-                       placa: str = None) -> list[dict]:
+async def listar_manifiestos(cedula: str = None, mes: str = None, año: int = None,
+                             placa: str = None) -> list[dict]:
     if placa:
         select = ("manifiesto,fecha_despacho,origen,destino,cliente,conductor,placa,"
                   "saldo,flete_conductor,fecha_pago,estado_interno,mes,año")
@@ -106,10 +92,10 @@ def listar_manifiestos(cedula: str = None, mes: str = None, año: int = None,
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
     _apply_periodo(params, mes, año)
-    return _get(CHATBOT_VIEW, params)
+    return await _get(CHATBOT_VIEW, params)
 
 
-def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> dict | None:
+async def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> dict | None:
     params = {
         "manifiesto": f"eq.{numero}",
         "select": (
@@ -123,18 +109,17 @@ def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> 
     }
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
-    rows = _get(CHATBOT_VIEW, params)
+    rows = await _get(CHATBOT_VIEW, params)
     if not rows:
         return None
-    # Si está anulado, ocultarlo: para el usuario el manifiesto no existe.
     if rows[0].get("estado_interno") == "ANULADO":
         return None
     _add_dias_restantes(rows)
     return rows[0]
 
 
-def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
-                    placa: str = None) -> dict:
+async def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
+                          placa: str = None) -> dict:
     params = {
         "select": "manifiesto,flete_conductor,saldo,valor_pagado,estado_interno,fecha_pago",
         "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
@@ -143,7 +128,7 @@ def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
 
-    rows = _get(CHATBOT_VIEW, params)
+    rows = await _get(CHATBOT_VIEW, params)
 
     total        = len(rows)
     total_flete  = sum(r.get("flete_conductor") or 0 for r in rows)
@@ -170,8 +155,8 @@ def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
     }
 
 
-def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str = None,
-                                placa: str = None) -> list[dict]:
+async def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str = None,
+                                      placa: str = None) -> list[dict]:
     params = {
         "select": "manifiesto,fecha_despacho,conductor,saldo,flete_conductor,valor_pagado,fecha_cumplido,compromiso_pago,fecha_estimada_pago,estado_interno",
         "fecha_pago": "is.null",
@@ -181,13 +166,13 @@ def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str =
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
 
-    rows = _get(CHATBOT_VIEW, params)
+    rows = await _get(CHATBOT_VIEW, params)
     _add_dias_restantes(rows)
     return rows[:50]
 
 
-def manifiestos_sin_factura(mes: str = None, año: int = None, cedula: str = None,
-                            placa: str = None) -> list[dict]:
+async def manifiestos_sin_factura(mes: str = None, año: int = None, cedula: str = None,
+                                  placa: str = None) -> list[dict]:
     params = {
         "select": "manifiesto,fecha_despacho,cliente,conductor,responsable_estado_interno,estado_interno",
         "factura_no": "is.null",
@@ -197,15 +182,15 @@ def manifiestos_sin_factura(mes: str = None, año: int = None, cedula: str = Non
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
 
-    rows = _get(TABLE, params)
+    rows = await _get(TABLE, params)
     return rows[:50]
 
 
-def top_conductores(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
+async def top_conductores(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
     params = {"select": "conductor,estado_interno"}
     _apply_periodo(params, mes, año)
 
-    rows = _get(TABLE, params)
+    rows = await _get(TABLE, params)
     conteo: dict[str, int] = {}
     for r in rows:
         if r.get("estado_interno") == "ANULADO":
@@ -219,11 +204,11 @@ def top_conductores(mes: str = None, año: int = None, limite: int = 10) -> list
             for k, v in sorted(conteo.items(), key=lambda x: -x[1])[:limite]]
 
 
-def top_clientes(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
+async def top_clientes(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
     params = {"select": "cliente,valor_remesa,valor_factura"}
     _apply_periodo(params, mes, año)
 
-    rows = _get(TABLE, params)
+    rows = await _get(TABLE, params)
     conteo: dict[str, int]   = {}
     remesas: dict[str, float] = {}
     facturado: dict[str, float] = {}
@@ -237,11 +222,11 @@ def top_clientes(mes: str = None, año: int = None, limite: int = 10) -> list[di
             for k in sorted(conteo, key=lambda x: -conteo[x])[:limite]]
 
 
-def top_rutas(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
+async def top_rutas(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
     params = {"select": "origen,destino"}
     _apply_periodo(params, mes, año)
 
-    rows = _get(TABLE, params)
+    rows = await _get(TABLE, params)
     conteo: dict[str, int] = {}
     for r in rows:
         ruta = f"{r.get('origen', '?')} → {r.get('destino', '?')}"
@@ -251,12 +236,10 @@ def top_rutas(mes: str = None, año: int = None, limite: int = 10) -> list[dict]
             for k, v in sorted(conteo.items(), key=lambda x: -x[1])[:limite]]
 
 
-# Tokens que NO son novedades reales — son clasificación de vehículo o servicio.
-# Filtrar server-side evita que el modelo procese ruido y agote MAX_TOOL_ITERS.
 _NOVEDAD_RUIDO = ("TIPO VEHICULO", "TIPO VEHÍCULO", "TURBO", "URBANO", "URBANOS")
 
-def manifiestos_con_novedad(mes: str = None, año: int = None, cedula: str = None,
-                            placa: str = None) -> list[dict]:
+async def manifiestos_con_novedad(mes: str = None, año: int = None, cedula: str = None,
+                                  placa: str = None) -> list[dict]:
     params = {
         "select": "manifiesto,fecha_despacho,conductor,cliente,novedades,estado_interno",
         "novedades": "not.is.null",
@@ -267,19 +250,13 @@ def manifiestos_con_novedad(mes: str = None, año: int = None, cedula: str = Non
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
 
-    rows = _get(CHATBOT_VIEW, params)
-    # Devolvemos solo novedades REALES (las que requieren atención).
-    # Ruido como "TIPO VEHICULO: TURBO" se filtra aquí, no en el modelo,
-    # para mantener la respuesta breve y permitirle resumir sin saturarse.
+    rows = await _get(CHATBOT_VIEW, params)
     result = []
     for r in rows:
         nov = (r.get("novedades") or "").strip()
         if not nov:
             continue
         nov_upper = nov.upper()
-        if all(token in nov_upper for token in []):  # placeholder, no-op
-            continue
-        # Si TODA la novedad es ruido (sin texto adicional relevante), saltarla.
         if any(token in nov_upper for token in _NOVEDAD_RUIDO) and len(nov) < 60:
             continue
         result.append({
@@ -294,9 +271,7 @@ def manifiestos_con_novedad(mes: str = None, año: int = None, cedula: str = Non
     return result
 
 
-def conductor_info(nombre: str = None, cedula: str = None, cedula_auth: str = None) -> list[dict]:
-    """Si cedula_auth está presente (conductor autenticado), solo devuelve su propia info.
-    Cuenta total_manifiestos excluyendo los ANULADOS (no existen para el conductor)."""
+async def conductor_info(nombre: str = None, cedula: str = None, cedula_auth: str = None) -> list[dict]:
     if cedula_auth:
         cedula = cedula_auth
 
@@ -309,13 +284,12 @@ def conductor_info(nombre: str = None, cedula: str = None, cedula_auth: str = No
     else:
         return []
 
-    rows = _get(CHATBOT_VIEW, params)
+    rows = await _get(CHATBOT_VIEW, params)
     if not rows:
         return []
 
     seen: dict[str, dict] = {}
     for r in rows:
-        # No contar manifiestos anulados
         if r.get("estado_interno") == "ANULADO":
             continue
         key = r.get("conductor") or ""
@@ -334,9 +308,8 @@ def conductor_info(nombre: str = None, cedula: str = None, cedula_auth: str = No
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
-def get_conductor_by_cedula(cedula: str) -> dict | None:
-    """Devuelve {nombre, cedula} si la cédula existe en algún manifiesto NO anulado."""
-    rows = _get(TABLE, {
+async def get_conductor_by_cedula(cedula: str) -> dict | None:
+    rows = await _get(TABLE, {
         "cedula_conductor": f"eq.{cedula}",
         "or":               "(estado_interno.neq.ANULADO,estado_interno.is.null)",
         "select":           "conductor,cedula_conductor",
@@ -347,9 +320,8 @@ def get_conductor_by_cedula(cedula: str) -> dict | None:
     return {"nombre": rows[0]["conductor"], "cedula": rows[0]["cedula_conductor"]}
 
 
-def verificar_manifiesto_conductor(manifiesto: int, cedula: str) -> bool:
-    """Confirma que el manifiesto pertenece a esa cédula y no está anulado."""
-    rows = _get(TABLE, {
+async def verificar_manifiesto_conductor(manifiesto: int, cedula: str) -> bool:
+    rows = await _get(TABLE, {
         "manifiesto":       f"eq.{manifiesto}",
         "cedula_conductor": f"eq.{cedula}",
         "or":               "(estado_interno.neq.ANULADO,estado_interno.is.null)",
@@ -358,11 +330,8 @@ def verificar_manifiesto_conductor(manifiesto: int, cedula: str) -> bool:
     return len(rows) > 0
 
 
-def get_propietario_by_placa(placa: str) -> dict | None:
-    """Devuelve {nombre, placa} si la placa existe en algún manifiesto NO anulado.
-    Usa el campo `propietario` del manifiesto más reciente con esa placa.
-    """
-    rows = _get(TABLE, {
+async def get_propietario_by_placa(placa: str) -> dict | None:
+    rows = await _get(TABLE, {
         "placa":  f"eq.{placa.upper()}",
         "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
         "select": "propietario,placa",
@@ -377,9 +346,8 @@ def get_propietario_by_placa(placa: str) -> dict | None:
     }
 
 
-def verificar_manifiesto_propietario(manifiesto: int, placa: str) -> bool:
-    """Confirma que el manifiesto corresponde a esa placa y no está anulado."""
-    rows = _get(TABLE, {
+async def verificar_manifiesto_propietario(manifiesto: int, placa: str) -> bool:
+    rows = await _get(TABLE, {
         "manifiesto": f"eq.{manifiesto}",
         "placa":      f"eq.{placa.upper()}",
         "or":         "(estado_interno.neq.ANULADO,estado_interno.is.null)",
@@ -390,17 +358,17 @@ def verificar_manifiesto_propietario(manifiesto: int, placa: str) -> bool:
 
 # ── Admin Auth ────────────────────────────────────────────────────────────────
 
-def get_admin_by_wa_from(wa_from: str) -> dict | None:
-    rows = _get("admin_usuarios", {
+async def get_admin_by_wa_from(wa_from: str) -> dict | None:
+    rows = await _get("admin_usuarios", {
         "wa_from": f"eq.{wa_from}",
         "select": "wa_from,nombre,password_hash,ultimo_acceso",
     })
     return rows[0] if rows else None
 
 
-def update_admin_ultimo_acceso(wa_from: str) -> None:
+async def update_admin_ultimo_acceso(wa_from: str) -> None:
     from datetime import datetime, timezone
-    _request(
+    await _request(
         "PATCH",
         "admin_usuarios",
         params={"wa_from": f"eq.{wa_from}"},
@@ -409,26 +377,29 @@ def update_admin_ultimo_acceso(wa_from: str) -> None:
     )
 
 
-# ── Sesiones del chatbot (persistencia en Supabase) ──────────────────────────
+# ── Sesiones del chatbot ──────────────────────────────────────────────────────
 
-def _request(method: str, path: str, params: dict = None, json_body=None, headers_extra: dict = None):
+async def _request(method: str, path: str, params: dict = None, json_body=None,
+                   headers_extra: dict = None):
     qs = "&".join(f"{k}={v}" for k, v in (params or {}).items())
     url = f"/{path}?{qs}" if qs else f"/{path}"
-    r = _CLIENT.request(method, url, headers=headers_extra, json=json_body)
+    hdrs = dict(_HEADERS)
+    if headers_extra:
+        hdrs.update(headers_extra)
+    r = await _CLIENT.request(method, url, headers=hdrs, json=json_body)
     r.raise_for_status()
     if r.status_code == 204 or not r.content:
         return None
     return r.json()
 
 
-def get_session(wa_from: str) -> dict | None:
-    rows = _get("chatbot_sesiones", {"wa_from": f"eq.{wa_from}", "select": "*"})
+async def get_session(wa_from: str) -> dict | None:
+    rows = await _get("chatbot_sesiones", {"wa_from": f"eq.{wa_from}", "select": "*"})
     return rows[0] if rows else None
 
 
-def upsert_session(session: dict) -> None:
-    """Inserta o actualiza la sesión. La PK es wa_from."""
-    _request(
+async def upsert_session(session: dict) -> None:
+    await _request(
         "POST",
         "chatbot_sesiones",
         json_body=session,
@@ -436,13 +407,12 @@ def upsert_session(session: dict) -> None:
     )
 
 
-def delete_session(wa_from: str) -> None:
-    _request("DELETE", "chatbot_sesiones", params={"wa_from": f"eq.{wa_from}"})
+async def delete_session(wa_from: str) -> None:
+    await _request("DELETE", "chatbot_sesiones", params={"wa_from": f"eq.{wa_from}"})
 
 
-def mark_message_processed(message_id: str) -> bool:
-    """Inserta el message_id. Devuelve True si era nuevo, False si ya estaba."""
-    r = _CLIENT.post(
+async def mark_message_processed(message_id: str) -> bool:
+    r = await _CLIENT.post(
         "/processed_messages",
         headers={"Prefer": "return=minimal"},
         json={"message_id": message_id},
@@ -455,11 +425,10 @@ def mark_message_processed(message_id: str) -> bool:
     return True
 
 
-def log_jailbreak(wa_from: str | None, identificador: str | None, mensaje: str, motivo: str) -> None:
-    """`identificador` es la cédula del conductor o la placa del propietario.
-    Se persiste en la columna legacy `cedula` por compatibilidad."""
+async def log_jailbreak(wa_from: str | None, identificador: str | None,
+                        mensaje: str, motivo: str) -> None:
     try:
-        _request(
+        await _request(
             "POST",
             "jailbreak_log",
             json_body={
@@ -471,4 +440,4 @@ def log_jailbreak(wa_from: str | None, identificador: str | None, mensaje: str, 
             headers_extra={"Prefer": "return=minimal"},
         )
     except Exception:
-        pass  # no bloquear el flujo principal por un fallo de auditoría
+        pass

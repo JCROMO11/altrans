@@ -1,13 +1,7 @@
-import logging
 import httpx
 from config import get_wa_settings
+from loguru import logger
 
-logger = logging.getLogger(__name__)
-
-# Cliente Meta reutilizado: mismo patrón que en db/queries.py.
-# Meta WhatsApp Business API rate-limits a ~80 msg/seg por número (Tier 1),
-# así que 10 conductores simultáneos no son problema. El cuello de botella
-# con httpx síncrono era el handshake TLS — ahora se reutiliza la conexión.
 _cfg = get_wa_settings()
 _PHONE_NUMBER_ID = _cfg["wa_phone_number_id"]
 _HEADERS = {
@@ -15,7 +9,7 @@ _HEADERS = {
     "Content-Type":  "application/json",
 }
 
-_CLIENT = httpx.Client(
+_CLIENT = httpx.AsyncClient(
     base_url=f"https://graph.facebook.com/v20.0/{_PHONE_NUMBER_ID}",
     headers=_HEADERS,
     timeout=10.0,
@@ -27,8 +21,8 @@ _CLIENT = httpx.Client(
 )
 
 
-def send_text(to: str, text: str) -> None:
-    _CLIENT.post(
+async def send_text(to: str, text: str) -> None:
+    response = await _CLIENT.post(
         "/messages",
         json={
             "messaging_product": "whatsapp",
@@ -36,18 +30,20 @@ def send_text(to: str, text: str) -> None:
             "type": "text",
             "text": {"body": text},
         },
-    ).raise_for_status()
+    )
+    response.raise_for_status()
 
 
-def mark_as_read(message_id: str) -> None:
+async def mark_as_read(message_id: str) -> None:
     try:
-        _CLIENT.post(
+        response = await _CLIENT.post(
             "/messages",
             json={
                 "messaging_product": "whatsapp",
                 "status":     "read",
                 "message_id": message_id,
             },
-        ).raise_for_status()
+        )
+        response.raise_for_status()
     except Exception as e:
-        logger.warning("mark_as_read falló (no crítico): %s", e)
+        logger.warning("mark_as_read_failed", error=str(e))
