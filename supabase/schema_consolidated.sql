@@ -411,6 +411,56 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ms_pending_dedup ON public.messages_sent (
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║ 5a. APP LOGS (loguru persistente vía sink)                              ║
+-- ║    El chatbot envía logs estructurados aquí. Solo service_role escribe  ║
+-- ║    (vía la API REST con service key). Lectura vía RPC get_logs.         ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+
+CREATE TABLE IF NOT EXISTS public.app_logs (
+    id      BIGSERIAL   PRIMARY KEY,
+    ts      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    level   TEXT        NOT NULL,
+    logger  TEXT        NOT NULL DEFAULT '',
+    message TEXT        NOT NULL DEFAULT '',
+    extra   JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    exc     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_app_logs_ts    ON public.app_logs (ts DESC);
+CREATE INDEX IF NOT EXISTS idx_app_logs_level ON public.app_logs (level);
+
+ALTER TABLE public.app_logs ENABLE ROW LEVEL SECURITY;
+
+-- Solo service_role puede escribir
+DROP POLICY IF EXISTS app_logs_service_write ON public.app_logs;
+CREATE POLICY app_logs_service_write ON public.app_logs
+    FOR ALL
+    USING      (auth.role() = 'service_role')
+    WITH CHECK (auth.role() = 'service_role');
+
+-- RPC de consulta (security definer para que gerencia pueda leer)
+CREATE OR REPLACE FUNCTION public.get_logs(
+    p_level TEXT        DEFAULT NULL,
+    p_desde TIMESTAMPTZ DEFAULT NULL,
+    p_hasta TIMESTAMPTZ DEFAULT NULL,
+    p_limit INT         DEFAULT 100
+)
+RETURNS SETOF public.app_logs
+LANGUAGE sql STABLE
+SET search_path = ''
+AS $$
+    SELECT * FROM public.app_logs
+    WHERE (p_level IS NULL OR level = p_level)
+      AND (p_desde IS NULL OR ts >= p_desde)
+      AND (p_hasta IS NULL OR ts <= p_hasta)
+    ORDER BY ts DESC
+    LIMIT p_limit;
+$$;
+
+REVOKE ALL ON public.app_logs FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.app_logs TO postgres;
+
+
+-- ╔══════════════════════════════════════════════════════════════════════════╗
 -- ║ 5b. ADMIN USUARIOS (autenticación de gerentes en el chatbot)            ║
 -- ║    Solo 2 registros (Julio y Julian) por ahora. Contraseñas hasheadas   ║
 -- ║    con bcrypt. El chatbot detecta el número de WhatsApp y pide          ║
@@ -1206,8 +1256,9 @@ REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT
 REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                                                             FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                             FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT)                                                                                FROM PUBLIC;
 
 -- Otorgar a authenticated
 GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) TO authenticated;
@@ -1220,8 +1271,9 @@ GRANT EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT,
 GRANT EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        TO authenticated;
-GRANT EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                                                             TO authenticated;
+GRANT EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT)                                                                                TO authenticated;
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
