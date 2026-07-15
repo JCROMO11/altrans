@@ -1,4 +1,4 @@
-INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.5)
+INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.6)
      
      Julio 2026 | Estado general: MVP funcional ~90%
     
@@ -6,7 +6,7 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.5)
     
     1. RESUMEN EJECUTIVO
     
-     El proyecto Altrans consta de 4 módulos: Dashboard (React SPA), Chatbot (FastAPI), Mensajes WhatsApp y Notificaciones Automáticas (Backup + Mensajes automáticos). El dashboard es una aplicación standalone React + Vite que se conecta directamente a Supabase. El módulo del chatbot está completo (96%) con autenticación, rate limiting, logging persistente, prompts editables y restricción de datos vía v_chatbot_manifiestos. El módulo de notificaciones ahora incluye backup con SendGrid + mensajes automáticos vía WhatsApp (5 plantillas: 4 de pendientes + pago_realizado). El sistema de seguridad por roles (7 roles, RLS, RPCs, audit_log) está implementado correctamente en BD.
+     El proyecto Altrans consta de 4 módulos: Dashboard (React SPA), Chatbot (FastAPI), Mensajes WhatsApp y Notificaciones Automáticas (Backup + Mensajes automáticos). El dashboard es una aplicación standalone React + Vite que se conecta directamente a Supabase. El módulo del chatbot está completo (96%) con autenticación, rate limiting, logging persistente, prompts editables y restricción de datos vía v_chatbot_manifiestos. El módulo de notificaciones ahora incluye backup con Brevo SMTP + mensajes automáticos vía WhatsApp (5 plantillas: 4 de pendientes + pago_realizado). El sistema de seguridad por roles (7 roles, RLS, RPCs, audit_log) está implementado correctamente en BD.
 
      Tiempo estimado para producción: 2-3 semanas (mejoras dashboard + WhatsApp).
     
@@ -32,8 +32,8 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.5)
      ┌──────────────────────────────────────────────┐
       │  NOTIFICATIONS (FastAPI / Python)             │
       │  ┌──────────┐ ┌──────────────────────┐      │
-      │  │ Backup   │ │ Mensajes Auto (WABA) │      │
-      │  │ SendGrid │ └──────────────────────┘      │
+       │  │ Backup   │ │ Mensajes Auto (WABA) │      │
+       │  │ Brevo    │ └──────────────────────┘      │
       │  └──────────┘                                │
      │  ┌──────────────────────────────────────┐     │
      │  │ APScheduler: backup 2x/sem + diario  │     │
@@ -79,15 +79,16 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.5)
     
     
     
-     3.3 Módulo de Notificaciones (Backup + Mensajes Automáticos) — ✅ 85%
-    
+      3.3 Módulo de Notificaciones (Backup + Mensajes Automáticos) — ✅ 88%
+
     Implementado en feature/notificaciones:
     
     ✅ Backup:
-    - Envío de ZIP completo de la DB por SendGrid a gerencia (2x/semana)
+    - Envío de ZIP completo de la DB por Brevo SMTP a gerencia (2x/semana)
+    - Migrado SendGrid → Brevo: SMTP estándar (smtplib, 0 dependencias extras)
     - Verificación de consistencia: compara backup vs DB en vivo
     - Reintentos en caso de fallo (3 intentos, 30s entre cada uno)
-    - Alerta por email si falla el backup
+    - Backup probado: POST /admin/backup → 200 OK, email recibido en jromoguijarro@gmail.com
     
     ✅ Mensajes automáticos (WhatsApp):
     - 5 plantillas implementadas: saldo_falta_factura, saldo_falta_documentacion,
@@ -101,8 +102,14 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.5)
     - RPC get_pendientes_notificacion: consulta centralizada de manifiestos
       categorizados por tipo de bloqueo
     
+    ✅ Bugfixes (sesión 2026-07-15):
+    - fecha_str vacío → None: evita "...aproximadamente el ." en plazo_vigente
+    - messages_sent: GRANT SELECT TO authenticated (RLS estaba roto, gerencia
+      no podía leer el historial de envíos)
+    - messages_sent: GRANT ALL TO postgres (consistencia con manifiestos_flat)
+
     ⚠️ Pendiente:
-    - WA_TOKEN y WA_PHONE_NUMBER_ID vacíos — configuración pendiente del FB
+    - WA_TOKEN vacío — configuración pendiente de Meta FB Business
     - Resumen semanal de pendientes a conductores
     - Unificar cliente WhatsApp con el del chatbot
     
@@ -125,22 +132,23 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.5)
     
       | #   | Tarea                                               | Horas |
       |-----|-----------------------------------------------------|-------|
-      | 1   | Migrar Resend → SendGrid para backup por email     | 1h    |
+      | 1   | Migrar SendGrid → Brevo SMTP para backup por email | 1h    |
       | 2   | Tabla messages_sent + RPC get_pendientes_notific.  | 2h    |
       | 3   | 4 plantillas automáticas + cron diario             | 3h    |
       | 4   | Trigger plazo_vigente al marcar fecha_cumplido     | 1h    |
       | 5   | Trigger pago_realizado al marcar fecha_pago        | 1h    |
       | 6   | Reintentos + alerta de fallo de backup             | 1h    |
       | 7   | .env.example en notifications/                     | 15min |
+      | 8   | Bugfixes: fecha_str None, RLS messages_sent        | 30min |
     
     🔴 CRÍTICO — Configuración pendiente
     
       | #   | Tarea                                                     | Estado  |
       |-----|-----------------------------------------------------------|---------|
       | 1   | BACKUP_EMAIL_TO: definir correos de gerencia               | ⬜      |
-      | 2   | WA_TOKEN + WA_PHONE_NUMBER_ID: configurar FB personal     | ⬜      |
-      | 3   | SENDGRID_API_KEY: generar API key en SendGrid              | ⬜      |
-      | 4   | Preguntar a Altrans: ¿qué documentos en falta_documentacion| ⬜      |
+      | 2   | WA_TOKEN: generar token en Meta FB Business                  | ⬜      |
+      | 3   | BREVO_SMTP_PASSWORD: ya configurado ✅ (key autorizada)       | ✅     |
+      | 4   | Preguntar a Altrans: ¿qué documentos en falta_documentacion   | ⬜      |
     
     ⚠️ ALTA — Dashboard (mejoras)
     
