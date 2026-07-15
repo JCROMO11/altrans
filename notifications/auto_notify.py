@@ -60,7 +60,7 @@ def _build_template(template_name: str, manifiesto: int, fecha_estimada: str | N
             "pagado porque no se ha cumplido el tiempo pactado para realizarlo. "
             "Nuestro acuerdo fue pagarlo dentro de los 15 días hábiles siguientes "
             "al cumplido formal del transporte.\n\n"
-            f"Le pedimos amablemente una espera hasta aproximadamente el {fecha_estimada}.\n\n"
+            f"Le pedimos amablemente una espera hasta aproximadamente el {fecha_estimada or 'N/D'}.\n\n"
             "Mensaje automático de ALTRANS. Puede contener errores."
         ),
         "pago_realizado": (
@@ -207,7 +207,7 @@ def run_auto_notify() -> dict:
         if not phone or not template:
             continue
 
-        fecha_str = ""
+        fecha_str = None
         if fecha_est:
             try:
                 d = datetime.strptime(fecha_est, "%Y-%m-%d")

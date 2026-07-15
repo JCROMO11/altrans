@@ -48,7 +48,7 @@ def start() -> BackgroundScheduler:
         _job_backup,
         CronTrigger(day_of_week="wed,sun", hour=11, minute=0),
         id="backup_2x_semanal",
-        name="Backup → SendGrid (mié/dom 6AM)",
+        name="Backup → Email (mié/dom 6AM)",
         replace_existing=True,
     )
 

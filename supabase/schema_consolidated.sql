@@ -1109,6 +1109,8 @@ REVOKE ALL                    ON public.chatbot_sesiones   FROM PUBLIC, anon, au
 REVOKE ALL                    ON public.processed_messages FROM PUBLIC, anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE ON public.jailbreak_log      FROM authenticated, anon, PUBLIC;
 REVOKE ALL                    ON public.messages_sent      FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.messages_sent TO authenticated;
+GRANT ALL    ON public.messages_sent TO postgres;
 
 -- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
 REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) FROM PUBLIC;

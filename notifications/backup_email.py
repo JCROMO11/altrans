@@ -1,18 +1,21 @@
 """
-Backup de todas las tablas → ZIP → SendGrid.
+Backup de todas las tablas -> ZIP -> Email via SMTP (Brevo).
 
-Accede a Supabase vía REST (httpx) — sin dependencias pesadas (psycopg2/pandas).
-Requiere: SENDGRID_API_KEY, BACKUP_EMAIL_FROM, BACKUP_EMAIL_TO,
+Accede a Supabase via REST (httpx) - sin dependencias pesadas (psycopg2/pandas).
+Requiere: BREVO_SMTP_LOGIN, BREVO_SMTP_PASSWORD, BACKUP_EMAIL_FROM, BACKUP_EMAIL_TO,
           SUPABASE_URL, SUPABASE_SERVICE_KEY.
 """
-import base64
 import csv
 import io
 import logging
 import os
+import smtplib
 import time
 import zipfile
 from datetime import datetime
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 import httpx
 from dotenv import load_dotenv
@@ -63,7 +66,7 @@ def _fetch_table(client: httpx.Client, table: str) -> list[dict]:
 
 def _rows_to_csv(rows: list[dict]) -> bytes:
     if not rows:
-        return "(tabla vacía)\n".encode("utf-8-sig")
+        return "(tabla vacia)\n".encode("utf-8-sig")
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
     writer.writeheader()
@@ -123,78 +126,69 @@ def _build_zip() -> tuple[bytes, dict[str, int]]:
     return buf.getvalue(), counts
 
 
-def _send_email_sendgrid(
+def _send_email_smtp(
     zip_bytes: bytes,
     counts: dict[str, int],
     recipients: list[str],
     consistency: dict[str, dict] | None = None,
 ) -> None:
-    # Import here so the module loads even if sendgrid is not installed
-    from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import (
-        Attachment, Email, Mail, To, Content, MimeType, FileContent, FileName, FileType, Disposition,
-    )
-
-    api_key = os.environ["SENDGRID_API_KEY"]
-    from_email = os.environ.get("BACKUP_EMAIL_FROM", "backup@altrans.dev")
+    smtp_login = os.environ["BREVO_SMTP_LOGIN"]
+    smtp_password = os.environ["BREVO_SMTP_PASSWORD"]
+    from_email = os.environ.get("BACKUP_EMAIL_FROM", "jromoguijarro@gmail.com")
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    lines = [f"  · {t}: {n:,} filas" if n >= 0 else f"  · {t}: ERROR (revisar logs)"
+    lines = [f"  . {t}: {n:,} filas" if n >= 0 else f"  . {t}: ERROR (revisar logs)"
              for t, n in counts.items()]
 
     consistency_block = ""
     if consistency:
         all_ok = all(v["ok"] for v in consistency.values())
-        status_icon = "✅" if all_ok else "⚠️"
+        status_icon = "OK" if all_ok else "MISMATCH"
         check_lines = []
         for t, v in consistency.items():
             if v["ok"]:
-                check_lines.append(f"  ✅ {t}: {v['backup']:,} filas (coincide con DB)")
+                check_lines.append(f"  OK {t}: {v['backup']:,} filas (coincide con DB)")
             else:
                 check_lines.append(
-                    f"  ⚠️  {t}: backup={v['backup']:,} | DB en vivo={v['live']:,} — REVISAR"
+                    f"  ISSUE {t}: backup={v['backup']:,} | DB en vivo={v['live']:,} - REVISAR"
                 )
         consistency_block = (
-            f"\nVerificación de consistencia {status_icon}:\n" + "\n".join(check_lines) + "\n"
+            f"\nVerificacion de consistencia {status_icon}:\n" + "\n".join(check_lines) + "\n"
         )
 
     body = (
         "Backup Altrans\n"
         f"Generado: {ts}\n\n"
         "Tablas incluidas:\n" + "\n".join(lines) +
-        f"\n\nTamaño ZIP: {len(zip_bytes) // 1024} KB"
+        f"\n\nTamano ZIP: {len(zip_bytes) // 1024} KB"
         + consistency_block
     )
 
     fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
 
-    message = Mail(
-        from_email=Email(from_email),
-        to_emails=[To(email) for email in recipients],
-        subject=f"Backup Altrans — {ts}",
-    )
-    message.add_content(Content(MimeType.text, body))
+    msg = MIMEMultipart()
+    msg["From"] = from_email
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = f"Backup Altrans - {ts}"
+    msg.attach(MIMEText(body, "plain"))
 
-    encoded = base64.b64encode(zip_bytes).decode()
-    attachment = Attachment(
-        FileContent(encoded),
-        FileName(fname),
-        FileType("application/zip"),
-        Disposition("attachment"),
-    )
-    message.add_attachment(attachment)
+    part = MIMEApplication(zip_bytes, _subtype="zip")
+    part.add_header("Content-Disposition", f'attachment; filename="{fname}"')
+    msg.attach(part)
 
-    sg = SendGridAPIClient(api_key)
-    response = sg.send(message)
+    with smtplib.SMTP("smtp-relay.brevo.com", 587) as server:
+        server.starttls()
+        server.login(smtp_login, smtp_password)
+        server.send_message(msg)
+
     logger.info("email_sent", extra={
-        "status_code": response.status_code,
         "recipients": recipients,
         "zip_kb": len(zip_bytes) // 1024,
     })
 
 
 def run_backup_and_email(recipients: list[str] | None = None) -> dict:
-    """Ejecuta el backup completo, verifica consistencia y envía email."""
+    """Ejecuta el backup completo, verifica consistencia y envia email."""
     if recipients is None:
         env_to = os.environ.get("BACKUP_EMAIL_TO", "")
         recipients = [r.strip() for r in env_to.split(",") if r.strip()]
@@ -219,7 +213,7 @@ def run_backup_and_email(recipients: list[str] | None = None) -> dict:
     if not all_ok:
         logger.warning("backup_consistency_mismatch", extra={"consistency": consistency})
 
-    _send_email_sendgrid(zip_bytes, counts, recipients, consistency)
+    _send_email_smtp(zip_bytes, counts, recipients, consistency)
 
     logger.info("backup_complete", extra={
         "counts": counts, "zip_kb": len(zip_bytes) // 1024,
