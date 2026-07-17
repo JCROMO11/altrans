@@ -5,7 +5,8 @@
         test-agent-propietario test-agent-multi test-concurrency test-moderacion test-all \
         test-excel-pre test-excel-post test-excel-generar \
         serve ngrok probar-todo clean install-dashboard-deps \
-        deploy-chatbot deploy-notifications deploy-all
+        deploy-chatbot deploy-notifications deploy-all \
+        demo demo-stop
 
 SHELL   := /bin/bash
 PY      := python3
@@ -59,6 +60,10 @@ help:
 	@echo "  Dev server"
 	@echo "    serve              - uvicorn FastAPI puerto $$PORT (2 workers)"
 	@echo "    ngrok              - Túnel ngrok al puerto $$PORT"
+	@echo ""
+	@echo "  Demo"
+	@echo "    demo WA_TOKEN=<tok>  - Actualiza token, levanta uvicorn + ngrok"
+	@echo "    demo-stop            - Mata uvicorn + ngrok"
 	@echo ""
 	@echo "  Deploy Railway"
 	@echo "    deploy-chatbot       - Deploy manual del chatbot a Railway"
@@ -236,6 +241,31 @@ probar-todo: db-reset etl
 	@echo ""
 	@echo "👉 Revisa cleaned_data/informe_calidad/informe_etl.xlsx"
 	@echo "    Si OK:   make load && make seed-users && make verify-load && make test-all"
+
+# ── Demo: levantar chatbot + ngrok en un solo comando ───────────────────────
+
+demo-stop:
+	@pkill -f "uvicorn main:app" 2>/dev/null || true
+	@pkill -f "ngrok http" 2>/dev/null || true
+	@echo "✅ Procesos detenidos"
+
+demo: demo-stop
+	@test -n "$(WA_TOKEN)" || (echo "ERROR: Usa make demo WA_TOKEN=<token_de_meta>"; exit 1)
+	@sed -i "s|^WA_TOKEN=.*|WA_TOKEN=$(WA_TOKEN)|" .env
+	@echo "✅ WA_TOKEN actualizado en .env"
+	@cd ai_agent && setsid python3 -m uvicorn main:app --host 0.0.0.0 --port $(PORT) > /tmp/chatbot.log 2>&1 &
+	@sleep 3
+	@curl -s http://localhost:$(PORT)/health > /dev/null && echo "✅ Uvicorn OK en puerto $(PORT)" || (echo "❌ Uvicorn falló"; exit 1)
+	@setsid ngrok http $(PORT) > /tmp/ngrok.log 2>&1 &
+	@sleep 4
+	@NGROK_URL=$$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['tunnels'][0]['public_url'])" 2>/dev/null); \
+	echo "✅ Ngrok activo: $$NGROK_URL"; \
+	echo ""; \
+	echo "═══ Configurar en Meta Developers ═══"; \
+	echo "  Callback URL: $$NGROK_URL/webhook"; \
+	echo "  Verify token: 7a275268ea05768a7a5de0f8990fbd1"; \
+	echo ""; \
+	curl -s -m 3 "$$NGROK_URL/health" > /dev/null && echo "✅ Internet -> ngrok -> uvicorn: OK" || echo "❌ No se puede alcanzar desde internet"
 
 # ── Deploy Railway ────────────────────────────────────────────────────────────
 
