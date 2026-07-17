@@ -1,0 +1,183 @@
+INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.6)
+     
+     Julio 2026 | Estado general: MVP funcional ~90%
+    
+    
+    
+    1. RESUMEN EJECUTIVO
+    
+     El proyecto Altrans consta de 4 módulos: Dashboard (React SPA), Chatbot (FastAPI), Mensajes WhatsApp y Notificaciones Automáticas (Backup + Mensajes automáticos). El dashboard es una aplicación standalone React + Vite que se conecta directamente a Supabase. El módulo del chatbot está completo (96%) con autenticación, rate limiting, logging persistente, prompts editables y restricción de datos vía v_chatbot_manifiestos. El módulo de notificaciones ahora incluye backup con Brevo SMTP + mensajes automáticos vía WhatsApp (5 plantillas: 4 de pendientes + pago_realizado). El sistema de seguridad por roles (7 roles, RLS, RPCs, audit_log) está implementado correctamente en BD.
+
+     Tiempo estimado para producción: 2-3 semanas (mejoras dashboard + WhatsApp).
+    
+    
+    
+    2. ARQUITECTURA ACTUAL
+    
+    
+     ┌──────────────────────────────────────────────────────────┐
+     │                    CLIENTE (Browser)                      │
+     │  Dashboard (React SPA) │ Admin WhatsApp                  │
+     └────────────────────┬──┴──────────────────────────────────┘
+                          │
+              ┌───────────┴───────────┐
+              ▼                       ▼
+     ┌──────────────┐       ┌──────────────────┐
+     │  SUPABASE    │       │  META WABA       │
+     │  (Auth + DB  │       │  (WhatsApp API)  │
+     │   + RPCs)    │       └──────────────────┘
+     └──────┬───────┘
+            │
+            ▼
+     ┌──────────────────────────────────────────────┐
+      │  NOTIFICATIONS (FastAPI / Python)             │
+      │  ┌──────────┐ ┌──────────────────────┐      │
+       │  │ Backup   │ │ Mensajes Auto (WABA) │      │
+       │  │ Brevo    │ └──────────────────────┘      │
+      │  └──────────┘                                │
+     │  ┌──────────────────────────────────────┐     │
+     │  │ APScheduler: backup 2x/sem + diario  │     │
+     │  └──────────────────────────────────────┘     │
+     └──────────────────────────────────────────────┘
+     
+     ┌──────────────────────────────────────┐
+     │  CHATBOT (FastAPI / ai_agent)         │
+     │  OpenRouter → DeepSeek / Claude / Groq│
+     │  Meta WABA ↔ Webhook                    │
+     └──────────────────────────────────────┘
+    
+    
+     
+    3. DIAGNÓSTICO POR MÓDULO
+ 
+    3.1 Dashboard (React SPA + Supabase directo) — ✅ 82%
+    (sin cambios desde v4.3 — ver commit en feature/mejoras-dashboard)
+    
+    NOTA: El dashboard se completó en la rama feature/mejoras-dashboard e incluye:
+    - fetchAll() migrado a dashboard_kpis RPC server-side
+    - Validación celular con PhoneInput + CHECK constraint
+    - 77/77 tests pasando
+    
+    ⚠️ Alta:
+    - Sin comparativa mes a mes o año contra año
+    - Sin drill-down: click en gráfico → consulta filtrada
+    - Sin filtro por agencia despachadora, cliente, o conductor
+    
+    🟡 Media:
+    - Sin exportar gráficos como imagen
+    - Sin exportación a Excel/CSV de consulta
+    - Columnas seleccionables en tabla de consulta
+    
+    
+    
+    3.2 Chatbot (WhatsApp / ai_agent) — ✅ 96%
+    (sin cambios desde v4.3)
+    
+    Pendiente:
+    - Control de costos LLM por tokens (evaluar con uso real)
+    - Restricción de datos expuestos implementada vía v_chatbot_manifiestos
+    
+    
+    
+      3.3 Módulo de Notificaciones (Backup + Mensajes Automáticos) — ✅ 88%
+
+    Implementado en feature/notificaciones:
+    
+    ✅ Backup:
+    - Envío de ZIP completo de la DB por Brevo SMTP a gerencia (2x/semana)
+    - Migrado SendGrid → Brevo: SMTP estándar (smtplib, 0 dependencias extras)
+    - Verificación de consistencia: compara backup vs DB en vivo
+    - Reintentos en caso de fallo (3 intentos, 30s entre cada uno)
+    - Backup probado: POST /admin/backup → 200 OK, email recibido en jromoguijarro@gmail.com
+    
+    ✅ Mensajes automáticos (WhatsApp):
+    - 5 plantillas implementadas: saldo_falta_factura, saldo_falta_documentacion,
+      saldo_novedad_pendiente, saldo_plazo_vigente, pago_realizado
+    - Trigger por evento: al marcar fecha_cumplido → envía plazo_vigente
+    - Trigger por evento: al marcar fecha_pago → envía pago_realizado
+    - Cron diario (6AM + 12PM Colombia): revisa manifiestos no pagados y envía
+      plantilla correspondiente según el motivo de retención
+    - Tabla messages_sent en BD para control de reenvíos (no enviar misma
+      plantilla al mismo conductor en < 7 días)
+    - RPC get_pendientes_notificacion: consulta centralizada de manifiestos
+      categorizados por tipo de bloqueo
+    
+    ✅ Bugfixes (sesión 2026-07-15):
+    - fecha_str vacío → None: evita "...aproximadamente el ." en plazo_vigente
+    - messages_sent: GRANT SELECT TO authenticated (RLS estaba roto, gerencia
+      no podía leer el historial de envíos)
+    - messages_sent: GRANT ALL TO postgres (consistencia con manifiestos_flat)
+
+    ⚠️ Pendiente:
+    - WA_TOKEN vacío — configuración pendiente de Meta FB Business
+    - Resumen semanal de pendientes a conductores
+    - Unificar cliente WhatsApp con el del chatbot
+    
+    ❓ Consultas pendientes a Altrans:
+    - falta_documentacion: ¿qué documentos específicos son? (carta porte,
+      remesa original, factura de compra, fotocopia cédula, etc.)
+    - plazo_vigente: confirmado — se envía automáticamente al momento de
+      llenar fecha_cumplido
+    
+    
+    4. PLAN DE ACCIÓN FUNCIONAL (ACTUALIZADO)
+    
+    ✅ COMPLETADO — Chatbot
+      (sin cambios — ver v4.3)
+    
+    ✅ COMPLETADO — Dashboard
+      (completado en feature/mejoras-dashboard)
+    
+    ✅ COMPLETADO — Notificaciones / Backup + Mensajes Auto.
+    
+      | #   | Tarea                                               | Horas |
+      |-----|-----------------------------------------------------|-------|
+      | 1   | Migrar SendGrid → Brevo SMTP para backup por email | 1h    |
+      | 2   | Tabla messages_sent + RPC get_pendientes_notific.  | 2h    |
+      | 3   | 4 plantillas automáticas + cron diario             | 3h    |
+      | 4   | Trigger plazo_vigente al marcar fecha_cumplido     | 1h    |
+      | 5   | Trigger pago_realizado al marcar fecha_pago        | 1h    |
+      | 6   | Reintentos + alerta de fallo de backup             | 1h    |
+      | 7   | .env.example en notifications/                     | 15min |
+      | 8   | Bugfixes: fecha_str None, RLS messages_sent        | 30min |
+    
+    🔴 CRÍTICO — Configuración pendiente
+    
+      | #   | Tarea                                                     | Estado  |
+      |-----|-----------------------------------------------------------|---------|
+      | 1   | BACKUP_EMAIL_TO: definir correos de gerencia               | ⬜      |
+      | 2   | WA_TOKEN: generar token en Meta FB Business                  | ⬜      |
+      | 3   | BREVO_SMTP_PASSWORD: ya configurado ✅ (key autorizada)       | ✅     |
+      | 4   | Preguntar a Altrans: ¿qué documentos en falta_documentacion   | ⬜      |
+    
+    ⚠️ ALTA — Dashboard (mejoras)
+    
+      | #   | Tarea                                                     | Horas  |
+      |-----|-----------------------------------------------------------|--------|
+      | 1   | Filtros adicionales (agencia, cliente, conductor)          | 2h     |
+      | 2   | Drill-down: gráfico → consulta filtrada                   | 2h     |
+      | 3   | Exportar resultados de consulta a Excel/CSV                | 1.5h   |
+      | 4   | Columnas seleccionables en tabla de consulta              | 2h     |
+    
+    ⚠️ ALTA — Notificaciones (prox sprint)
+    
+      | #   | Tarea                                                     | Horas  |
+      |-----|-----------------------------------------------------------|--------|
+      | 5   | Resumen semanal pendientes a conductores (lunes)          | 2h     |
+      | 6   | Unificar cliente WhatsApp con chatbot                     | 1h     |
+    
+    🟡 MEDIA
+    
+      | #   | Tarea                                                     | Horas  |
+      |-----|-----------------------------------------------------------|--------|
+      | 7   | Vista detalle inline en ConsultaPage                      | 2h     |
+      | 8   | Confirmación de entrega WhatsApp (webhook)                | 2h     |
+      | 9   | Dashboard de monitoreo de notificaciones                  | 3h     |
+    
+    🔵 BAJA — Nice to have
+    
+      | #   | Tarea                                                     |
+      |-----|-----------------------------------------------------------|
+      | 10  | Exportar gráficos del dashboard                            |
+      | 11  | Estados visuales en UI de WhatsApp                         |
+      | 12  | Control de costos LLM (chatbot)                            |

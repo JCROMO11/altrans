@@ -1,0 +1,128 @@
+═══════════════════════════════════════════════════════════════
+ PLANTILLAS DE MENSAJES AUTOMÁTICOS WHATSAPP — ALTRANS
+═══════════════════════════════════════════════════════════════
+
+┌──────────────────────────────┬────────────────────┬──────────────────────────────────┬──────────────────────┐
+│ Plantilla                    │ ¿Cuándo se envía?  │ ¿Qué la dispara?                  │ Próximo envío        │
+├──────────────────────────────┼────────────────────┼──────────────────────────────────┼──────────────────────┤
+│ saldo_falta_factura          │ Diario 6AM + 12PM  │ Cron APScheduler — consulta RPC   │ Misma plantilla al   │
+│                              │                    │ get_pendientes_notificacion.      │ mismo conductor      │
+│                              │                    │ Aplica a manifiestos donde falta  │ en < 7 días.         │
+│                              │                    │ factura electrónica del          │                      │
+│                              │                    │ propietario (no pagados).         │                      │
+├──────────────────────────────┼────────────────────┼──────────────────────────────────┼──────────────────────┤
+│ saldo_falta_documentacion    │ Diario 6AM + 12PM  │ Cron APScheduler — consulta RPC   │ Misma plantilla al   │
+│                              │                    │ get_pendientes_notificacion.      │ mismo conductor      │
+│                              │                    │ Aplica a manifiestos donde falta  │ en < 7 días.         │
+│                              │                    │ documentación original firmada.   │                      │
+├──────────────────────────────┼────────────────────┼──────────────────────────────────┼──────────────────────┤
+│ saldo_novedad_pendiente      │ Diario 6AM + 12PM  │ Cron APScheduler — consulta RPC   │ Misma plantilla al   │
+│                              │                    │ get_pendientes_notificacion.      │ mismo conductor      │
+│                              │                    │ Aplica a manifiestos con novedad  │ en < 7 días.         │
+│                              │                    │ sin resolver (averías, faltantes, │                      │
+│                              │                    │ etc.).                            │                      │
+├──────────────────────────────┼────────────────────┼──────────────────────────────────┼──────────────────────┤
+│ saldo_plazo_vigente          │ En tiempo real     │ Trigger BD: al llenar             │ Misma plantilla al   │
+│                              │ (cuando se llena   │ fecha_cumplido se inserta         │ mismo conductor      │
+│                              │ fecha_cumplido)    │ registro en messages_sent.        │ en < 7 días.         │
+│                              │ + Diario 6AM/12PM  │ Cron diario recoge los pending    │                      │
+│                              │                    │ y los envía.                       │                      │
+├──────────────────────────────┼────────────────────┼──────────────────────────────────┼──────────────────────┤
+│ pago_realizado               │ En tiempo real     │ Trigger BD: al llenar             │ —                    │
+│                              │ (cuando se llena   │ fecha_pago se inserta registro    │                      │
+│                              │ fecha_pago)        │ pending en messages_sent.         │                      │
+│                              │ + Diario 6AM/12PM  │ Cron diario recoge los pending    │                      │
+│                              │                    │ del messages_sent y los envía.    │                      │
+└──────────────────────────────┴────────────────────┴──────────────────────────────────┴──────────────────────┘
+
+═══════════════════════════════════════════════════════════════
+ TEMPLATES — TEXTO ENVIADO
+═══════════════════════════════════════════════════════════════
+
+▶ saldo_falta_factura
+
+  Buen día, estimado transportador.
+
+  Le informo que el manifiesto {manifiesto} no se ha pagado porque no se ha
+  legalizado mediante la factura electrónica que debe enviar el propietario,
+  quien está obligado a hacerlo según el RUT. Por favor enviarla lo antes
+  posible a facturaelectronica@altrans.com.co.
+
+  En caso de haberla enviado correctamente, por favor reenviarla a la persona
+  que contrató su servicio.
+
+  Mensaje automático de ALTRANS. Puede contener errores.
+
+───────────────────────────────────────────────────────────────
+
+▶ saldo_falta_documentacion
+
+  Buen día, estimado transportador.
+
+  Le informo que el manifiesto {manifiesto} no se ha pagado porque no se ha
+  cumplido formalmente con la documentación original firmada que nos permite
+  evidenciar que el transporte concluyó satisfactoriamente. Por favor
+  regularizar esta situación según las instrucciones de quien contrató su
+  servicio.
+
+  En caso de haber enviado los documentos por una empresa de mensajería,
+  rastree y envíe la guía a la persona que contrató su servicio.
+
+  Mensaje automático de ALTRANS. Puede contener errores.
+
+───────────────────────────────────────────────────────────────
+
+▶ saldo_novedad_pendiente
+
+  Buen día, estimado transportador.
+
+  Le informo que el saldo del manifiesto {manifiesto} no se ha pagado debido
+  a una novedad sin resolver, que puede ser averías, faltantes o situaciones
+  similares. Por favor comunicarse con la persona que contrató su servicio o
+  adelantar las instrucciones dadas por ella.
+
+  Mensaje automático de ALTRANS. Puede contener errores.
+
+───────────────────────────────────────────────────────────────
+
+▶ saldo_plazo_vigente
+
+  Buen día, estimado transportador.
+
+  Le informo que el saldo del manifiesto {manifiesto} aún no se ha pagado
+  porque no se ha completado el plazo pactado para realizarlo. Nuestro acuerdo
+  fue pagarlo dentro de los 15 días hábiles siguientes al completado formal del
+  transporte.
+
+  Le pedimos amablemente una espera hasta aproximadamente el {fecha_estimada}.
+
+  Mensaje automático de ALTRANS. Puede contener errores.
+
+───────────────────────────────────────────────────────────────
+
+▶ pago_realizado
+
+  Buen día, estimado transportador.
+
+  Le informamos que el saldo del manifiesto {manifiesto} por un monto de
+  ${monto} ha sido pagado exitosamente el día {fecha_pago} mediante
+  transferencia bancaria. Por favor revise sus extractos bancarios.
+
+  Gracias por su servicio.
+
+  Mensaje automático de ALTRANS. Puede contener errores.
+
+═══════════════════════════════════════════════════════════════
+ NOTAS TÉCNICAS
+═══════════════════════════════════════════════════════════════
+
+• La RPC get_pendientes_notificacion retorna manifiestos categorizados
+  que alimentan las 4 plantillas de saldo.
+• messages_sent evita reenvíos: misma plantilla + mismo conductor
+  con status=success en los últimos 7 días se salta.
+• saldo_plazo_vigente usa trigger BD (trg_notify_plazo_vigente) que
+  inserta un registro "pending" en messages_sent al llenar fecha_cumplido.
+  El cron diario lo recoge y envía.
+• pago_realizado usa trigger BD (trg_notify_pago_realizado) que
+   inserta un registro "pending" en messages_sent al llenar fecha_pago.
+   El cron diario lo recoge y envía confirmación al conductor.

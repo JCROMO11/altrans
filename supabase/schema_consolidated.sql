@@ -34,11 +34,13 @@
 
 DROP TRIGGER IF EXISTS trg_audit_manifiestos        ON public.manifiestos_flat;
 DROP TRIGGER IF EXISTS trg_audit_manifiestos_delete ON public.manifiestos_flat;
+DROP TRIGGER IF EXISTS trg_notify_plazo_vigente     ON public.manifiestos_flat;
 DROP FUNCTION IF EXISTS public.fn_audit_manifiestos                CASCADE;
 DROP FUNCTION IF EXISTS public.fn_audit_manifiestos_delete         CASCADE;
 DROP FUNCTION IF EXISTS public.consulta_manifiestos                CASCADE;
 DROP FUNCTION IF EXISTS public.consulta_totales                    CASCADE;
 DROP FUNCTION IF EXISTS public.tendencia_anual                     CASCADE;
+DROP FUNCTION IF EXISTS public.get_pendientes_notificacion         CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_digitador                   CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_logistico                   CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_estado_interno              CASCADE;
@@ -52,6 +54,7 @@ DROP VIEW     IF EXISTS public.v_manifiestos                       CASCADE;
 -- Tabla principal: DROP explícito para que el CREATE TABLE siempre recree
 -- la estructura completa (columnas generadas, constraints). Sin esto,
 -- IF NOT EXISTS la preserva con el esquema viejo y las columnas nuevas no se crean.
+DROP TABLE    IF EXISTS public.messages_sent                       CASCADE;
 DROP TABLE    IF EXISTS public.manifiestos_flat                    CASCADE;
 
 
@@ -278,6 +281,60 @@ CREATE TRIGGER trg_audit_manifiestos_delete
     FOR EACH ROW EXECUTE FUNCTION public.fn_audit_manifiestos_delete();
 
 
+-- ── Trigger: auto-notificar saldo_plazo_vigente al marcar fecha_cumplido ─────
+CREATE OR REPLACE FUNCTION public.fn_notify_plazo_vigente()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF NEW.fecha_cumplido IS NOT NULL
+       AND (OLD.fecha_cumplido IS NULL OR OLD.fecha_cumplido IS DISTINCT FROM NEW.fecha_cumplido)
+       AND NEW.fecha_pago IS NULL
+       AND NEW.estado_interno IS DISTINCT FROM 'ANULADO'
+       AND NEW.celular ~ '^\d{10}$'
+    THEN
+        INSERT INTO public.messages_sent (manifiesto, template_name, phone, status)
+        VALUES (NEW.manifiesto, 'saldo_plazo_vigente', NEW.celular, 'pending')
+        ON CONFLICT DO NOTHING;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_notify_plazo_vigente
+    AFTER UPDATE OF fecha_cumplido ON public.manifiestos_flat
+    FOR EACH ROW EXECUTE FUNCTION public.fn_notify_plazo_vigente();
+
+
+-- ── Trigger: notificar pago_realizado al marcar fecha_pago ─────────────────
+CREATE OR REPLACE FUNCTION public.fn_notify_pago_realizado()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF NEW.fecha_pago IS NOT NULL
+       AND (OLD.fecha_pago IS NULL OR OLD.fecha_pago IS DISTINCT FROM NEW.fecha_pago)
+       AND NEW.valor_pagado IS NOT NULL
+       AND NEW.estado_interno IS DISTINCT FROM 'ANULADO'
+       AND NEW.celular ~ '^\d{10}$'
+    THEN
+        INSERT INTO public.messages_sent (manifiesto, template_name, phone, status)
+        VALUES (NEW.manifiesto, 'pago_realizado', NEW.celular, 'pending')
+        ON CONFLICT DO NOTHING;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_notify_pago_realizado
+    AFTER UPDATE OF fecha_pago ON public.manifiestos_flat
+    FOR EACH ROW EXECUTE FUNCTION public.fn_notify_pago_realizado();
+
+
 -- ╔══════════════════════════════════════════════════════════════════════════╗
 -- ║ 5. TABLAS DEL CHATBOT                                                    ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝
@@ -332,6 +389,23 @@ CREATE TABLE IF NOT EXISTS public.jailbreak_log (
     detectado_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_jb_detectado_en ON public.jailbreak_log (detectado_en DESC);
+
+
+-- Control de reenvíos: registra cada mensaje automático enviado por manifiesto,
+-- para no enviar la misma plantilla al mismo conductor repetidamente.
+CREATE TABLE IF NOT EXISTS public.messages_sent (
+    id              BIGSERIAL   PRIMARY KEY,
+    manifiesto      BIGINT      NOT NULL,
+    template_name   TEXT        NOT NULL,
+    phone           TEXT,
+    status          TEXT        NOT NULL DEFAULT 'sent',
+    error           TEXT,
+    sent_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ms_manifiesto  ON public.messages_sent (manifiesto);
+CREATE INDEX IF NOT EXISTS idx_ms_sent_at     ON public.messages_sent (sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ms_lookup      ON public.messages_sent (manifiesto, template_name, sent_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ms_pending_dedup ON public.messages_sent (manifiesto, template_name) WHERE status = 'pending';
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -509,6 +583,110 @@ AS $$
       AND mes IS NOT NULL
     GROUP BY mes
     ORDER BY MIN(fecha_despacho);
+$$;
+
+
+-- ── get_pendientes_notificacion ──────────────────────────────────────────────
+-- Retorna manifiestos no pagados categorizados por el motivo de retención,
+-- para que el servicio de notificaciones decida qué plantilla enviar.
+-- Categorías: falta_factura, falta_documentacion, novedad_pendiente,
+--             plazo_vigente, ya_notificado (si ya se le envió algo < 7 días).
+--
+-- Guardrail de novedades: valores cortos ≤3 chars (".", "ok", "si") o ruido
+-- de clasificación ("TURBO", "URBANO", "TIPO VEHICULO", etc.) se ignoran
+-- y caen a la siguiente categoría en orden de prioridad.
+CREATE OR REPLACE FUNCTION public.get_pendientes_notificacion()
+RETURNS TABLE (
+    manifiesto      BIGINT,
+    conductor       TEXT,
+    celular         TEXT,
+    template_name   TEXT,
+    fecha_estimada  DATE,
+    compromiso_pago TEXT,
+    novedades       TEXT,
+    factura_no      TEXT,
+    fecha_cumplido  DATE,
+    saldo           NUMERIC
+)
+LANGUAGE sql STABLE
+SET search_path = ''
+AS $$
+    WITH base AS (
+        SELECT *,
+            CASE
+                WHEN novedades IS NOT NULL
+                     AND TRIM(novedades) != ''
+                     AND LENGTH(TRIM(novedades)) > 3
+                     AND NOT (
+                         LENGTH(TRIM(novedades)) < 60
+                         AND UPPER(TRIM(novedades)) ~ '(TIPO VEHICULO|TIPO VEHÍCULO|TURBO|URBANO|URBANOS)'
+                     )
+                THEN true
+                ELSE false
+            END AS es_novedad_real
+        FROM public.manifiestos_flat
+        WHERE fecha_pago IS NULL
+          AND estado_interno IS DISTINCT FROM 'ANULADO'
+          AND conductor IS NOT NULL
+          AND celular IS NOT NULL
+          AND celular ~ '^\d{10}$'
+    ),
+    notificados AS (
+        SELECT manifiesto, template_name
+        FROM public.messages_sent
+        WHERE status = 'sent'
+          AND sent_at > now() - INTERVAL '7 days'
+    )
+    SELECT
+        b.manifiesto,
+        b.conductor,
+        b.celular,
+        CASE
+            WHEN b.es_novedad_real
+                 THEN 'saldo_novedad_pendiente'
+            WHEN b.factura_no IS NULL
+                 THEN 'saldo_falta_factura'
+            WHEN b.fecha_cumplido < CURRENT_DATE - 21  -- pasó el plazo de 15 dh
+                 THEN 'saldo_falta_documentacion'      -- y no se pagó
+            WHEN b.fecha_cumplido IS NOT NULL
+                 THEN 'saldo_plazo_vigente'
+            ELSE 'saldo_falta_documentacion'
+        END,
+        CASE WHEN b.fecha_cumplido IS NOT NULL
+             THEN (b.fecha_cumplido + CASE b.compromiso_pago
+                 WHEN 'PAGO A 15 DIAS'         THEN 21
+                 WHEN 'PAGO A 20 DIAS'         THEN 28
+                 WHEN 'PAGO A 30 DIAS'         THEN 42
+                 WHEN 'PAGO A 5-8 DIAS'        THEN 11
+                 WHEN 'PAGO INMEDIATO'         THEN 0
+                 WHEN 'CONTRAENTREGA'          THEN 0
+                 WHEN 'CONTINGENCIA 20-25 DH'  THEN 35
+                 ELSE 21
+             END)::DATE
+             ELSE NULL
+        END,
+        b.compromiso_pago,
+        b.novedades,
+        b.factura_no,
+        b.fecha_cumplido,
+        COALESCE(b.saldo, 0) - COALESCE(b.valor_pagado, 0)
+    FROM base b
+    WHERE NOT EXISTS (
+        SELECT 1 FROM notificados n
+        WHERE n.manifiesto = b.manifiesto
+          AND n.template_name = CASE
+              WHEN b.es_novedad_real
+                   THEN 'saldo_novedad_pendiente'
+              WHEN b.factura_no IS NULL
+                   THEN 'saldo_falta_factura'
+              WHEN b.fecha_cumplido < CURRENT_DATE - 21
+                   THEN 'saldo_falta_documentacion'
+              WHEN b.fecha_cumplido IS NOT NULL
+                   THEN 'saldo_plazo_vigente'
+              ELSE 'saldo_falta_documentacion'
+          END
+    )
+    ORDER BY b.manifiesto;
 $$;
 
 
@@ -916,6 +1094,16 @@ CREATE POLICY jb_admin_select ON public.jailbreak_log
     USING (public.user_role() = 'gerencia');
 
 
+-- ── messages_sent: solo gerencia lee; escritura vía trigger SECURITY DEFINER
+-- o service_role (bypassea RLS automáticamente) ──────────────────────────────
+ALTER TABLE public.messages_sent ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS ms_gerencia_select ON public.messages_sent;
+CREATE POLICY ms_gerencia_select ON public.messages_sent
+    FOR SELECT TO authenticated
+    USING (public.user_role() = 'gerencia');
+
+
 -- ╔══════════════════════════════════════════════════════════════════════════╗
 -- ║ 11. GRANTS                                                               ║
 -- ║    PostgreSQL otorga EXECUTE a PUBLIC por defecto en CREATE FUNCTION,    ║
@@ -936,12 +1124,18 @@ REVOKE INSERT, UPDATE, DELETE ON public.audit_log          FROM authenticated, a
 REVOKE ALL                    ON public.chatbot_sesiones   FROM PUBLIC, anon, authenticated;
 REVOKE ALL                    ON public.processed_messages FROM PUBLIC, anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE ON public.jailbreak_log      FROM authenticated, anon, PUBLIC;
+REVOKE ALL                    ON public.messages_sent      FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.messages_sent TO authenticated;
+GRANT ALL    ON public.messages_sent TO postgres;
 
 -- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
 REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT)                                                  FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_notify_plazo_vigente()                                                                                                   FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_notify_pago_realizado()                                                                                                   FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              FROM PUBLIC;
@@ -955,6 +1149,7 @@ GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, 
 GRANT EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT)                                                  TO authenticated;
 GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              TO authenticated;
