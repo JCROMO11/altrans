@@ -268,6 +268,19 @@ demo:
 	echo ""; \
 	curl -s -m 3 "$$NGROK_URL/health" > /dev/null && echo "✅ Internet -> ngrok -> uvicorn: OK" || echo "❌ No se puede alcanzar desde internet"
 
+# ── Notificaciones WhatsApp ──────────────────────────────────────────────────
+# Uso: make notify-wa MSG="Hola mundo" [PHONE=573145285119]
+#      make demo-notify [PHONE=573145285119]
+
+NOTIFY_PHONE ?= 573145285119
+
+notify-wa:
+	@test -n "$(MSG)" || (echo "ERROR: make notify-wa MSG='texto' [PHONE=57...]"; exit 1)
+	@PHONE="$(NOTIFY_PHONE)" MSG='$(MSG)' python3 scripts/send_wa.py
+
+demo-notify:
+	@PHONE="$(NOTIFY_PHONE)" python3 scripts/demo_notify.py
+
 # ── Deploy Railway ────────────────────────────────────────────────────────────
 
 deploy-chatbot:
