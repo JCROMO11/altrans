@@ -39,24 +39,24 @@ from openai import OpenAI
 # ── CONFIG: ajusta a tus datos reales ─────────────────────────────────────────
 CONDUCTOR_NOMBRE = "HENRY RAMIREZ"
 CONDUCTOR_CEDULA = "1130668182"
-MANIFIESTO_OK    = 21001        # del conductor
+MANIFIESTO_OK    = 22885        # del conductor
 MANIFIESTO_BAD   = 99999        # inexistente
 MES              = "MARZO"
 AÑO              = 2024
 
-# Llenados desde scripts/descubrir_fixtures.py. Si cambia la DB, re-ejecutar.
+# Llenados desde scripts/descubrir_fixtures.py via make load. Si cambia la DB, re-ejecutar.
 MANIFIESTO_ANULADO        = 33422                            # EDWIN ALEXANDER HURTADO
 MANIFIESTO_PAGADO         = 25687                            # pagado 2024-11-12 · $510.900 · TRANSF BANCOLOMBIA
-OTRO_CONDUCTOR            = "MARLON ANDRES CORAL"
-CEDULA_OTRO_CONDUCTOR     = "1085921324"
-MANIFIESTO_OTRO_CONDUCTOR = 34017
+OTRO_CONDUCTOR            = "ORLANDO ACEVEDO"
+CEDULA_OTRO_CONDUCTOR     = "9990974"
+MANIFIESTO_OTRO_CONDUCTOR = 22901
 # Cédula sin manifiestos (para el caso edge de conductor recién registrado / sin viajes).
 # None desactiva ese caso si no se configura.
 CEDULA_SIN_VIAJES   = None
 NOMBRE_SIN_VIAJES   = None
 
-# Fixtures de pago por compromiso_pago — llenar con scripts/descubrir_fixtures.py
-# None desactiva el caso si no se configura.
+# Fixtures de pago por compromiso_pago — llenados desde descobrir_fixtures.py
+# None desactiva el caso si la DB no tiene datos de ese tipo.
 MANIFIESTO_PAGO_15       = 33642  # PAGO A 15 DIAS, pendiente, con fecha_cumplido
 CEDULA_PAGO_15           = "1004756992"
 NOMBRE_PAGO_15           = "WILMER ALEXIS GRANADA"
@@ -77,19 +77,19 @@ NOMBRE_CONTINGENCIA      = "DIEGO ARMANDO MELO"
 MANIFIESTO_URBANO        = None   # URBANO — sin pendientes en DB
 MANIFIESTO_OTROS         = None   # OTROS — sin pendientes en DB
 MANIFIESTO_SIN_COMPROMISO = None  # compromiso_pago IS NULL — sin pendientes en DB
-MANIFIESTO_SIN_CUMPLIDO   = 33311 # viaje no cerrado por logística — JESUS GIOVANNI DELGADO
-CEDULA_SIN_CUMPLIDO       = "6537897"
-NOMBRE_SIN_CUMPLIDO       = "JESUS GIOVANNI DELGADO"
+MANIFIESTO_SIN_CUMPLIDO   = 34355 # viaje no cerrado por logística — ARTURO AYALA
+CEDULA_SIN_CUMPLIDO       = "13006481"
+NOMBRE_SIN_CUMPLIDO       = "ARTURO AYALA"
 MANIFIESTO_PRIORITARIO   = None   # PRIORITARIO — sin pendientes en DB
 
 MANIFIESTO_PRONTO_PAGO   = 33857  # PRONTO PAGO, pendiente, con fecha_cumplido
 CEDULA_PRONTO_PAGO       = "1088594060"
 NOMBRE_PRONTO_PAGO       = "OSCAR ARTURO ESCOBAR"
 
-# Propietario de prueba — llenar tras correr: python scripts/descubrir_fixtures.py
-PLACA_TEST          = "TTN719"
-PROPIETARIO_NOMBRE  = "DAVID ALEJANDRO MORALES"
-MANIFIESTO_PLACA    = 34017
+# Propietario de prueba — llenado desde scripts/descubrir_fixtures.py
+PLACA_TEST          = "QNM118"
+PROPIETARIO_NOMBRE  = "ALIANZA PARA EL TRANSPORTE Y COMERCIO INTERNACIONA"
+MANIFIESTO_PLACA    = 34355
 
 # Judge: DeepSeek v4 Flash via OpenRouter (mismo modelo que el agente primario).
 _judge = OpenAI(api_key=os.environ["OPENROUTER_API_KEY"], base_url="https://openrouter.ai/api/v1")
