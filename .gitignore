@@ -28,10 +28,12 @@ __pycache__/
 .env
 .env.local
 variables_anteriores.txt
+env.pruebas
 
 # Dashboard env
 dashboard/.env
 dashboard/.env.local
+dashboard/env.pruebas
 
 # Supabase local
 supabase/.branches
