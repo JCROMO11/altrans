@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _MAX_CONSECUTIVE_ERRORS = 10
 
 
-def _build_template(template_name: str, manifiesto: int, fecha_estimada: str | None = None, monto: str | None = None) -> str:
+def _build_template(template_name: str, manifiesto: int, fecha_estimada: str | None = None, monto: str | None = None, fecha_pago: str | None = None) -> str:
     """Construye el texto del mensaje para la plantilla indicada."""
     templates = {
         "saldo_falta_factura": (
@@ -32,18 +32,20 @@ def _build_template(template_name: str, manifiesto: int, fecha_estimada: str | N
             f"Le informo que el manifiesto {manifiesto} no se ha pagado porque "
             "no se ha legalizado mediante la factura electrónica que debe enviar "
             "el propietario, quien está obligado a hacerlo según el RUT. "
-            "Por favor enviarla lo antes posible.\n\n"
-            "En caso de haberla enviado, por favor reenviarla a la persona "
-            "que contrató su servicio.\n\n"
+            "Por favor enviarla lo antes posible a facturaelectronica@altrans.com.co.\n\n"
+            "En caso de haberla enviado correctamente, por favor reenviarla "
+            "a la persona que contrató su servicio.\n\n"
             "Mensaje automático de ALTRANS. Puede contener errores."
         ),
         "saldo_falta_documentacion": (
             "Buen día, estimado transportador.\n\n"
             f"Le informo que el manifiesto {manifiesto} no se ha pagado porque "
-            "no se ha cumplido formalmente con la documentación original. "
-            "Por favor cumplir lo antes posible.\n\n"
+            "no se ha cumplido formalmente con la documentación original firmada "
+            "que nos permite evidenciar que el transporte concluyó satisfactoriamente. "
+            "Por favor regularizar esta situación según las instrucciones "
+            "de quien contrató su servicio.\n\n"
             "En caso de haber enviado los documentos por una empresa de mensajería, "
-            "por favor rastrear y enviar la guía a la persona que contrató su servicio.\n\n"
+            "rastree y envíe la guía a la persona que contrató su servicio.\n\n"
             "Mensaje automático de ALTRANS. Puede contener errores."
         ),
         "saldo_novedad_pendiente": (
@@ -57,16 +59,18 @@ def _build_template(template_name: str, manifiesto: int, fecha_estimada: str | N
         "saldo_plazo_vigente": (
             "Buen día, estimado transportador.\n\n"
             f"Le informo que el saldo del manifiesto {manifiesto} aún no se ha "
-            "pagado porque no se ha cumplido el tiempo pactado para realizarlo. "
+            "pagado porque no se ha completado el plazo pactado para realizarlo. "
             "Nuestro acuerdo fue pagarlo dentro de los 15 días hábiles siguientes "
-            "al cumplido formal del transporte.\n\n"
+            "al completado formal del transporte.\n\n"
             f"Le pedimos amablemente una espera hasta aproximadamente el {fecha_estimada or 'N/D'}.\n\n"
             "Mensaje automático de ALTRANS. Puede contener errores."
         ),
         "pago_realizado": (
             "Buen día, estimado transportador.\n\n"
-            f"Le informamos que el pago del manifiesto {manifiesto} "
-            f"por un monto de ${monto or 'N/D'} ha sido registrado. "
+            f"Le informamos que el saldo del manifiesto {manifiesto} por un monto "
+            f"de ${monto or 'N/D'} ha sido pagado exitosamente "
+            f"el día {fecha_pago or 'N/D'} mediante transferencia bancaria. "
+            "Por favor revise sus extractos bancarios.\n\n"
             "Gracias por su servicio.\n\n"
             "Mensaje automático de ALTRANS. Puede contener errores."
         ),
@@ -137,7 +141,7 @@ def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[d
         url_mf,
         headers=headers,
         params={
-            "select": "manifiesto,celular,valor_pagado",
+            "select": "manifiesto,celular,valor_pagado,fecha_pago",
             "manifiesto": f"in.({','.join(manifiestos)})",
         },
     )
@@ -156,6 +160,7 @@ def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[d
             "phone": row["phone"],
             "template_name": "pago_realizado",
             "monto": str(info["valor_pagado"]),
+            "fecha_pago": info.get("fecha_pago"),
         })
     return result
 
@@ -196,6 +201,15 @@ def run_auto_notify() -> dict:
 
     sent = 0
     errors = 0
+
+    def _fmt(d: str | None) -> str | None:
+        if not d:
+            return None
+        try:
+            return datetime.strptime(d, "%Y-%m-%d").strftime("%d de %B de %Y").lower()
+        except ValueError:
+            return d
+
     for item in all_items:
         manifiesto = item.get("manifiesto")
         phone = item.get("phone") or item.get("celular")
@@ -203,19 +217,15 @@ def run_auto_notify() -> dict:
         fecha_est = item.get("fecha_estimada")
         monto = item.get("monto")
         ms_id = item.get("ms_id")
+        fecha_pago_raw = item.get("fecha_pago")
 
         if not phone or not template:
             continue
 
-        fecha_str = None
-        if fecha_est:
-            try:
-                d = datetime.strptime(fecha_est, "%Y-%m-%d")
-                fecha_str = d.strftime("%d de %B de %Y").lower()
-            except ValueError:
-                fecha_str = fecha_est
+        fecha_str = _fmt(fecha_est)
+        fecha_pago_str = _fmt(fecha_pago_raw)
 
-        message = _build_template(template, manifiesto, fecha_str, monto)
+        message = _build_template(template, manifiesto, fecha_str, monto, fecha_pago_str)
         try:
             send_whatsapp(phone, message)
             _log_sent(manifiesto, template, phone, "sent", ms_id=ms_id)
