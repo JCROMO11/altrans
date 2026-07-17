@@ -245,12 +245,13 @@ probar-todo: db-reset etl
 # ── Demo: levantar chatbot + ngrok en un solo comando ───────────────────────
 
 demo-stop:
-	@pkill -f "uvicorn main:app" 2>/dev/null || true
-	@pkill -f "ngrok http" 2>/dev/null || true
+	@-lsof -ti :8080 2>/dev/null | xargs kill 2>/dev/null
+	@-lsof -ti :4040 2>/dev/null | xargs kill 2>/dev/null
 	@echo "✅ Procesos detenidos"
 
-demo: demo-stop
+demo:
 	@test -n "$(WA_TOKEN)" || (echo "ERROR: Usa make demo WA_TOKEN=<token_de_meta>"; exit 1)
+	$(MAKE) demo-stop
 	@sed -i "s|^WA_TOKEN=.*|WA_TOKEN=$(WA_TOKEN)|" .env
 	@echo "✅ WA_TOKEN actualizado en .env"
 	@cd ai_agent && setsid python3 -m uvicorn main:app --host 0.0.0.0 --port $(PORT) > /tmp/chatbot.log 2>&1 &
