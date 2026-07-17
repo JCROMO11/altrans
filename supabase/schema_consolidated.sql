@@ -591,6 +591,10 @@ $$;
 -- para que el servicio de notificaciones decida qué plantilla enviar.
 -- Categorías: falta_factura, falta_documentacion, novedad_pendiente,
 --             plazo_vigente, ya_notificado (si ya se le envió algo < 7 días).
+--
+-- Guardrail de novedades: valores cortos ≤3 chars (".", "ok", "si") o ruido
+-- de clasificación ("TURBO", "URBANO", "TIPO VEHICULO", etc.) se ignoran
+-- y caen a la siguiente categoría en orden de prioridad.
 CREATE OR REPLACE FUNCTION public.get_pendientes_notificacion()
 RETURNS TABLE (
     manifiesto      BIGINT,
@@ -608,7 +612,19 @@ LANGUAGE sql STABLE
 SET search_path = ''
 AS $$
     WITH base AS (
-        SELECT * FROM public.manifiestos_flat
+        SELECT *,
+            CASE
+                WHEN novedades IS NOT NULL
+                     AND TRIM(novedades) != ''
+                     AND LENGTH(TRIM(novedades)) > 3
+                     AND NOT (
+                         LENGTH(TRIM(novedades)) < 60
+                         AND UPPER(TRIM(novedades)) ~ '(TIPO VEHICULO|TIPO VEHÍCULO|TURBO|URBANO|URBANOS)'
+                     )
+                THEN true
+                ELSE false
+            END AS es_novedad_real
+        FROM public.manifiestos_flat
         WHERE fecha_pago IS NULL
           AND estado_interno IS DISTINCT FROM 'ANULADO'
           AND conductor IS NOT NULL
@@ -626,7 +642,7 @@ AS $$
         b.conductor,
         b.celular,
         CASE
-            WHEN b.novedades IS NOT NULL AND TRIM(b.novedades) != ''
+            WHEN b.es_novedad_real
                  THEN 'saldo_novedad_pendiente'
             WHEN b.factura_no IS NULL
                  THEN 'saldo_falta_factura'
@@ -637,7 +653,7 @@ AS $$
             ELSE 'saldo_falta_documentacion'
         END,
         CASE WHEN b.fecha_cumplido IS NOT NULL
-             THEN b.fecha_cumplido + (CASE b.compromiso_pago
+             THEN (b.fecha_cumplido + CASE b.compromiso_pago
                  WHEN 'PAGO A 15 DIAS'         THEN 21
                  WHEN 'PAGO A 20 DIAS'         THEN 28
                  WHEN 'PAGO A 30 DIAS'         THEN 42
@@ -659,7 +675,7 @@ AS $$
         SELECT 1 FROM notificados n
         WHERE n.manifiesto = b.manifiesto
           AND n.template_name = CASE
-              WHEN b.novedades IS NOT NULL AND TRIM(b.novedades) != ''
+              WHEN b.es_novedad_real
                    THEN 'saldo_novedad_pendiente'
               WHEN b.factura_no IS NULL
                    THEN 'saldo_falta_factura'

@@ -23,6 +23,25 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_ERRORS = 10
 
+# Tokens que NO son novedades reales — son clasificación de vehículo o servicio.
+# Coincide con el guardrail del RPC get_pendientes_notificacion.
+_NOVEDAD_NOISE = ("TIPO VEHICULO", "TIPO VEHÍCULO", "TURBO", "URBANO", "URBANOS")
+
+
+def _is_novedad_noise(novedades: str | None) -> bool:
+    """True si novedades solo contiene ruido (clasificación, no problema real).
+
+    Coincide con la lógica del RPC get_pendientes_notificacion (es_novedad_real).
+    """
+    if not novedades or not novedades.strip():
+        return True
+    nov = novedades.strip()
+    if len(nov) <= 3:
+        return True
+    if len(nov) < 60 and any(t in nov.upper() for t in _NOVEDAD_NOISE):
+        return True
+    return False
+
 
 def _build_template(template_name: str, manifiesto: int, fecha_estimada: str | None = None, monto: str | None = None, fecha_pago: str | None = None) -> str:
     """Construye el texto del mensaje para la plantilla indicada."""
@@ -220,6 +239,10 @@ def run_auto_notify() -> dict:
         fecha_pago_raw = item.get("fecha_pago")
 
         if not phone or not template:
+            continue
+
+        # Defense in depth: saltar saldo_novedad_pendiente si novedades es ruido
+        if template == 'saldo_novedad_pendiente' and _is_novedad_noise(item.get('novedades')):
             continue
 
         fecha_str = _fmt(fecha_est)
