@@ -231,7 +231,8 @@ def run_auto_notify() -> dict:
 
     for item in all_items:
         manifiesto = item.get("manifiesto")
-        phone = item.get("phone") or item.get("celular")
+        raw_phone = item.get("phone") or item.get("celular") or ""
+        phone = f"57{raw_phone}" if (raw_phone and not raw_phone.startswith("57") and len(raw_phone) == 10) else raw_phone
         template = item.get("template_name")
         fecha_est = item.get("fecha_estimada")
         monto = item.get("monto")

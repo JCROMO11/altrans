@@ -362,7 +362,7 @@ async def verificar_manifiesto_propietario(manifiesto: int, placa: str) -> bool:
 async def get_admin_by_wa_from(wa_from: str) -> dict | None:
     rows = await _get("admin_usuarios", {
         "wa_from": f"eq.{wa_from}",
-        "select": "wa_from,nombre,password_hash,ultimo_acceso",
+        "select": "wa_from,nombre,password_hash,rol,ultimo_acceso",
     })
     return rows[0] if rows else None
 

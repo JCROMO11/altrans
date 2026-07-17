@@ -32,6 +32,14 @@ _TABLES = [
     "jailbreak_log",
 ]
 
+_TABLE_LABELS = {
+    "manifiestos_flat":   "Manifiestos (viajes, pagos, conductores)",
+    "audit_log":          "Historial de cambios (auditoria)",
+    "chatbot_sesiones":   "Sesiones del chatbot WhatsApp",
+    "processed_messages": "Mensajes de WhatsApp procesados",
+    "jailbreak_log":      "Intentos de ataque bloqueados",
+}
+
 _PAGE_SIZE = 1000
 _MAX_RETRIES = 3
 _RETRY_DELAY = 30
@@ -122,7 +130,9 @@ def _build_zip() -> tuple[bytes, dict[str, int]]:
                 counts[table] = -1
                 continue
             counts[table] = len(rows)
-            zf.writestr(f"{table}.csv", _rows_to_csv(rows))
+            label = _TABLE_LABELS.get(table, table)
+            fname = f"{label.replace('/', '-')}.csv"
+            zf.writestr(fname, _rows_to_csv(rows))
     return buf.getvalue(), counts
 
 
@@ -137,7 +147,8 @@ def _send_email_smtp(
     from_email = os.environ.get("BACKUP_EMAIL_FROM", "jromoguijarro@gmail.com")
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    lines = [f"  . {t}: {n:,} filas" if n >= 0 else f"  . {t}: ERROR (revisar logs)"
+    label_of = _TABLE_LABELS
+    lines = [f"  . {label_of.get(t, t)}: {n:,} filas" if n >= 0 else f"  . {label_of.get(t, t)}: ERROR (revisar logs)"
              for t, n in counts.items()]
 
     consistency_block = ""
@@ -145,22 +156,24 @@ def _send_email_smtp(
         all_ok = all(v["ok"] for v in consistency.values())
         status_icon = "OK" if all_ok else "MISMATCH"
         check_lines = []
+        label_of = _TABLE_LABELS
         for t, v in consistency.items():
+            label = label_of.get(t, t)
             if v["ok"]:
-                check_lines.append(f"  OK {t}: {v['backup']:,} filas (coincide con DB)")
+                check_lines.append(f"  OK {label}: {v['backup']:,} filas (coincide con DB)")
             else:
                 check_lines.append(
-                    f"  ISSUE {t}: backup={v['backup']:,} | DB en vivo={v['live']:,} - REVISAR"
+                    f"  ISSUE {label}: backup={v['backup']:,} | DB en vivo={v['live']:,} - REVISAR"
                 )
         consistency_block = (
             f"\nVerificacion de consistencia {status_icon}:\n" + "\n".join(check_lines) + "\n"
         )
 
     body = (
-        "Backup Altrans\n"
+        "Backup Altrans — Copia de seguridad\n"
         f"Generado: {ts}\n\n"
-        "Tablas incluidas:\n" + "\n".join(lines) +
-        f"\n\nTamano ZIP: {len(zip_bytes) // 1024} KB"
+        "Datos incluidos:\n" + "\n".join(lines) +
+        f"\n\nTamano del ZIP: {len(zip_bytes) // 1024} KB"
         + consistency_block
     )
 
@@ -169,7 +182,7 @@ def _send_email_smtp(
     msg = MIMEMultipart()
     msg["From"] = from_email
     msg["To"] = ", ".join(recipients)
-    msg["Subject"] = f"Backup Altrans - {ts}"
+    msg["Subject"] = f"Copia de seguridad Altrans - {ts}"
     msg.attach(MIMEText(body, "plain"))
 
     part = MIMEApplication(zip_bytes, _subtype="zip")

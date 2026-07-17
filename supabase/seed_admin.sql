@@ -5,18 +5,20 @@
 -- Cámbiala después de preguntarles a Julio y Julian si quieren dejarla o no.
 -- =============================================================================
 
--- Julio Fuertes
-INSERT INTO public.admin_usuarios (wa_from, nombre, password_hash)
+-- Julio Fuertes (gerencia)
+INSERT INTO public.admin_usuarios (wa_from, nombre, password_hash, rol)
 VALUES (
     '+573184871084',
     'Julio Fuertes',
-    '$2b$12$iMYrpXAFc0dhxfm3hLmqJ.MTWuThPJ5TUfN/hxyBEQNjQSkccB0IW'
+    '$2b$12$iMYrpXAFc0dhxfm3hLmqJ.MTWuThPJ5TUfN/hxyBEQNjQSkccB0IW',
+    'gerencia'
 );
 
--- Julian Fuertes
-INSERT INTO public.admin_usuarios (wa_from, nombre, password_hash)
+-- Julian Fuertes (gerencia)
+INSERT INTO public.admin_usuarios (wa_from, nombre, password_hash, rol)
 VALUES (
     '+573004724887',
     'Julian Fuertes',
-    '$2b$12$gXyAgULdn0lfAolhE1WLV.dNvbFxtdRtdN1QEOZ71ENEljqNxJvpK'
+    '$2b$12$gXyAgULdn0lfAolhE1WLV.dNvbFxtdRtdN1QEOZ71ENEljqNxJvpK',
+    'gerencia'
 );

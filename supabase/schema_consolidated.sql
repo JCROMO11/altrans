@@ -673,6 +673,7 @@ CREATE TABLE IF NOT EXISTS public.admin_usuarios (
     wa_from        TEXT PRIMARY KEY,   -- número WhatsApp +57...
     nombre         TEXT NOT NULL,
     password_hash  TEXT NOT NULL,      -- bcrypt(contraseña)
+    rol            TEXT NOT NULL DEFAULT 'admin',  -- 'gerencia' | 'admin' | etc.
     ultimo_acceso  TIMESTAMPTZ,
     creado_en      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -208,6 +208,7 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
                 "wa_from":               wa_from,
                 "estado":                "esperando_admin_pass",
                 "tipo_usuario":          None,
+                "admin_rol":             admin.get("rol"),
                 "identificador_temp":    None,
                 "identificador_auth":    None,
                 "nombre_temp":           admin["nombre"],
@@ -392,8 +393,9 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
     # ── Sesión activa ────────────────────────────────────────────────────────
     if estado == "activa":
         tipo = session.get("tipo_usuario") or "conductor"
+        admin_rol = session.get("admin_rol")
         identificador = session.get("identificador_auth") or session.get("conductor_cedula")
-        if not identificador:
+        if not identificador and not admin_rol:
             await queries.delete_session(wa_from)
             await send_text(wa_from, "Tu sesión expiró. Escribe tu cédula o placa para volver a ingresar.")
             return
@@ -435,10 +437,11 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
             run_kwargs = {
                 "nombre":       session.get("nombre") or session.get("conductor_nombre"),
                 "tipo_usuario": tipo,
+                "admin_rol":    session.get("admin_rol"),
             }
             if tipo == "conductor":
                 run_kwargs["conductor_cedula"] = identificador
-            else:
+            elif tipo == "propietario":
                 run_kwargs["placa"] = identificador
             respuesta, tools_called = await run(
                 texto,

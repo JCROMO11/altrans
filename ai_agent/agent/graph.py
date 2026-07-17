@@ -63,6 +63,7 @@ async def run(
     placa: str = None,
     nombre: str = None,
     tipo_usuario: str = None,
+    admin_rol: str = None,
     _model_override: str = None,
 ) -> tuple[str, bool]:
     if conductor_cedula and not tipo_usuario:
@@ -75,6 +76,7 @@ async def run(
         cedula=conductor_cedula,
         placa=placa,
         tipo_usuario=tipo_usuario,
+        admin_rol=admin_rol,
     )
     messages = [{"role": "system", "content": system_prompt}]
     if historial:
