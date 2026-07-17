@@ -1,4 +1,4 @@
-INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.6)
+INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.7)
      
      Julio 2026 | Estado general: MVP funcional ~90%
     
@@ -6,7 +6,7 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.6)
     
     1. RESUMEN EJECUTIVO
     
-     El proyecto Altrans consta de 4 módulos: Dashboard (React SPA), Chatbot (FastAPI), Mensajes WhatsApp y Notificaciones Automáticas (Backup + Mensajes automáticos). El dashboard es una aplicación standalone React + Vite que se conecta directamente a Supabase. El módulo del chatbot está completo (96%) con autenticación, rate limiting, logging persistente, prompts editables y restricción de datos vía v_chatbot_manifiestos. El módulo de notificaciones ahora incluye backup con Brevo SMTP + mensajes automáticos vía WhatsApp (5 plantillas: 4 de pendientes + pago_realizado). El sistema de seguridad por roles (7 roles, RLS, RPCs, audit_log) está implementado correctamente en BD.
+     El proyecto Altrans consta de 4 módulos: Dashboard (React SPA), Chatbot (FastAPI), Mensajes WhatsApp y Notificaciones Automáticas (Backup + Mensajes automáticos). El dashboard es una aplicación standalone React + Vite que se conecta directamente a Supabase. El módulo del chatbot está completo (97%) con autenticación por WhatsApp + bcrypt, rate limiting, fallback Groq, logging persistente, prompts editables desde Supabase y restricción de datos vía v_chatbot_manifiestos. El módulo de notificaciones ahora incluye backup con Brevo SMTP + mensajes automáticos vía WhatsApp (5 plantillas: 4 de pendientes + pago_realizado). El sistema de seguridad por roles (7 roles, RLS, RPCs, audit_log) está implementado correctamente en BD.
 
      Tiempo estimado para producción: 2-3 semanas (mejoras dashboard + WhatsApp).
     
@@ -70,12 +70,21 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.6)
     
     
     
-    3.2 Chatbot (WhatsApp / ai_agent) — ✅ 96%
-    (sin cambios desde v4.3)
-    
-    Pendiente:
-    - Control de costos LLM por tokens (evaluar con uso real)
-    - Restricción de datos expuestos implementada vía v_chatbot_manifiestos
+     3.2 Chatbot (WhatsApp / ai_agent) — ✅ 97%
+     
+     Implementado en feature/chatbot-restriccion-datos (rebasada sobre main):
+     
+     ✅ Vista v_chatbot_manifiestos — restringe datos expuestos por perfil
+       (conductor ve su cédula, propietario ve su placa, admin ve todo)
+     ✅ Admin auth por WhatsApp con bcrypt — seed con números reales
+     ✅ Fallback extremo LLM con Groq si OpenRouter falla
+     ✅ Rate limiting (login: 5 req/min, chat: 10 req/min por token)
+     ✅ Refactor async (FastAPI async + httpx.AsyncClient)
+     ✅ Loguru + logging persistente a Supabase + archivo rotativo
+     ✅ Prompts editables desde Supabase con fallback local
+     
+     Pendiente:
+     - Control de costos LLM por tokens (evaluar con uso real)
     
     
     

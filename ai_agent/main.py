@@ -1,24 +1,26 @@
+import asyncio
 import hashlib
 import hmac
-import logging
 import os
 
 import httpx
 
-from fastapi import FastAPI, Depends, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from agent.graph import run
 from auth import create_token, get_current_conductor
+from core.middleware import RateLimitMiddleware
 from db import queries
 from logging_config import setup_logging
+from loguru import logger
 from whatsapp import webhook as wa_webhook
 
 setup_logging(os.getenv("LOG_LEVEL", "INFO"))
-logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Altrans AI Agent")
+app.add_middleware(RateLimitMiddleware)
 
 
 # ── Modelos ───────────────────────────────────────────────────────────────────
@@ -42,11 +44,11 @@ class ChatResponse(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.post("/login", response_model=LoginResponse)
-def login(req: LoginRequest):
-    conductor = queries.get_conductor_by_cedula(req.cedula.strip())
+async def login(req: LoginRequest):
+    conductor = await queries.get_conductor_by_cedula(req.cedula.strip())
     if not conductor:
         raise HTTPException(status_code=401, detail="Cédula no encontrada")
-    if not queries.verificar_manifiesto_conductor(req.manifiesto, req.cedula.strip()):
+    if not await queries.verificar_manifiesto_conductor(req.manifiesto, req.cedula.strip()):
         raise HTTPException(status_code=401, detail="El manifiesto no corresponde a esta cédula")
 
     token = create_token(conductor["nombre"], req.cedula.strip())
@@ -54,7 +56,7 @@ def login(req: LoginRequest):
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest, conductor: dict = Depends(get_current_conductor)):
+async def chat(req: ChatRequest, conductor: dict = Depends(get_current_conductor)):
     tipo = conductor.get("tipo_usuario") or "conductor"
     identificador = conductor.get("identificador") or conductor.get("cedula")
     kwargs = {"nombre": conductor.get("nombre"), "tipo_usuario": tipo}
@@ -62,28 +64,28 @@ def chat(req: ChatRequest, conductor: dict = Depends(get_current_conductor)):
         kwargs["conductor_cedula"] = identificador
     else:
         kwargs["placa"] = identificador
-    respuesta, _tools_called = run(req.mensaje, req.historial, **kwargs)
+    respuesta, _tools_called = await run(req.mensaje, req.historial, **kwargs)
     return ChatResponse(respuesta=respuesta)
 
 
 @app.get("/")
 @app.get("/health")
-def health():
+async def health():
     url = os.getenv("SUPABASE_URL", "")
     key = os.getenv("SUPABASE_SERVICE_KEY", "")
     if not url or not key:
         return JSONResponse(status_code=503, content={"status": "degraded", "detail": "Supabase no configurado"})
     try:
-        r = httpx.head(
-            f"{url}/rest/v1/manifiestos_flat",
-            headers={
-                "apikey":        key,
-                "Authorization": f"Bearer {key}",
-                "Range":         "0-0",
-            },
-            timeout=3,
-        )
-        r.raise_for_status()
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.head(
+                f"{url}/rest/v1/manifiestos_flat",
+                headers={
+                    "apikey":        key,
+                    "Authorization": f"Bearer {key}",
+                    "Range":         "0-0",
+                },
+            )
+            r.raise_for_status()
     except Exception as exc:
         return JSONResponse(status_code=503, content={"status": "degraded", "detail": str(exc)})
     return {"status": "ok"}
@@ -103,10 +105,8 @@ def verify_webhook(request: Request):
 
 
 def _validate_signature(raw_body: bytes, signature_header: str | None) -> bool:
-    """Valida X-Hub-Signature-256 contra WA_APP_SECRET."""
     secret = os.getenv("WA_APP_SECRET", "")
     if not secret:
-        # En desarrollo: si no hay secret configurado, dejar pasar pero advertir.
         logger.warning("hmac_skipped_no_secret")
         return True
     if not signature_header or not signature_header.startswith("sha256="):
@@ -118,12 +118,12 @@ def _validate_signature(raw_body: bytes, signature_header: str | None) -> bool:
 
 
 @app.post("/webhook")
-async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
+async def receive_webhook(request: Request):
     raw_body  = await request.body()
     signature = request.headers.get("x-hub-signature-256")
 
     if not _validate_signature(raw_body, signature):
-        logger.warning("hmac_invalid", extra={"ip": request.client.host if request.client else None})
+        logger.warning("hmac_invalid", ip=request.client.host if request.client else None)
         raise HTTPException(status_code=403, detail="Firma inválida")
 
     try:
@@ -139,9 +139,10 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     for msg in messages:
         if msg.get("type") != "text":
             continue
-        background_tasks.add_task(
-            wa_webhook.handle_message,
-            msg["from"], msg["id"], msg["text"]["body"],
+        asyncio.create_task(
+            wa_webhook.handle_message(
+                msg["from"], msg["id"], msg["text"]["body"],
+            )
         )
 
     return {"status": "ok"}

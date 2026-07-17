@@ -1,8 +1,6 @@
 import json
 from db import queries
 
-# ── Definiciones para Groq (formato OpenAI) ──────────────────────────────────
-
 _CONDUCTOR_TOOL_NAMES = {
     "listar_manifiestos",
     "consultar_manifiesto",
@@ -173,10 +171,8 @@ TOOLS = [
     },
 ]
 
-# Tools disponibles para conductores autenticados (sin herramientas admin)
 TOOLS_CONDUCTOR = [t for t in TOOLS if t["function"]["name"] in _CONDUCTOR_TOOL_NAMES]
 
-# ── Ejecutor de tools ─────────────────────────────────────────────────────────
 
 def _anio(args) -> int | None:
     return int(args["anio"]) if args.get("anio") else None
@@ -207,32 +203,12 @@ _TOOL_MAP = {
 }
 
 
-def execute(tool_name: str, args: dict) -> str:
+async def execute(tool_name: str, args: dict) -> str:
     fn = _TOOL_MAP.get(tool_name)
     if not fn:
         return f"Tool desconocida: {tool_name}"
     try:
-        result = fn(args)
+        result = await fn(args)
         return json.dumps(result, ensure_ascii=False, default=str)
     except Exception as e:
         return f"Error ejecutando {tool_name}: {e}"
-
-
-# ── Claude / Anthropic (producción) ──────────────────────────────────────────
-# El formato de tools para Claude es diferente al de Groq/OpenAI.
-# Descomentar cuando se migre a producción:
-#
-# CLAUDE_TOOLS = [
-#     {
-#         "name": "consultar_manifiesto",
-#         "description": "Obtiene todos los datos de un manifiesto específico.",
-#         "input_schema": {
-#             "type": "object",
-#             "properties": {
-#                 "numero": {"type": "integer", "description": "Número del manifiesto"},
-#             },
-#             "required": ["numero"],
-#         },
-#     },
-#     ... (mismo patrón para el resto)
-# ]

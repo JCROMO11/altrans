@@ -109,48 +109,49 @@ class TestApplyIdentificador:
 # Listar manifiestos
 # ═══════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.asyncio
 class TestListarManifiestos:
-    def test_conductor_filtra_por_cedula(self):
+    async def test_conductor_filtra_por_cedula(self):
         with _mock_get() as mock:
-            queries.listar_manifiestos(cedula="12345")
+            await queries.listar_manifiestos(cedula="12345")
             url = mock.call_args[0][0]
             assert "cedula_conductor=eq.12345" in url
 
-    def test_propietario_filtra_por_placa(self):
+    async def test_propietario_filtra_por_placa(self):
         with _mock_get() as mock:
-            queries.listar_manifiestos(placa="ABC123")
+            await queries.listar_manifiestos(placa="ABC123")
             url = mock.call_args[0][0]
             assert "placa=eq.ABC123" in url
 
-    def test_conductor_y_placa_aplica_ambos(self):
+    async def test_conductor_y_placa_aplica_ambos(self):
         with _mock_get() as mock:
-            queries.listar_manifiestos(cedula="12345", placa="ABC123")
+            await queries.listar_manifiestos(cedula="12345", placa="ABC123")
             url = mock.call_args[0][0]
             assert "cedula_conductor=eq.12345" in url
             assert "placa=eq.ABC123" in url
 
-    def test_sin_filtro_no_tiene_cedula_ni_placa(self):
+    async def test_sin_filtro_no_tiene_cedula_ni_placa(self):
         with _mock_get() as mock:
-            queries.listar_manifiestos()
+            await queries.listar_manifiestos()
             url = mock.call_args[0][0]
             assert "cedula_conductor" not in url
             assert "placa" not in url or "placa=" not in url
 
-    def test_usa_tabla_manifiestos_flat(self):
+    async def test_usa_v_chatbot_manifiestos(self):
         with _mock_get() as mock:
-            queries.listar_manifiestos()
+            await queries.listar_manifiestos()
             url = mock.call_args[0][0]
-            assert "manifiestos_flat" in url
+            assert "v_chatbot_manifiestos" in url
 
-    def test_siempre_excluye_anulados(self):
+    async def test_siempre_excluye_anulados(self):
         with _mock_get() as mock:
-            queries.listar_manifiestos()
+            await queries.listar_manifiestos()
             url = mock.call_args[0][0]
             assert "estado_interno.neq.ANULADO" in url
 
-    def test_limit_50(self):
+    async def test_limit_50(self):
         with _mock_get() as mock:
-            queries.listar_manifiestos()
+            await queries.listar_manifiestos()
             url = mock.call_args[0][0]
             assert "limit=50" in url
 
@@ -159,34 +160,35 @@ class TestListarManifiestos:
 # Consultar manifiesto individual
 # ═══════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.asyncio
 class TestConsultarManifiesto:
-    def test_filtra_por_manifiesto(self):
+    async def test_filtra_por_manifiesto(self):
         with _mock_get() as mock:
-            queries.consultar_manifiesto(12345)
+            await queries.consultar_manifiesto(12345)
             url = mock.call_args[0][0]
             assert "manifiesto=eq.12345" in url
 
-    def test_conductor_filtra_cedula(self):
+    async def test_conductor_filtra_cedula(self):
         with _mock_get() as mock:
-            queries.consultar_manifiesto(12345, cedula="67890")
+            await queries.consultar_manifiesto(12345, cedula="67890")
             url = mock.call_args[0][0]
             assert "cedula_conductor=eq.67890" in url
 
-    def test_propietario_filtra_placa(self):
+    async def test_propietario_filtra_placa(self):
         with _mock_get() as mock:
-            queries.consultar_manifiesto(12345, placa="ABC123")
+            await queries.consultar_manifiesto(12345, placa="ABC123")
             url = mock.call_args[0][0]
             assert "placa=eq.ABC123" in url
 
-    def test_usa_vista_v_manifiestos(self):
+    async def test_usa_v_chatbot_manifiestos(self):
         with _mock_get() as mock:
-            queries.consultar_manifiesto(12345)
+            await queries.consultar_manifiesto(12345)
             url = mock.call_args[0][0]
-            assert "v_manifiestos" in url
+            assert "v_chatbot_manifiestos" in url
 
-    def test_devuelve_none_si_anulado(self):
+    async def test_devuelve_none_si_anulado(self):
         with _mock_get(return_value=[{"estado_interno": "ANULADO", "manifiesto": 12345}]) as mock:
-            result = queries.consultar_manifiesto(12345)
+            result = await queries.consultar_manifiesto(12345)
             assert result is None
 
 
@@ -194,22 +196,23 @@ class TestConsultarManifiesto:
 # Resumen período
 # ═══════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.asyncio
 class TestResumenPeriodo:
-    def test_excluye_anulados(self):
+    async def test_excluye_anulados(self):
         with _mock_get() as mock:
-            queries.resumen_periodo()
+            await queries.resumen_periodo()
             url = mock.call_args[0][0]
             assert "estado_interno.neq.ANULADO" in url
 
-    def test_conductor_aplica_cedula(self):
+    async def test_conductor_aplica_cedula(self):
         with _mock_get() as mock:
-            queries.resumen_periodo(cedula="12345")
+            await queries.resumen_periodo(cedula="12345")
             url = mock.call_args[0][0]
             assert "cedula_conductor=eq.12345" in url
 
-    def test_propietario_aplica_placa(self):
+    async def test_propietario_aplica_placa(self):
         with _mock_get() as mock:
-            queries.resumen_periodo(placa="ABC123")
+            await queries.resumen_periodo(placa="ABC123")
             url = mock.call_args[0][0]
             assert "placa=eq.ABC123" in url
 
@@ -218,42 +221,43 @@ class TestResumenPeriodo:
 # Auth helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
+@pytest.mark.asyncio
 class TestAuthQueries:
-    def test_get_conductor_by_cedula_filtra_cedula(self):
+    async def test_get_conductor_by_cedula_filtra_cedula(self):
         with _mock_get() as mock:
-            queries.get_conductor_by_cedula("12345")
+            await queries.get_conductor_by_cedula("12345")
             url = mock.call_args[0][0]
             assert "cedula_conductor=eq.12345" in url
 
-    def test_get_conductor_by_cedula_excluye_anulados(self):
+    async def test_get_conductor_by_cedula_excluye_anulados(self):
         with _mock_get() as mock:
-            queries.get_conductor_by_cedula("12345")
+            await queries.get_conductor_by_cedula("12345")
             url = mock.call_args[0][0]
             assert "estado_interno.neq.ANULADO" in url
 
-    def test_verificar_manifiesto_conductor_filtra_manifiesto_y_cedula(self):
+    async def test_verificar_manifiesto_conductor_filtra_manifiesto_y_cedula(self):
         with _mock_get() as mock:
-            queries.verificar_manifiesto_conductor(99999, "12345")
+            await queries.verificar_manifiesto_conductor(99999, "12345")
             url = mock.call_args[0][0]
             assert "manifiesto=eq.99999" in url
             assert "cedula_conductor=eq.12345" in url
 
-    def test_verificar_manifiesto_propietario_filtra_manifiesto_y_placa(self):
+    async def test_verificar_manifiesto_propietario_filtra_manifiesto_y_placa(self):
         with _mock_get() as mock:
-            queries.verificar_manifiesto_propietario(99999, "ABC123")
+            await queries.verificar_manifiesto_propietario(99999, "ABC123")
             url = mock.call_args[0][0]
             assert "manifiesto=eq.99999" in url
             assert "placa=eq.ABC123" in url
 
-    def test_get_propietario_by_placa_normaliza_mayusculas(self):
+    async def test_get_propietario_by_placa_normaliza_mayusculas(self):
         with _mock_get() as mock:
-            queries.get_propietario_by_placa("abc123")
+            await queries.get_propietario_by_placa("abc123")
             url = mock.call_args[0][0]
             assert "placa=eq.ABC123" in url
 
-    def test_get_propietario_by_placa_excluye_anulados(self):
+    async def test_get_propietario_by_placa_excluye_anulados(self):
         with _mock_get() as mock:
-            queries.get_propietario_by_placa("ABC123")
+            await queries.get_propietario_by_placa("ABC123")
             url = mock.call_args[0][0]
             assert "estado_interno.neq.ANULADO" in url
 

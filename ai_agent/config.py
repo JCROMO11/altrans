@@ -32,3 +32,10 @@ def get_wa_settings() -> dict:
         # Opcional: para validar firma HMAC de Meta en producción
         "wa_app_secret":      os.getenv("WA_APP_SECRET", ""),
     }
+
+
+# ── Rate Limit ────────────────────────────────────────────────────────────────
+
+MAX_MSG_PER_MINUTE = 5       # mensajes por minuto por usuario (ventana deslizante)
+LOGIN_MAX_PER_MIN   = 5      # intentos de login por IP por minuto
+CHAT_MAX_PER_MIN    = 10     # solicitudes al endpoint /chat por usuario por minuto

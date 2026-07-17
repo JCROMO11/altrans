@@ -39,3 +39,6 @@ supabase/migrations/
 
 # Documentación local (no va al repo)
 docs/
+
+# Chatbot logs rotativos locales
+ai_agent/logs/
