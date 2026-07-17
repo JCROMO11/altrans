@@ -63,6 +63,32 @@ function MoneyInput({ label, col, value, onChange }) {
   )
 }
 
+function PhoneInput({ label, col, value, onChange }) {
+  const raw = (value ?? '').replace(/[^0-9]/g, '').slice(0, 10)
+  const display = raw ? `${raw.slice(0, 3)} ${raw.slice(3, 6)} ${raw.slice(6)}` : ''
+  const invalid = raw.length > 0 && raw.length !== 10
+  const border = invalid ? '#EF4444' : BDR
+  return (
+    <Field label={label} col={col}>
+      <input
+        className={inputCls} style={{ borderColor: border }}
+        type="text" inputMode="numeric"
+        value={display}
+        placeholder="300 123 4567"
+        onChange={e => {
+          const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 10)
+          onChange({ target: { value: digits } })
+        }}
+      />
+      {invalid && (
+        <p className="text-[10px] mt-0.5" style={{ color: '#EF4444' }}>
+          Debe tener exactamente 10 dígitos
+        </p>
+      )}
+    </Field>
+  )
+}
+
 function Select({ label, col, value, onChange, options, placeholder = 'Seleccionar...' }) {
   const [open, setOpen] = useState(false)
   return (
@@ -877,6 +903,10 @@ export default function CargaPage({ target, clearTarget, user }) {
         !formEdit.origen    || !formEdit.destino || !formEdit.fecha_despacho) {
       toast('error', 'Completá los campos obligatorios (*)'); return
     }
+    const cel = (formEdit.celular ?? '').replace(/[^0-9]/g, '')
+    if (cel.length > 0 && cel.length !== 10) {
+      toast('error', 'El celular debe tener exactamente 10 dígitos'); return
+    }
     setBusy(true)
     try {
       await update(ficha.manifiesto, formEdit)
@@ -1217,7 +1247,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                   onSelect={o => fillConductor(o.label, setFE)} />
                 <Input label="Cédula conductor" placeholder="Número de cédula"
                   value={formEdit.cedula_conductor ?? ''} onChange={e => fe('cedula_conductor')(e.target.value)} />
-                <Input label="Celular conductor" placeholder="Número de celular"
+                <PhoneInput label="Celular conductor"
                   value={formEdit.celular ?? ''} onChange={e => fe('celular')(e.target.value)} />
                 <Autocomplete label="Cliente *" displayValue={formEdit.cliente}
                   placeholder="Nombre del cliente" options={optClientes} onCreate={newText}

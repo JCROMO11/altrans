@@ -5,6 +5,7 @@ cleaned_data/
 backups/
 snapshots/
 exports/
+ai_agent/logs/
 
 # Build artifacts
 dashboard/dist/
