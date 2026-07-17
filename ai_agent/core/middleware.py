@@ -4,20 +4,22 @@ from collections import defaultdict, deque
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
-class RateLimitMiddleware:
+class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting para endpoints REST públicos (/login, /chat).
 
     /login: 5 req/min por IP (anti brute-force)
     /chat:  10 req/min por token de usuario
     """
 
-    def __init__(self):
+    def __init__(self, app):
+        super().__init__(app)
         self._login: dict[str, deque[float]] = defaultdict(lambda: deque())
         self._chat: dict[str, deque[float]] = defaultdict(lambda: deque())
 
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):
         path = request.url.path
         now = time.monotonic()
 
