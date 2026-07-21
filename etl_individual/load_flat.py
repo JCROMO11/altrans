@@ -122,7 +122,8 @@ def load_flat(df: pd.DataFrame, engine, dry_run: bool = False) -> dict:
     import io
     df = _prep(df)
     available_cols = [c for c in COLS if c in df.columns]
-    update_cols    = [c for c in available_cols if c != "manifiesto"]
+    IMMUTABLE_RELOAD_COLS = {"conductor", "cedula_conductor", "propietario"}
+    update_cols    = [c for c in available_cols if c != "manifiesto" and c not in IMMUTABLE_RELOAD_COLS]
 
     update_clause = ",\n            ".join(
         f"{c} = COALESCE(EXCLUDED.{c}, manifiestos_flat.{c})"

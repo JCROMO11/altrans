@@ -128,12 +128,13 @@ function Select({ label, col, value, onChange, options, placeholder = 'Seleccion
   )
 }
 
-function DateInput({ label, col, value, onChange }) {
+function DateInput({ label, col, value, onChange, disabled }) {
   return (
     <Field label={label} col={col}>
       <div className="relative">
         <input type="date" value={value} onChange={onChange}
-          className={inputCls} style={{ borderColor: BDR }} />
+          disabled={disabled}
+          className={inputCls} style={{ borderColor: BDR, opacity: disabled ? 0.5 : 1 }} />
         <Calendar size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
           style={{ color: BLUE }} />
       </div>
@@ -393,7 +394,7 @@ function ExcelUploadPanel({ onDone }) {
     ]
     for (let i = 0; i < toUpload.length; i += UPLOAD_BATCH) {
       const chunk = toUpload.slice(i, i + UPLOAD_BATCH)
-      const res   = await Promise.all(chunk.map(p => supabase.rpc('guardar_digitador', p.payload)))
+      const res   = await Promise.all(chunk.map(p => supabase.rpc('guardar_digitador_batch', p.payload)))
       res.forEach((r, j) => {
         if (r.error) errores.push({ fila: chunk[j].fila, msg: r.error.message })
         else if (chunk[j]._isNuevo) ok++
@@ -932,6 +933,10 @@ export default function CargaPage({ target, clearTarget, user }) {
 
   const handleSaveSeg = async (e) => {
     e.preventDefault()
+    if (formSeg.fecha_cumplido && !ficha.factura_electronica) {
+      toast('error', 'No se puede marcar cumplido sin factura electrónica. Completá la legalización primero.')
+      setBusy(false); return
+    }
     setBusy(true)
     try {
       await updateLogistico(ficha.manifiesto, { ...formSeg, responsable_estado_interno: userName })
@@ -1390,8 +1395,17 @@ export default function CargaPage({ target, clearTarget, user }) {
           {tab === 'cumplimiento' && canEditLogistico && (
             <form onSubmit={handleSaveSeg} className="flex flex-col gap-4">
               <SectionCard icon={ClipboardList} title="Cumplimiento operativo" cols={3}>
-                <DateInput label="Fecha cumplido"
-                  value={formSeg.fecha_cumplido} onChange={e => fs('fecha_cumplido')(e.target.value)} />
+                <div className="relative">
+                  <DateInput label="Fecha cumplido"
+                    value={formSeg.fecha_cumplido} onChange={e => fs('fecha_cumplido')(e.target.value)}
+                    disabled={!ficha.factura_electronica} />
+                  {!ficha.factura_electronica && (
+                    <span className="absolute -bottom-5 left-0 text-xs whitespace-nowrap"
+                      style={{ color: '#D97706' }}>
+                      Requiere factura electrónica
+                    </span>
+                  )}
+                </div>
                 <Select label="Compromiso de pago" value={formSeg.compromiso_pago}
                   onChange={fs('compromiso_pago')} options={COMPROMISO_PAGO_OPTS} />
                 <Select label="Estado interno" value={formSeg.estado_interno}
