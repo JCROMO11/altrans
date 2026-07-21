@@ -119,6 +119,10 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
     ajuste_positivo_flete       NUMERIC(14, 2)  CHECK (ajuste_positivo_flete >= 0),
     ajuste_negativo_flete       NUMERIC(14, 2)  CHECK (ajuste_negativo_flete >= 0),
     consignacion_a_terceros     NUMERIC(14, 2),
+    -- Deducciones de RNDC (ReteICA y FOPAT) que el Excel descuenta del neto.
+    -- La tasa de RETEICA varía por municipio (0.33%–1.0%); R. FOPAT es 0.1% fijo.
+    reteica                     NUMERIC(14, 2)  CHECK (reteica IS NULL OR reteica >= 0),
+    r_fopat                     NUMERIC(14, 2)  CHECK (r_fopat IS NULL OR r_fopat >= 0),
     -- Retención en la fuente: siempre 1% del flete total (regla de gerencia,
     -- sin excepciones a hoy). Columna generada para que el saldo quede auditado
     -- en cada fila sin que el chatbot tenga que inferir la regla.
@@ -129,7 +133,7 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
             END
         ) STORED,
     -- Saldo del conductor = flete + ajuste_positivo - ajuste_negativo
-    --                       - retención (1%) - anticipo.
+    --                       - retención (1%) - reteica - r_fopat - anticipo.
     -- El anticipo se entrega ANTES de salir a ruta (obligatorio), por eso ya
     -- no forma parte del saldo: el saldo es lo que QUEDA por pagar al cumplido,
     -- a ~15 días hábiles. La conciliación del pago (saldo - valor_pagado) se
@@ -142,6 +146,8 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
                       + COALESCE(ajuste_positivo_flete, 0)
                       - COALESCE(ajuste_negativo_flete, 0)
                       - ROUND(flete_conductor * 0.01, 2)
+                      - COALESCE(reteica, 0)
+                      - COALESCE(r_fopat, 0)
                       - COALESCE(anticipo, 0)
             END
         ) STORED,
@@ -1220,7 +1226,9 @@ CREATE OR REPLACE FUNCTION public.guardar_digitador(
     p_cedula_conductor      TEXT     DEFAULT NULL,
     p_propietario           TEXT     DEFAULT NULL,
     p_agencia_despachadora  TEXT     DEFAULT NULL,
-    p_nombre_responsable    TEXT     DEFAULT NULL
+    p_nombre_responsable    TEXT     DEFAULT NULL,
+    p_reteica               NUMERIC  DEFAULT NULL,
+    p_r_fopat               NUMERIC  DEFAULT NULL
 )
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER
@@ -1235,13 +1243,15 @@ BEGIN
         fecha_despacho, origen, departamento_origen, destino, departamento_destino,
         cliente, remesas, valor_remesa, flete_conductor, anticipo,
         placa, tipo_vehiculo, conductor, celular, cedula_conductor,
-        propietario, agencia_despachadora, nombre_responsable
+        propietario, agencia_despachadora, nombre_responsable,
+        reteica, r_fopat
     ) VALUES (
         p_manifiesto, p_archivo_origen, p_mes, p_año, p_periodo, p_semana, p_consecutivo_semanal,
         p_fecha_despacho, p_origen, p_departamento_origen, p_destino, p_departamento_destino,
         p_cliente, p_remesas, p_valor_remesa, p_flete_conductor, p_anticipo,
         p_placa, p_tipo_vehiculo, p_conductor, p_celular, p_cedula_conductor,
-        p_propietario, p_agencia_despachadora, p_nombre_responsable
+        p_propietario, p_agencia_despachadora, p_nombre_responsable,
+        p_reteica, p_r_fopat
     )
     ON CONFLICT (manifiesto) DO UPDATE SET
         archivo_origen        = COALESCE(EXCLUDED.archivo_origen,       public.manifiestos_flat.archivo_origen),
@@ -1268,6 +1278,8 @@ BEGIN
         propietario           = COALESCE(EXCLUDED.propietario,          public.manifiestos_flat.propietario),
         agencia_despachadora  = COALESCE(EXCLUDED.agencia_despachadora, public.manifiestos_flat.agencia_despachadora),
         nombre_responsable    = COALESCE(EXCLUDED.nombre_responsable,   public.manifiestos_flat.nombre_responsable),
+        reteica               = COALESCE(EXCLUDED.reteica,              public.manifiestos_flat.reteica),
+        r_fopat               = COALESCE(EXCLUDED.r_fopat,              public.manifiestos_flat.r_fopat),
         actualizado_en        = now();
 END;
 $$;
@@ -1300,7 +1312,9 @@ CREATE OR REPLACE FUNCTION public.guardar_digitador_batch(
     p_cedula_conductor      TEXT     DEFAULT NULL,
     p_propietario           TEXT     DEFAULT NULL,
     p_agencia_despachadora  TEXT     DEFAULT NULL,
-    p_nombre_responsable    TEXT     DEFAULT NULL
+    p_nombre_responsable    TEXT     DEFAULT NULL,
+    p_reteica               NUMERIC  DEFAULT NULL,
+    p_r_fopat               NUMERIC  DEFAULT NULL
 )
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER
@@ -1315,13 +1329,15 @@ BEGIN
         fecha_despacho, origen, departamento_origen, destino, departamento_destino,
         cliente, remesas, valor_remesa, flete_conductor, anticipo,
         placa, tipo_vehiculo, conductor, celular, cedula_conductor,
-        propietario, agencia_despachadora, nombre_responsable
+        propietario, agencia_despachadora, nombre_responsable,
+        reteica, r_fopat
     ) VALUES (
         p_manifiesto, p_archivo_origen, p_mes, p_año, p_periodo, p_semana, p_consecutivo_semanal,
         p_fecha_despacho, p_origen, p_departamento_origen, p_destino, p_departamento_destino,
         p_cliente, p_remesas, p_valor_remesa, p_flete_conductor, p_anticipo,
         p_placa, p_tipo_vehiculo, p_conductor, p_celular, p_cedula_conductor,
-        p_propietario, p_agencia_despachadora, p_nombre_responsable
+        p_propietario, p_agencia_despachadora, p_nombre_responsable,
+        p_reteica, p_r_fopat
     )
     ON CONFLICT (manifiesto) DO UPDATE SET
         archivo_origen        = COALESCE(EXCLUDED.archivo_origen,       public.manifiestos_flat.archivo_origen),
@@ -1346,6 +1362,8 @@ BEGIN
         celular               = COALESCE(EXCLUDED.celular,              public.manifiestos_flat.celular),
         agencia_despachadora  = COALESCE(EXCLUDED.agencia_despachadora, public.manifiestos_flat.agencia_despachadora),
         nombre_responsable    = COALESCE(EXCLUDED.nombre_responsable,   public.manifiestos_flat.nombre_responsable),
+        reteica               = COALESCE(EXCLUDED.reteica,              public.manifiestos_flat.reteica),
+        r_fopat               = COALESCE(EXCLUDED.r_fopat,              public.manifiestos_flat.r_fopat),
         actualizado_en        = now();
 END;
 $$;

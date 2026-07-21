@@ -36,6 +36,7 @@ COLS = [
     "fecha_pago", "valor_pagado", "entidad_financiera", "responsable",
     "factura_no", "fecha_factura", "factura_electronica", "mes_facturacion",
     "estado_interno", "responsable_estado_interno",
+    "reteica", "r_fopat",
 ]
 
 # Campos de fecha para parseo
@@ -43,7 +44,7 @@ DATE_COLS    = ["fecha_despacho", "fecha_cumplido", "fecha_pago", "fecha_factura
 # Enteros (smallint/integer en DB) — deben ir sin decimales en el COPY
 INT_COLS     = ["año", "consecutivo_semanal", "mes_facturacion"]
 # Decimales (numeric en DB)
-DECIMAL_COLS = ["valor_remesa", "flete_conductor", "anticipo", "valor_pagado"]
+DECIMAL_COLS = ["valor_remesa", "flete_conductor", "anticipo", "valor_pagado", "reteica", "r_fopat"]
 NUMERIC_COLS = INT_COLS + DECIMAL_COLS
 
 

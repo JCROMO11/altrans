@@ -126,6 +126,8 @@ export function buildPayload(r, i, fileName = null) {
       p_valor_remesa:         toNum(r['VALORES REMESAS']),
       p_flete_conductor:      toNum(r['FLETE']),
       p_anticipo:             toNum(r['ANTICIPO']),
+      p_reteica:              toNum(r['RETEICA']),
+      p_r_fopat:              toNum(r['R. FOPAT']),
       p_remesas:              trimOrNull(r['REMESAS']),
       p_archivo_origen:       fileName,
     },
