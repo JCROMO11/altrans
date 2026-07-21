@@ -8,11 +8,12 @@ import { useConsulta }  from '../hooks/useConsulta'
 const BG    = '#FFFFFF'
 const BDR   = '#E2E8F0'
 const TICK  = '#0F172A'
-const BLUE  = '#1E6FBF'
-const GOLD  = '#C9A84C'
-const MUTED = '#64748B'
-const RED   = '#DC2626'
-const GREEN = '#16A34A'
+const BLUE   = '#1E6FBF'
+const GOLD   = '#C9A84C'
+const MUTED  = '#64748B'
+const RED    = '#DC2626'
+const GREEN  = '#16A34A'
+const AMBAR  = '#F59E0B'
 const BTN_GRAD   = 'linear-gradient(135deg, #1E6FBF 0%, #6366F1 100%)'
 const BTN_SHADOW = '0 2px 8px 0 rgba(30,111,191,0.22)'
 
@@ -183,6 +184,31 @@ function PlazoBadge({ diasCumplidos, fechaPago }) {
       <AlertTriangle size={13} style={{ color: RED }} />
     </span>
   )
+}
+
+function VencimientoBadge({ fechaEstimada }) {
+  if (!fechaEstimada) return <span style={{ color: MUTED }}>—</span>
+  const hoy = new Date()
+  const f = new Date(fechaEstimada + 'T00:00:00')
+  const diff = Math.round((f - hoy) / (1000 * 60 * 60 * 24))
+  if (diff <= 0) {
+    const d = Math.abs(diff)
+    return (
+      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+        style={{ background: RED + '22', color: RED, border: `1px solid ${RED}55` }}>
+        VENCIDO {d}d
+      </span>
+    )
+  }
+  if (diff <= 7) {
+    return (
+      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+        style={{ background: AMBAR + '22', color: AMBAR, border: `1px solid ${AMBAR}55` }}>
+        {diff}d
+      </span>
+    )
+  }
+  return <span style={{ color: TICK }}>{diff}d</span>
 }
 
 // ── Celda de tabla ────────────────────────────────────────────────────────────
@@ -458,12 +484,20 @@ export default function ConsultaPage({ openEnCarga, user }) {
     conductor: null, cliente: null, origen: null, destino: null,
     compromiso_pago: '', estado_interno: '', placa: '', mes: '', año: '',
     cedula_conductor: '', tiene_fe: '', nombre_responsable: '',
+    estado_vencimiento: '',
   }
 
   const [filters,   setFilters]   = useState(FILTERS_INIT)
   const [activeTab, setActiveTab] = useState('manifiestos')
 
   const set = (k, v) => setFilters(f => ({ ...f, [k]: v }))
+
+  const [alertas, setAlertas] = useState(null)
+  useEffect(() => {
+    supabase.rpc('consulta_alertas_vencimiento').then(({ data }) => {
+      if (data) setAlertas(data)
+    })
+  }, [])
 
   // Carga automática al abrir
   useEffect(() => { buscar(FILTERS_INIT, 0) }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -479,6 +513,18 @@ export default function ConsultaPage({ openEnCarga, user }) {
   const clearAll = () => {
     setFilters(FILTERS_INIT)
     buscar(FILTERS_INIT, 0)
+  }
+
+  const filtrarPorVencimiento = tipo => {
+    if (filters.estado_vencimiento === tipo) {
+      const reset = { ...FILTERS_INIT }
+      setFilters(reset)
+      buscar(reset, 0)
+    } else {
+      const reset = { ...FILTERS_INIT, estado_vencimiento: tipo }
+      setFilters(reset)
+      buscar(reset, 0)
+    }
   }
 
   return (
@@ -508,6 +554,37 @@ export default function ConsultaPage({ openEnCarga, user }) {
       {activeTab === 'auditoria' && isGerencia
         ? <AuditoriaPanel />
         : <>
+
+      {/* Alertas de vencimiento */}
+      {alertas && (
+        <div className="flex gap-3 items-center rounded-2xl px-5 py-3 mb-2"
+          style={{ background: BG, border: `1px solid ${BDR}` }}>
+          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>Vencimientos</span>
+          <button type="button" onClick={() => filtrarPorVencimiento('vencidos')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+            style={filters.estado_vencimiento === 'vencidos'
+              ? { background: 'linear-gradient(135deg, #E05252 0%, #EF4444 100%)', color: '#fff', boxShadow: '0 2px 8px 0 rgba(224,82,82,0.25)' }
+              : alertas.vencidos > 0
+                ? { background: RED + '18', color: RED, border: `1px solid ${RED}44` }
+                : { background: '#F1F5F9', color: MUTED } }
+            disabled={!alertas.vencidos > 0}>
+            <AlertTriangle size={12} /> Vencidos: {alertas.vencidos ?? '—'}
+            {alertas.saldoVencido > 0 && (
+              <span className="ml-1 text-[10px] opacity-75">· {money(alertas.saldoVencido)}</span>
+            )}
+          </button>
+          <button type="button" onClick={() => filtrarPorVencimiento('por_vencer')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+            style={filters.estado_vencimiento === 'por_vencer'
+              ? { background: 'linear-gradient(135deg, #F59E0B 0%, #F97316 100%)', color: '#fff', boxShadow: '0 2px 8px 0 rgba(245,158,11,0.25)' }
+              : alertas.porVencer > 0
+                ? { background: AMBAR + '18', color: AMBAR, border: `1px solid ${AMBAR}44` }
+                : { background: '#F1F5F9', color: MUTED } }
+            disabled={!alertas.porVencer > 0}>
+            Por vencer (&lt;7d): {alertas.porVencer ?? '—'}
+          </button>
+        </div>
+      )}
 
       {/* Filter panel */}
       <form onSubmit={handleSearch}
@@ -599,7 +676,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
           </div>
         ) : (
           <div style={{ maxHeight: '68vh', overflow: 'auto' }}>
-            <table className="text-sm border-collapse" style={{ minWidth: '3510px' }}>
+            <table className="text-sm border-collapse" style={{ minWidth: '3620px' }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
                 <tr style={{ background: '#F1F5F9' }}>
                   <Th sticky width="105px">Manifiesto</Th>
@@ -624,6 +701,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
                   <Th width="125px">Fecha Cumplido</Th>
                   <Th width="115px">Días Cumplido</Th>
                   <Th width="160px">Compromiso Pago</Th>
+                  <Th width="120px">Días x Vencer</Th>
                   <Th width="280px">Novedades</Th>
                   <Th width="240px">Novedad Conductor</Th>
                   <Th width="240px">Novedad Empresa</Th>
@@ -684,6 +762,9 @@ export default function ConsultaPage({ openEnCarga, user }) {
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap" style={{ width: '160px', minWidth: '160px', borderRight: '1px solid #CBD5E1' }}>
                         <EstadoBadge value={r.compromiso_pago} colorFn={estadoPagoColor} />
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap" style={{ width: '120px', minWidth: '120px', borderRight: '1px solid #CBD5E1' }}>
+                        <VencimientoBadge fechaEstimada={r.fecha_estimada_pago} />
                       </td>
                       <td className="px-3 py-2 text-xs" style={{ width: '280px', minWidth: '280px', maxWidth: '280px', borderRight: '1px solid #CBD5E1' }}>
                         <div title={r.novedades || undefined} style={{ color: MUTED, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>

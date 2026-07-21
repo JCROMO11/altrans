@@ -1,4 +1,4 @@
- INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.9)
+ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 5.0)
     
      Julio 2026 | Estado general: MVP funcional ~90%
     
@@ -174,12 +174,21 @@
        - Todos los filtros nuevos se pasan también a `consulta_totales` (no solo a `consulta_manifiestos`).
        - Tests: 77/77 siguen pasando.
      
-     🟠 BLOQUE 4 — ALTA: Alerta de vencimientos
-     
-       | #   | Tarea                                                     | Dónde                   | Cómo |
-       |-----|-----------------------------------------------------------|-------------------------|------|
-       | 4.1 | KPI/panel en Dashboard: vencidos y por vencer              | `DashboardPage.jsx` + RPC | Nuevos KPI: contadores "Por vencer (<7d)" y "Vencidos". Colores naranja/rojo. |
-       | 4.2 | Columna "días para vencer" en Consulta                     | `ConsultaPage.jsx`      | Columna calculada `dias_restantes = fecha_plazo - hoy`. Ordenable. Resaltar vencidos en rojo. |
+      🟠 BLOQUE 4 — ALTA: Alerta de vencimientos ✅ COMPLETADO
+      
+        | #   | Tarea                                                     | Dónde                   | Estado |
+        |-----|-----------------------------------------------------------|-------------------------|--------|
+        | 4.1 | Panel de alertas en Consulta (todos los roles) + KPIs Dashboard | `ConsultaPage.jsx` + `DashboardPage.jsx` + RPC | ✅ Barra clickeable "Vencidos: N" y "Por vencer (<7d): N" arriba de filtros. KPIs en Dashboard (roles privilegiados). |
+        | 4.2 | Columna "días para vencer" en Consulta                     | `ConsultaPage.jsx`      | ✅ `VencimientoBadge`: badge rojo "VENCIDO Xd", badge ámbar "Xd", o normal. Sin color de fila para evitar conflicto con sidebar. |
+      
+      Detalle técnico:
+      - Nuevo RPC `consulta_alertas_vencimiento()`: retorna vencidos, porVencer, saldoVencido en JSON. Usa v_manifiestos (respeta RLS).
+      - `consulta_manifiestos` + `consulta_totales`: nuevo parámetro `p_estado_vencimiento TEXT` ('vencidos' | 'por_vencer').
+      - Click en badge → limpia filtros, setea estado_vencimiento, busca → tabla muestra solo vencidos/porVencer. Click again → desactiva.
+      - `dashboard_kpis`: nuevo CTE `con_fecha_estimada` + 3 nuevos keys: vencidos, porVencer, saldoVencido.
+      - VencimientoBadge calcula diferencias en JS desde `fecha_estimada_pago` (ya viene de v_manifiestos).
+      - Tests: 77/77 pasando.
+      - Dashboard: nueva fila "Vencimientos" con KPIs (Vencidos, Por vencer <7d, Al día). Solo para gerencia/financiero/administrativo.
      
      🟠 BLOQUE 5 — ALTA: Factura electrónica multi-manifiesto
      
