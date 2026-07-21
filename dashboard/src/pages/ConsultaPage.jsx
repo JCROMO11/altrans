@@ -108,16 +108,17 @@ function FilterSelect({ label, value, onChange, options, placeholder = 'Todos' }
   )
 }
 
-function FilterAutocomplete({ label, items, labelKey = 'nombre', idKey = 'id', value, onChange, placeholder = 'Todos' }) {
+function FilterAutocomplete({ label, items, labelKey = 'nombre', idKey = 'id', searchKey, value, onChange, placeholder = 'Todos' }) {
   const [query, setQuery] = useState('')
   const [open,  setOpen]  = useState(false)
   const inputRef = useRef(null)
+  const sk = searchKey || labelKey
 
   const selected = items.find(i => i[idKey] === value)
   const display  = selected ? selected[labelKey] : ''
   const filtered = query.length < 1
     ? items.slice(0, 60)
-    : items.filter(i => i[labelKey].toLowerCase().includes(query.toLowerCase())).slice(0, 60)
+    : items.filter(i => String(i[sk] ?? '').toLowerCase().includes(query.toLowerCase())).slice(0, 60)
 
   const pick = item => { onChange(item ? item[idKey] : null); setQuery(''); setOpen(false) }
 
@@ -147,7 +148,12 @@ function FilterAutocomplete({ label, items, labelKey = 'nombre', idKey = 'id', v
               <button key={item[idKey]} type="button" onMouseDown={() => pick(item)}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-black/5 flex items-center justify-between"
                 style={{ color: TICK }}>
-                <span>{item[labelKey]}</span>
+                <span>
+                  <span>{item[labelKey]}</span>
+                  {item.nombre && String(item.nombre) !== String(item[labelKey]) && (
+                    <span className="ml-2 text-xs" style={{ color: MUTED }}>{item.nombre}</span>
+                  )}
+                </span>
                 {item[idKey] === value && <Check size={11} style={{ color: BLUE, flexShrink: 0 }} />}
               </button>
             ))}
@@ -451,6 +457,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
     manifiesto: '', fecha_desde: '', fecha_hasta: '',
     conductor: null, cliente: null, origen: null, destino: null,
     compromiso_pago: '', estado_interno: '', placa: '', mes: '', año: '',
+    cedula_conductor: '', tiene_fe: '', nombre_responsable: '',
   }
 
   const [filters,   setFilters]   = useState(FILTERS_INIT)
@@ -512,7 +519,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
         </div>
 
         {/* Fila 1 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
           <Field label="Manifiesto">
             <input className={inputCls} style={{ borderColor: BDR }}
               type="number" placeholder="Número..."
@@ -531,16 +538,34 @@ export default function ConsultaPage({ openEnCarga, user }) {
               type="date" value={filters.fecha_hasta}
               onChange={e => set('fecha_hasta', e.target.value)} />
           </Field>
+          <Field label="Factura Electrónica">
+            <div className="flex gap-1">
+              {['', 'true', 'false'].map(v => (
+                <button key={v} type="button"
+                  onClick={() => set('tiene_fe', v)}
+                  className="flex-1 text-xs font-semibold px-2 py-1.5 rounded-lg transition-all"
+                  style={{
+                    background: filters.tiene_fe === v ? BTN_GRAD : '#F1F5F9',
+                    color:      filters.tiene_fe === v ? '#fff' : MUTED,
+                    boxShadow:  filters.tiene_fe === v ? BTN_SHADOW : 'none',
+                  }}>
+                  {v === '' ? 'Todas' : v === 'true' ? 'Con FE' : 'Sin FE'}
+                </button>
+              ))}
+            </div>
+          </Field>
         </div>
 
         {/* Fila 2 */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-4">
           <FilterSelect label="Mes" value={filters.mes} onChange={v => set('mes', v)} options={MESES_OPTS} />
           <FilterSelect label="Año" value={filters.año} onChange={v => set('año', v)} options={AÑOS_OPTS} />
           <FilterSelect label="Compromiso de pago" value={filters.compromiso_pago} onChange={v => set('compromiso_pago', v)} options={catalogos.compromisos_pago} />
           <FilterSelect label="Estado interno" value={filters.estado_interno} onChange={v => set('estado_interno', v)} options={ESTADO_INTERNO_OPTS} />
           <FilterAutocomplete label="Conductor" items={catalogos.conductores}
             value={filters.conductor} onChange={v => set('conductor', v)} />
+          <FilterAutocomplete label="Cédula" items={catalogos.conductores} labelKey="cedula" idKey="cedula" searchKey="cedula"
+            value={filters.cedula_conductor || null} onChange={v => set('cedula_conductor', v ?? '')} />
         </div>
 
         {/* Fila 3 */}
@@ -551,6 +576,8 @@ export default function ConsultaPage({ openEnCarga, user }) {
             value={filters.origen} onChange={v => set('origen', v)} />
           <FilterAutocomplete label="Destino" items={catalogos.lugares}
             value={filters.destino} onChange={v => set('destino', v)} />
+          <FilterAutocomplete label="Responsable" items={catalogos.responsables}
+            value={filters.nombre_responsable || null} onChange={v => set('nombre_responsable', v ?? '')} />
         </div>
 
         <button type="submit"

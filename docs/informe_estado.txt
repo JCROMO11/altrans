@@ -1,5 +1,5 @@
-INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.7)
-     
+ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.9)
+    
      Julio 2026 | Estado general: MVP funcional ~90%
     
     
@@ -50,13 +50,13 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.7)
      
     3. DIAGNÓSTICO POR MÓDULO
  
-    3.1 Dashboard (React SPA + Supabase directo) — ✅ 82%
-    (sin cambios desde v4.3 — ver commit en feature/mejoras-dashboard)
-    
-    NOTA: El dashboard se completó en la rama feature/mejoras-dashboard e incluye:
-    - fetchAll() migrado a dashboard_kpis RPC server-side
-    - Validación celular con PhoneInput + CHECK constraint
-    - 77/77 tests pasando
+     3.1 Dashboard (React SPA + Supabase directo) — ✅ 88%
+     Mejoras en feature/pruebas-dashboard-julio2026:
+     
+     - Bloque 1.2: Validación FE antes de marcar cumplido (campo deshabilitado + tooltip + bloqueo en handleSaveSeg)
+     - Bloque 1.3: Excel upload usa guardar_digitador_batch (no sobreescribe conductor/propietario)
+     - Bloque 2.2: buildPayload mapea RETEICA y R. FOPAT del Excel
+     - 77/77 tests pasando
     
     ⚠️ Alta:
     - Sin comparativa mes a mes o año contra año
@@ -129,64 +129,113 @@ INFORME TÉCNICO — PROYECTO ALTRANS (Versión 4.7)
       llenar fecha_cumplido
     
     
-    4. PLAN DE ACCIÓN FUNCIONAL (ACTUALIZADO)
-    
-    ✅ COMPLETADO — Chatbot
-      (sin cambios — ver v4.3)
-    
-    ✅ COMPLETADO — Dashboard
-      (completado en feature/mejoras-dashboard)
-    
-    ✅ COMPLETADO — Notificaciones / Backup + Mensajes Auto.
-    
-      | #   | Tarea                                               | Horas |
-      |-----|-----------------------------------------------------|-------|
-      | 1   | Migrar SendGrid → Brevo SMTP para backup por email | 1h    |
-      | 2   | Tabla messages_sent + RPC get_pendientes_notific.  | 2h    |
-      | 3   | 4 plantillas automáticas + cron diario             | 3h    |
-      | 4   | Trigger plazo_vigente al marcar fecha_cumplido     | 1h    |
-      | 5   | Trigger pago_realizado al marcar fecha_pago        | 1h    |
-      | 6   | Reintentos + alerta de fallo de backup             | 1h    |
-      | 7   | .env.example en notifications/                     | 15min |
-      | 8   | Bugfixes: fecha_str None, RLS messages_sent        | 30min |
-    
-    🔴 CRÍTICO — Configuración pendiente
-    
-      | #   | Tarea                                                     | Estado  |
-      |-----|-----------------------------------------------------------|---------|
-      | 1   | BACKUP_EMAIL_TO: definir correos de gerencia               | ⬜      |
-      | 2   | WA_TOKEN: generar token en Meta FB Business                  | ⬜      |
-      | 3   | BREVO_SMTP_PASSWORD: ya configurado ✅ (key autorizada)       | ✅     |
-      | 4   | Preguntar a Altrans: ¿qué documentos en falta_documentacion   | ⬜      |
-    
-    ⚠️ ALTA — Dashboard (mejoras)
-    
-      | #   | Tarea                                                     | Horas  |
-      |-----|-----------------------------------------------------------|--------|
-      | 1   | Filtros adicionales (agencia, cliente, conductor)          | 2h     |
-      | 2   | Drill-down: gráfico → consulta filtrada                   | 2h     |
-      | 3   | Exportar resultados de consulta a Excel/CSV                | 1.5h   |
-      | 4   | Columnas seleccionables en tabla de consulta              | 2h     |
-    
-    ⚠️ ALTA — Notificaciones (prox sprint)
-    
-      | #   | Tarea                                                     | Horas  |
-      |-----|-----------------------------------------------------------|--------|
-      | 5   | Resumen semanal pendientes a conductores (lunes)          | 2h     |
-      | 6   | Unificar cliente WhatsApp con chatbot                     | 1h     |
-    
-    🟡 MEDIA
-    
-      | #   | Tarea                                                     | Horas  |
-      |-----|-----------------------------------------------------------|--------|
-      | 7   | Vista detalle inline en ConsultaPage                      | 2h     |
-      | 8   | Confirmación de entrega WhatsApp (webhook)                | 2h     |
-      | 9   | Dashboard de monitoreo de notificaciones                  | 3h     |
-    
-    🔵 BAJA — Nice to have
-    
-      | #   | Tarea                                                     |
-      |-----|-----------------------------------------------------------|
-      | 10  | Exportar gráficos del dashboard                            |
-      | 11  | Estados visuales en UI de WhatsApp                         |
-      | 12  | Control de costos LLM (chatbot)                            |
+     4. PLAN DE ACCIÓN FUNCIONAL (ACTUALIZADO — Sesión Julio 2026)
+     
+     ✅ COMPLETADO — Sprint anterior
+       (Chatbot 97%, Dashboard 82%, Notificaciones 88%)
+     
+     ─────────────────────────────────────────────────────────────
+     
+      🔴 BLOQUE 1 — CRÍTICO: Reglas de negocio ✅ COMPLETADO
+      
+        | #   | Tarea                                                     | Dónde                   | Estado |
+        |-----|-----------------------------------------------------------|-------------------------|--------|
+        | 1.1 | Subir Drive + limpiar cumplidos sin FE                     | DB (script)             | ✅ Cargado (13,542 manif). 11 excepciones con `PENDIENTE_LEGALIZACION`. |
+        | 1.2 | FE/legalización OBLIGATORIA para cumplido                  | DB + Dashboard          | ✅ CHECK `chk_cumplido_requiere_fe`. Dashboard: campo `fecha_cumplido` deshabilitado si no hay FE + bloqueo en `handleSaveSeg`. |
+        | 1.3 | Propietario y conductor INMUTABLES en re-carga Excel       | Módulo Excel            | ✅ `guardar_digitador_batch` excluye conductor/cedula/propietario del UPDATE. `load_flat.py` con `IMMUTABLE_RELOAD_COLS`. |
+        | 1.4 | Validaciones `valor_factura`                               | DB + Dashboard          | ✅ Se decidió dejar como campo manual (solo gerencia/financiero). Sin cambios en DB ni dashboard. |
+     
+      🔴 BLOQUE 2 — CRÍTICO: Campos de dinero + Saldo ✅ COMPLETADO
+      
+        | #   | Tarea                                                     | Dónde                   | Estado |
+        |-----|-----------------------------------------------------------|-------------------------|--------|
+        | 2.1 | Comparar campos numéricos DB vs Excel (Lista_Manifiestos)  | Excel vs DB             | ✅ Analizadas 930 filas vs DB. Discrepancias: DB no tiene `reteica` ni `r_fopat`. RETEFUENTE coincide con FLETE×1% en 99.6% de casos. Saldo DB sobredeclarado en $23.7M total. |
+        | 2.2 | Agregar RETEICA y R. FOPAT a la DB + corregir saldo       | DB + Dashboard + ETL    | ✅ Columnas `reteica`/`r_fopat` agregadas a `manifiestos_flat`. Fórmula de `saldo` actualizada para restarlas. `buildPayload` mapea RETEICA y R. FOPAT del Excel. `load_flat.py` preparado. Commit `0a31e39`. |
+        
+        Las columnas `reteica` y `r_fopat` son NUMERIC regulares (no GENERATED). Cualquier
+        persona autorizada (digitador, gerencia) puede editarlas directamente desde el
+        dashboard o DB. El `saldo` se recalcula automáticamente al ser GENERATED ALWAYS.
+        
+        ❓ Pendiente consultar con gerencia: ¿agregar columna `neto_a_pagar` para conciliación
+        directa con el valor NETO A PAGAR del Excel RNDC? (Quedó pactado consultar antes).
+     
+     🟠 BLOQUE 3 — ALTA: Filtros en Consulta ✅ COMPLETADO
+     
+       | #   | Tarea                                                     | Dónde                   | Estado |
+       |-----|-----------------------------------------------------------|-------------------------|--------|
+       | 3.1 | Filtro por cédula conductor                               | `ConsultaPage.jsx` + RPC | ✅ FilterAutocomplete con `searchKey="cedula"`. Muestra cédula + nombre. Catalogos existente. |
+       | 3.2 | Filtro por placa                                          | `ConsultaPage.jsx` + RPC | ✅ Ya existía desde el inicio. Sin cambios. |
+       | 3.3 | Filtro por factura electrónica (tiene/no tiene)           | `ConsultaPage.jsx` + RPC | ✅ Toggle de 3 estados: Todas / Con FE / Sin FE. `p_tiene_fe BOOLEAN` en ambos RPCs. |
+       | 3.4 | Filtro por responsable (`nombre_responsable`)             | `ConsultaPage.jsx` + RPC | ✅ FilterAutocomplete con `catalogos.responsables`. Coincide con columna en tabla. |
+       
+       Detalle técnico:
+       - `FilterAutocomplete` mejorado con `searchKey` (filtra por otra key distinta al label) y
+         subtítulo automático del `nombre` cuando labelKey ≠ "nombre" (ej. cédula + nombre).
+       - Todos los filtros nuevos se pasan también a `consulta_totales` (no solo a `consulta_manifiestos`).
+       - Tests: 77/77 siguen pasando.
+     
+     🟠 BLOQUE 4 — ALTA: Alerta de vencimientos
+     
+       | #   | Tarea                                                     | Dónde                   | Cómo |
+       |-----|-----------------------------------------------------------|-------------------------|------|
+       | 4.1 | KPI/panel en Dashboard: vencidos y por vencer              | `DashboardPage.jsx` + RPC | Nuevos KPI: contadores "Por vencer (<7d)" y "Vencidos". Colores naranja/rojo. |
+       | 4.2 | Columna "días para vencer" en Consulta                     | `ConsultaPage.jsx`      | Columna calculada `dias_restantes = fecha_plazo - hoy`. Ordenable. Resaltar vencidos en rojo. |
+     
+     🟠 BLOQUE 5 — ALTA: Factura electrónica multi-manifiesto
+     
+       | #   | Tarea                                                     | Dónde                   | Cómo |
+       |-----|-----------------------------------------------------------|-------------------------|------|
+       | 5.1 | Vista de manifiestos asociados a la misma FE               | `CargaPage.jsx`         | Panel lateral con listado de manifiestos que comparten `factura_electronica`. Resaltar el actual en azul. |
+       | 5.2 | Total acumulado de `valor_factura` + `saldo` por FE        | `CargaPage.jsx`         | Suma de `valor_factura`, suma de `saldo`, conteo de manifiestos por FE. |
+       | 5.3 | Autocompletado de facturas existentes                      | `CargaPage.jsx`         | Componente `<Autocomplete>` que sugiera `factura_electronica` y `factura_no` ya existentes. |
+     
+     🟡 BLOQUE 6 — MEDIA: UX y Edición
+     
+       | #   | Tarea                                                     | Dónde                   | Cómo |
+       |-----|-----------------------------------------------------------|-------------------------|------|
+       | 6.1 | Botón "Reestablecer" en todas las ventanas de edición      | `CargaPage.jsx` + otras | Revertir campos al valor original de DB. Implementar con `initialValues` vs `currentValues`. |
+       | 6.2 | Exportar consulta a Excel/CSV                              | `ConsultaPage.jsx`      | Botón de exportación visible SOLO para Kate (rol específico). |
+       | 6.3 | Colores/filtros visuales en tabla de consulta              | `ConsultaPage.jsx`      | Fondo gris claro en filas sin FE. Máx 1-2 colores. Complementar con filtros. |
+     
+     🟡 BLOQUE 7 — MEDIA: Roles y permisos
+     
+       | #   | Tarea                                                     | Dónde                   | Cómo |
+       |-----|-----------------------------------------------------------|-------------------------|------|
+       | 7.1 | Marcela: ver solo sus manifiestos                          | DB + Dashboard          | Filtrar por campo de asignación (¿`responsable`?). Por defecto, solo ver sus manifiestos. |
+       | 7.2 | Responsable: prioridad de sus manifiestos al entrar         | `ConsultaPage.jsx` + `CargaPage.jsx` | Pre-seleccionar filtro `responsable = current_user` al cargar. Pendiente Julian: ¿restricción total o prioridad? |
+       | 7.3 | `valor_factura` restringido a roles financieros             | DB: `v_manifiestos`     | Ya implementado enmascaramiento (línea 718-720). Verificar que funcione. Solo `admin` y `contadora` ven `valor_factura`. |
+       | 7.4 | Exportación solo para Kate                                 | Dashboard               | Gatear botón exportación por rol/usuario. |
+     
+     🔴 CRÍTICO — Configuración pendiente
+     
+       | #   | Tarea                                                     | Estado |
+       |-----|-----------------------------------------------------------|--------|
+       | C1  | BACKUP_EMAIL_TO: definir correos de gerencia               | ⬜     |
+       | C2  | WA_TOKEN: generar token en Meta FB Business                | ⬜     |
+       | C3  | BREVO_SMTP_PASSWORD: ya configurado ✅                     | ✅    |
+       | C4  | Preguntar a Altrans: ¿qué documentos en falta_documentacion | ⬜    |
+       | C5  | Verificación de negocio en Facebook Business               | ⬜     |
+       | C6  | Solucionar bloqueo de creación de apps en Facebook         | ⬜     |
+     
+     ℹ️ Facebook = última tarea del día, independientemente del avance.
+     
+     🔍 PENDIENTES — Preguntas para Julian / Altrans
+     
+       | #   | Pregunta |
+       |-----|----------|
+       | P1  | Regla de retención: ¿si reajuste > X, 1% retefuente se calcula sobre el reajuste? |
+       | P2  | Campos de dinero: ¿cuáles agregar/quitar de la DB? |
+       | P3  | ¿Trazabilidad se implementa ya o después? |
+       | P4  | `responsable` con nombres tipo "bogota2": ¿de dónde sale? ¿cómo automatizarlo? |
+       | P5  | `responsable`: ¿restricción TOTAL (solo ve sus manifiestos) o prioridad (ve todos, primero los suyos)? |
+       | P6  | `valor_factura`: ¿condiciones específicas? ¿formato de `factura_electronica`? |
+       | P7  | Marcela: ¿qué campo la asigna a sus manifiestos? ¿`responsable` u otro? |
+        | P8  | Campos faltantes en DB: ¿cuáles agregar a `manifiestos_flat`? |
+        | P9  | ¿Agregar columna `neto_a_pagar` (valor NETO A PAGAR del Excel RNDC) para conciliación directa? |
+     
+     🔍 POR INVESTIGAR — Infraestructura
+     
+       | #   | Tarea |
+       |-----|-------|
+       | I1  | Evaluar si Cloudflare Pages cubre la carga esperada de Altrans |
+       | I2  | Verificar costos asociados de Cloudflare Pages |

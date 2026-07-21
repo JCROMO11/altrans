@@ -812,21 +812,24 @@ FROM public.manifiestos_flat m;
 
 -- ── consulta_manifiestos ────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.consulta_manifiestos(
-    p_manifiesto        BIGINT   DEFAULT NULL,
-    p_fecha_desde       DATE     DEFAULT NULL,
-    p_fecha_hasta       DATE     DEFAULT NULL,
-    p_conductor         TEXT     DEFAULT NULL,
-    p_cliente           TEXT     DEFAULT NULL,
-    p_origen            TEXT     DEFAULT NULL,
-    p_destino           TEXT     DEFAULT NULL,
-    p_placa             TEXT     DEFAULT NULL,
-    p_agencia           TEXT     DEFAULT NULL,
-    p_compromiso_pago   TEXT     DEFAULT NULL,
-    p_estado_interno    TEXT     DEFAULT NULL,
-    p_mes               TEXT     DEFAULT NULL,
-    p_año               SMALLINT DEFAULT NULL,
-    p_limit             INTEGER  DEFAULT 50,
-    p_offset            INTEGER  DEFAULT 0
+    p_manifiesto          BIGINT   DEFAULT NULL,
+    p_fecha_desde         DATE     DEFAULT NULL,
+    p_fecha_hasta         DATE     DEFAULT NULL,
+    p_conductor           TEXT     DEFAULT NULL,
+    p_cedula_conductor    TEXT     DEFAULT NULL,
+    p_cliente             TEXT     DEFAULT NULL,
+    p_origen              TEXT     DEFAULT NULL,
+    p_destino             TEXT     DEFAULT NULL,
+    p_placa               TEXT     DEFAULT NULL,
+    p_agencia             TEXT     DEFAULT NULL,
+    p_compromiso_pago     TEXT     DEFAULT NULL,
+    p_estado_interno      TEXT     DEFAULT NULL,
+    p_mes                 TEXT     DEFAULT NULL,
+    p_año                 SMALLINT DEFAULT NULL,
+    p_tiene_fe            BOOLEAN  DEFAULT NULL,
+    p_nombre_responsable  TEXT     DEFAULT NULL,
+    p_limit               INTEGER  DEFAULT 50,
+    p_offset              INTEGER  DEFAULT 0
 )
 RETURNS SETOF public.v_manifiestos
 LANGUAGE sql STABLE
@@ -837,6 +840,7 @@ AS $$
       AND (p_fecha_desde     IS NULL OR fecha_despacho       >= p_fecha_desde)
       AND (p_fecha_hasta     IS NULL OR fecha_despacho       <= p_fecha_hasta)
       AND (p_conductor       IS NULL OR conductor       ILIKE '%' || p_conductor || '%')
+      AND (p_cedula_conductor IS NULL OR cedula_conductor ILIKE '%' || p_cedula_conductor || '%')
       AND (p_cliente         IS NULL OR cliente         ILIKE '%' || p_cliente   || '%')
       AND (p_origen          IS NULL OR origen          ILIKE '%' || p_origen    || '%')
       AND (p_destino         IS NULL OR destino         ILIKE '%' || p_destino   || '%')
@@ -846,6 +850,8 @@ AS $$
       AND (p_estado_interno  IS NULL OR estado_interno       = p_estado_interno)
       AND (p_mes             IS NULL OR mes                  = p_mes)
       AND (p_año             IS NULL OR año                  = p_año)
+      AND (p_tiene_fe IS NULL OR (factura_electronica IS NOT NULL AND factura_electronica != '') = p_tiene_fe)
+      AND (p_nombre_responsable IS NULL OR nombre_responsable ILIKE '%' || p_nombre_responsable || '%')
     ORDER BY fecha_despacho DESC, manifiesto DESC
     LIMIT  p_limit
     OFFSET p_offset;
@@ -854,15 +860,18 @@ $$;
 
 -- ── consulta_totales ────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.consulta_totales(
-    p_fecha_desde       DATE     DEFAULT NULL,
-    p_fecha_hasta       DATE     DEFAULT NULL,
-    p_conductor         TEXT     DEFAULT NULL,
-    p_cliente           TEXT     DEFAULT NULL,
-    p_agencia           TEXT     DEFAULT NULL,
-    p_compromiso_pago   TEXT     DEFAULT NULL,
-    p_estado_interno    TEXT     DEFAULT NULL,
-    p_mes               TEXT     DEFAULT NULL,
-    p_año               SMALLINT DEFAULT NULL
+    p_fecha_desde         DATE     DEFAULT NULL,
+    p_fecha_hasta         DATE     DEFAULT NULL,
+    p_conductor           TEXT     DEFAULT NULL,
+    p_cedula_conductor    TEXT     DEFAULT NULL,
+    p_cliente             TEXT     DEFAULT NULL,
+    p_agencia             TEXT     DEFAULT NULL,
+    p_compromiso_pago     TEXT     DEFAULT NULL,
+    p_estado_interno      TEXT     DEFAULT NULL,
+    p_mes                 TEXT     DEFAULT NULL,
+    p_año                 SMALLINT DEFAULT NULL,
+    p_tiene_fe            BOOLEAN  DEFAULT NULL,
+    p_nombre_responsable  TEXT     DEFAULT NULL
 )
 RETURNS TABLE (
     total_manifiestos   BIGINT,
@@ -883,15 +892,18 @@ AS $$
         COALESCE(SUM(valor_pagado),         0),
         COALESCE(SUM(saldo), 0) - COALESCE(SUM(valor_pagado), 0)
     FROM public.manifiestos_flat
-    WHERE (p_fecha_desde     IS NULL OR fecha_despacho       >= p_fecha_desde)
-      AND (p_fecha_hasta     IS NULL OR fecha_despacho       <= p_fecha_hasta)
-      AND (p_conductor       IS NULL OR conductor       ILIKE '%' || p_conductor || '%')
-      AND (p_cliente         IS NULL OR cliente         ILIKE '%' || p_cliente   || '%')
-      AND (p_agencia         IS NULL OR agencia_despachadora = p_agencia)
-      AND (p_compromiso_pago IS NULL OR compromiso_pago      = p_compromiso_pago)
-      AND (p_estado_interno  IS NULL OR estado_interno       = p_estado_interno)
-      AND (p_mes             IS NULL OR mes                  = p_mes)
-      AND (p_año             IS NULL OR año                  = p_año);
+    WHERE (p_fecha_desde         IS NULL OR fecha_despacho            >= p_fecha_desde)
+      AND (p_fecha_hasta         IS NULL OR fecha_despacho            <= p_fecha_hasta)
+      AND (p_conductor           IS NULL OR conductor            ILIKE '%' || p_conductor || '%')
+      AND (p_cedula_conductor    IS NULL OR cedula_conductor     ILIKE '%' || p_cedula_conductor || '%')
+      AND (p_cliente             IS NULL OR cliente              ILIKE '%' || p_cliente   || '%')
+      AND (p_agencia             IS NULL OR agencia_despachadora      = p_agencia)
+      AND (p_compromiso_pago     IS NULL OR compromiso_pago           = p_compromiso_pago)
+      AND (p_estado_interno      IS NULL OR estado_interno            = p_estado_interno)
+      AND (p_mes                 IS NULL OR mes                       = p_mes)
+      AND (p_año                 IS NULL OR año                       = p_año)
+      AND (p_tiene_fe            IS NULL OR (factura_electronica IS NOT NULL AND factura_electronica != '') = p_tiene_fe)
+      AND (p_nombre_responsable  IS NULL OR nombre_responsable   ILIKE '%' || p_nombre_responsable || '%');
 $$;
 
 
@@ -1608,8 +1620,8 @@ GRANT ALL    ON public.messages_sent TO postgres;
 REVOKE ALL                    ON public.admin_usuarios      FROM PUBLIC, anon, authenticated;
 
 -- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
-REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT)                                                  FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, INTEGER, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT)                             FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC;
@@ -1627,8 +1639,8 @@ REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                     
 REVOKE EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT)                                                                                FROM PUBLIC;
 
 -- Otorgar a authenticated
-GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT)                                                  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, INTEGER, INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT)                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             TO authenticated;
