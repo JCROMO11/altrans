@@ -204,67 +204,10 @@
         | 6.2 | Exportar consulta a Excel/CSV                              | `ConsultaPage.jsx`      | ✅ Dos botones (CSV y Excel) visibles solo para `gerencia`. Exportan 41 columnas con valores formateados. Usa XLSX para Excel, CSV con quoting y BOM. |
         | 6.3 | Colores/filtros visuales en tabla de consulta              | `ConsultaPage.jsx`      | ✅ Icono verde ✓ (Check lucide) en columna FE cuando `factura_electronica` existe. Tooltip nativo (`title`) ya existía en celdas Novedades/Novedad Conductor/Novedad Empresa. |
       
-      ⚠️ PENDIENTE: Definir qué roles deben tener acceso al botón de exportación (actualmente solo gerencia).
+⚠️ PENDIENTE: Definir qué roles deben tener acceso al botón de exportación (actualmente solo gerencia).
          Preguntar a usuaria: "¿Además de gerencia, qué otro(s) rol(es) deberían poder exportar la consulta a Excel/CSV?"
       
-      ─────────────────────────────────────────────────────────────────────────────
-      6.3 INFORME DE COLORES Y SÍMBOLOS ACTUALES EN CONSULTA
-      ─────────────────────────────────────────────────────────────────────────────
-      
-      COLORES DE FILA (fondo de <tr>) — según `estado_interno`:
-        • CUMPLIDO                  → Amarillo (#FFFF00) al 40% opacidad
-        • ANULADO                   → Verde (#00FF00) al 40%
-        • PENDIENTE FACTURA ELEC.   → Cian (#00FFFF) al 40%
-        • FACTURA RECIBIDA          → Magenta (#FF00FF) al 40%
-        • NOVEDAD PENDIENTE         → Rosado (#D5A6BD) al 40%
-        • Otros / NULL              → Alterna blanco / gris (#F8FAFC)
-      
-      BADGES (píldoras redondeadas con fondo semitransparente):
-        • Compromiso Pago:
-          - PAGADO       → verde   (#16A34A)
-          - ANULADO      → rojo    (#DC2626)
-          - PRIORITARIO  → dorado  (#C9A84C)
-          - Otros        → gris    (#64748B)
-        • Estado Interno:
-          - CUMPLIDO                → verde   (#16A34A)
-          - ANULADO                 → rojo    (#DC2626)
-          - NOVEDAD PENDIENTE       → dorado  (#C9A84C)
-          - PENDIENTE FACTURA ELEC. → dorado  (#C9A84C)
-          - Otros                   → gris    (#64748B)
-        • PlazoBadge (ícono AlertTriangle animado):
-          - Solo cuando `dias_cumplido > 20 && sin fecha_pago`
-          - Rojo (#DC2626), con animate-pulse
-        • VencimientoBadge (Días x Vencer):
-          - Vencido (≤0 días)        → rojo    "VENCIDO Xd"
-          - Próximo (1-7 días)       → ámbar   (#F59E0B) "Xd"
-          - Lejano (>7 días)         → texto normal  "Xd"
-          - Sin fecha                → "—" gris
-        • "Sin fact." badge:
-          - Cuando factura_no es null → dorado (#C9A84C)
-      
-      COLORES DE TEXTO EN CELDAS:
-        • Manifiesto      → siempre dorado (#C9A84C)
-        • Valor Pagado    → siempre verde (#16A34A)
-        • Días Cumplido   → rojo condicional si plazo vencido
-        • Columnas muted  → gris (#64748B): Remesas, Dpto. Origen, Dpto. Destino,
-          Anticipo, Placa, Remolque, Celular, Cédula, Propietario, Agencia,
-          Responsable, Resp. Estado Int., Entidad Fin., Resp. Pago,
-          Factura No, Fecha Emisión, Legalización FE/DS, Días Fact.
-      
-      POSIBLES MEJORAS / IMPLEMENTACIONES A CONSIDERAR:
-      1. Fondo gris claro en filas SIN factura_electronica → simple, bajo riesgo.
-      2. Resaltar filas con NOVEDAD PENDIENTE con borde lateral rojo.
-      3. Indicador visual de pago extemporáneo (ya existe PlazoBadge).
-      4. Barra de progreso "Días x Vencer" → barra horizontal ámbar/rojo.
-      5. Icono de FE presente (CheckCircle verde) vs ausente (X rojo) en columna FE.
-      6. Tooltip en celdas con Novedades extensas (mejor que clamp de 2 líneas).
-      7. Separador visual entre grupos de estado_interno (línea tenue).
-      8. Columna "Días Fact." → badge rojo si >30 días sin facturar.
-      
-      Recomendación: implementar 1, 2 y 5 por ser las de mayor impacto visual
-      con mínimo esfuerzo. Consultar con usuaria antes.
-     
-🟡 BLOQUE 7 — MEDIA: Roles, permisos y filtrado por responsable
+      🟡 BLOQUE 7 — MEDIA: Roles, permisos y filtrado por responsable
       
       ─────────────────────────────────────────────────────────────────────
       DIAGNÓSTICO COMPLETO
