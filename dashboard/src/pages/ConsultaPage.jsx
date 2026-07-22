@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, ChevronDown, Check, ChevronLeft, ChevronRight, ExternalLink, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { Search, ChevronDown, Check, ChevronLeft, ChevronRight, ExternalLink, AlertTriangle, ShieldCheck, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useCatalogos } from '../hooks/useCatalogos'
 import { useConsulta }  from '../hooks/useConsulta'
@@ -527,6 +528,95 @@ export default function ConsultaPage({ openEnCarga, user }) {
     }
   }
 
+  // ── Export helpers ─────────────────────────────────────────────────────────
+  const EXPORT_COLS = [
+    ['Manifiesto',              'manifiesto',             'raw'],
+    ['Remesas',                 'remesas',                'raw'],
+    ['Fecha Despacho',          'fecha_despacho',         'date'],
+    ['Origen',                  'origen',                 'raw'],
+    ['Dpto. Origen',            'departamento_origen',    'raw'],
+    ['Destino',                 'destino',                'raw'],
+    ['Dpto. Destino',           'departamento_destino',   'raw'],
+    ['Cliente',                 'cliente',                 'raw'],
+    ['Valor Remesa',            'valor_remesa',           'money'],
+    ['Flete Neto',              'flete_conductor',        'money'],
+    ['Anticipo',                'anticipo',               'money'],
+    ['Placa',                   'placa',                  'raw'],
+    ['Remolque',                'tipo_vehiculo',          'raw'],
+    ['Conductor',               'conductor',              'raw'],
+    ['Celular',                 'celular',                'raw'],
+    ['Cédula',                  'cedula_conductor',       'raw'],
+    ['Propietario',             'propietario',            'raw'],
+    ['Agencia Despachadora',     'agencia_despachadora',   'raw'],
+    ['Responsable',             'nombre_responsable',     'raw'],
+    ['Fecha Cumplido',          'fecha_cumplido',         'date'],
+    ['Días Cumplido',           'dias_cumplido',          'raw'],
+    ['Compromiso Pago',         'compromiso_pago',        'raw'],
+    ['Días x Vencer',           'dias_para_facturar',     'raw'],
+    ['Novedades',               'novedades',              'raw'],
+    ['Novedad Conductor',       'novedad_conductor',      'raw'],
+    ['Novedad Empresa',         'novedad_empresa',        'raw'],
+    ['Reajuste',                'ajuste_positivo_flete',  'money'],
+    ['Descuento',               'ajuste_negativo_flete',  'money'],
+    ['Consignación Terceros',   'consignacion_a_terceros','money'],
+    ['Saldo',                   'saldo',                  'money'],
+    ['Estado Interno',          'estado_interno',         'raw'],
+    ['Resp. Estado Interno',    'responsable_estado_interno','raw'],
+    ['Fecha Pago',              'fecha_pago',             'date'],
+    ['Valor Pagado',            'valor_pagado',           'money'],
+    ['Entidad Financiera',      'entidad_financiera',     'raw'],
+    ['Responsable Pago',        'responsable',            'raw'],
+    ['Factura No',              'factura_no',             'raw'],
+    ['Fecha Emisión',           'fecha_factura',          'date'],
+    ['Factura Electrónica',     'factura_electronica',    'raw'],
+    ['Valor Factura',           'valor_factura',          'money'],
+    ['Días Fact.',              'dias_para_facturar',     'raw'],
+  ]
+
+  const fmtExport = (val, typ) => {
+    if (val == null || val === '') return ''
+    if (typ === 'money') return Number(val)
+    if (typ === 'date') return val
+    return String(val)
+  }
+
+  const buildExportData = () => rows.map(r => {
+    const obj = {}
+    EXPORT_COLS.forEach(([label, key, typ]) => { obj[label] = fmtExport(r[key], typ) })
+    return obj
+  })
+
+  const downloadBlob = (content, filename, mimeType) => {
+    const blob = new Blob(['\ufeff' + content], { type: mimeType + ';charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportCSV = () => {
+    if (!rows.length) return
+    const data = buildExportData()
+    const headers = EXPORT_COLS.map(([label]) => label)
+    const csvRows = data.map(obj =>
+      headers.map(h => {
+        const v = obj[h]
+        if (v == null || v === '') return ''
+        const s = String(v)
+        return '"' + s.replace(/"/g, '""') + '"'
+      }).join(',')
+    )
+    downloadBlob([headers.join(','), ...csvRows].join('\n'), 'consulta_manifiestos.csv', 'text/csv')
+  }
+
+  const exportExcel = () => {
+    if (!rows.length) return
+    const ws = XLSX.utils.json_to_sheet(buildExportData())
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Manifiestos')
+    XLSX.writeFile(wb, 'consulta_manifiestos.xlsx')
+  }
+
   return (
     <div className="flex flex-col gap-6 pb-8">
 
@@ -663,6 +753,22 @@ export default function ConsultaPage({ openEnCarga, user }) {
           <Search size={14} /> Consultar
         </button>
       </form>
+
+      {/* Export bar — solo gerencia por ahora */}
+      {isGerencia && rows.length > 0 && (
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={exportCSV}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+            style={{ background: '#F1F5F9', color: MUTED, border: `1px solid ${BDR}` }}>
+            <Download size={12} /> CSV
+          </button>
+          <button type="button" onClick={exportExcel}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+            style={{ background: '#F1F5F9', color: MUTED, border: `1px solid ${BDR}` }}>
+            <Download size={12} /> Excel
+          </button>
+        </div>
+      )}
 
       {/* Results table */}
       <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${BDR}` }}>

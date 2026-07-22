@@ -916,9 +916,34 @@ export default function CargaPage({ target, clearTarget, user }) {
     })
   }
 
-  const revertEdit = () => {
+  const revertAll = () => {
     if (!ficha) return
     setFE(buildEditForm(ficha))
+    setFS({
+      fecha_cumplido:              ficha.fecha_cumplido              || '',
+      compromiso_pago:             ficha.compromiso_pago             || 'PAGO A 15 DIAS',
+      novedades:                   ficha.novedades                   ?? '',
+      estado_interno:              ficha.estado_interno              || '',
+      responsable_estado_interno:  ficha.responsable_estado_interno  || '',
+      novedad_conductor:           ficha.novedad_conductor           ?? '',
+      novedad_empresa:             ficha.novedad_empresa             ?? '',
+      ajuste_positivo_flete:       ficha.ajuste_positivo_flete       ?? '',
+      ajuste_negativo_flete:       ficha.ajuste_negativo_flete       ?? '',
+      consignacion_a_terceros:     ficha.consignacion_a_terceros     ?? '',
+    })
+    setFT({
+      fecha_pago:         ficha.fecha_pago         || '',
+      valor_pagado:       ficha.valor_pagado        ?? '',
+      entidad_financiera: ficha.entidad_financiera  || '',
+      responsable:        ficha.responsable         || '',
+    })
+    setFF({
+      factura_no:          ficha.factura_no          || '',
+      fecha_factura:       ficha.fecha_factura        || '',
+      factura_electronica: ficha.factura_electronica  || '',
+      mes_facturacion:     ficha.mes_facturacion      ?? '',
+      valor_factura:       ficha.valor_factura        ?? '',
+    })
     toast('success', 'Campos restaurados a los valores guardados.')
   }
 
@@ -1385,7 +1410,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                 </Field>
               </SectionCard>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={revertEdit}
+                <button type="button" onClick={revertAll}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
                   style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
                   <RotateCcw size={13} /> Restablecer
@@ -1471,7 +1496,12 @@ export default function CargaPage({ target, clearTarget, user }) {
                     </div>
                   </Field>
                 </SectionCard>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={revertAll}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
+                    style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
+                    <RotateCcw size={13} /> Restablecer
+                  </button>
                   <button type="submit" disabled={busy}
                     className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                     style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
@@ -1555,7 +1585,12 @@ export default function CargaPage({ target, clearTarget, user }) {
                   ))}
                 </SectionCard>
               )}
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={revertAll}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
+                  <RotateCcw size={13} /> Restablecer
+                </button>
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                   style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
@@ -1607,7 +1642,12 @@ export default function CargaPage({ target, clearTarget, user }) {
                   </div>
                 </Field>
               </SectionCard>
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={revertAll}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
+                  <RotateCcw size={13} /> Restablecer
+                </button>
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                   style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
@@ -1683,7 +1723,12 @@ export default function CargaPage({ target, clearTarget, user }) {
                 />
               )}
 
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={revertAll}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
+                  <RotateCcw size={13} /> Restablecer
+                </button>
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                   style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
