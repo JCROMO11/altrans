@@ -203,13 +203,13 @@
       - `handleSaveFact` actualizado: después de guardar, refresca la lista de relacionados.
       - Tests: 101/101 pasando.
      
-      🟢 BLOQUE 6 — MEDIA: UX y Edición ✅ PARCIAL (6.1 ✅ 6.2 ✅ 6.3 ⏳)
+      🟢 BLOQUE 6 — MEDIA: UX y Edición ✅ COMPLETADO
       
         | #   | Tarea                                                     | Dónde                   | Estado |
         |-----|-----------------------------------------------------------|-------------------------|--------|
-        | 6.1 | Botón "Restablecer" en todas las tabs de edición           | `CargaPage.jsx`         | ✅ Botón `Restablecer` (icono RotateCcw) en Despacho, Cumplimiento (2 variantes), Tesorería y Facturación. Función `revertAll()` restaura los 4 formularios desde `ficha`. Visible para todos los roles en edición. |
-        | 6.2 | Exportar consulta a Excel/CSV                              | `ConsultaPage.jsx`      | ✅ Dos botones (CSV y Excel) visibles solo para `gerencia` (por definir). Exportan todas las columnas de la tabla con valores formateados (money como número, fechas como texto). |
-        | 6.3 | Colores/filtros visuales en tabla de consulta              | `ConsultaPage.jsx`      | ⏳ Pendiente de revisión y decisión. Ver informe detallado abajo. |
+        | 6.1 | Botón "Restablecer" en todas las tabs de edición           | `CargaPage.jsx`         | ✅ Botón `Restablecer` (icono RotateCcw) en Despacho, Cumplimiento (x2), Tesorería y Facturación. Función `revertAll()` restaura los 4 formularios desde `ficha`. Visible para todos los roles en edición. |
+        | 6.2 | Exportar consulta a Excel/CSV                              | `ConsultaPage.jsx`      | ✅ Dos botones (CSV y Excel) visibles solo para `gerencia`. Exportan 41 columnas con valores formateados. Usa XLSX para Excel, CSV con quoting y BOM. |
+        | 6.3 | Colores/filtros visuales en tabla de consulta              | `ConsultaPage.jsx`      | ✅ Icono verde ✓ (Check lucide) en columna FE cuando `factura_electronica` existe. Tooltip nativo (`title`) ya existía en celdas Novedades/Novedad Conductor/Novedad Empresa. |
       
       ⚠️ PENDIENTE: Definir qué roles deben tener acceso al botón de exportación (actualmente solo gerencia).
          Preguntar a usuaria: "¿Además de gerencia, qué otro(s) rol(es) deberían poder exportar la consulta a Excel/CSV?"

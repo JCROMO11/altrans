@@ -905,7 +905,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
                         </span>
                       )}</Td>
                       <Td muted width="110px">{fmtDate(r.fecha_factura)}</Td>
-                      <Td muted width="260px">{r.factura_electronica ?? '—'}</Td>
+                      <Td muted width="260px">{r.factura_electronica ? <><Check size={11} style={{ color: GREEN, display: 'inline', verticalAlign: 'middle' }} /> {r.factura_electronica}</> : '—'}</Td>
                       {canVerValorFactura && (
                         <Td mono width="110px">{r.valor_factura != null ? money(r.valor_factura) : '—'}</Td>
                       )}
