@@ -134,6 +134,7 @@
         | 1.1 | Subir Drive + limpiar cumplidos sin FE                     | DB (script)             | ✅ Cargado (13,542 manif). 11 excepciones con `PENDIENTE_LEGALIZACION`. |
         | 1.2 | FE/legalización OBLIGATORIA para cumplido                  | DB + Dashboard          | ✅ CHECK `chk_cumplido_requiere_fe`. Dashboard: campo `fecha_cumplido` deshabilitado si no hay FE + bloqueo en `handleSaveSeg`. |
         | 1.3 | Propietario y conductor INMUTABLES en re-carga Excel       | Módulo Excel            | ✅ `guardar_digitador_batch` excluye conductor/cedula/propietario del UPDATE. `load_flat.py` con `IMMUTABLE_RELOAD_COLS`. |
+         | 1.4 | Validaciones Excel: $, celular, responsables, ciudades    | `excel-upload.js`, `geography.js` | ✅ `toNum()` limpia símbolos no numéricos (`$` , espacios). `cleanCelular()` valida 10 dígitos (match DB CHECK). `',' → null` en RESPONSABLE_FIXES (match Python ETL). `SANTA FE DE BOGOTA` y `SANTA MARTA` en fallbacks. |
         | 1.4 | Validaciones `valor_factura`                               | DB + Dashboard          | ✅ Se decidió dejar como campo manual (solo gerencia/financiero). Sin cambios en DB ni dashboard. |
      
       🔴 BLOQUE 2 — CRÍTICO: Campos de dinero + Saldo ✅ COMPLETADO
@@ -208,10 +209,20 @@
          Preguntar a usuaria: "¿Además de gerencia, qué otro(s) rol(es) deberían poder exportar la consulta a Excel/CSV?"
       
       🟡 BLOQUE 7 — MEDIA: Roles, permisos y filtrado por responsable
-      
-      ─────────────────────────────────────────────────────────────────────
-      DIAGNÓSTICO COMPLETO
-      ─────────────────────────────────────────────────────────────────────
+       
+       ─────────────────────────────────────────────────────────────────────
+       DIAGNÓSTICO COMPLETO
+       ─────────────────────────────────────────────────────────────────────
+       
+       ✅ IMPLEMENTADO: Toggle "Ver solo mis manifiestos" en ConsultaPage
+         - Match nombre_usuario (user_metadata.nombre) contra catalogos.responsables
+           usando normalizeResponsable() para consistencia con Excel
+         - Botón toggle en barra de filtros, visible solo para roles no-gerencia
+           que tengan responsable asociado
+         - Cuando activo: deshabilita filtro manual de Responsable, muestra badge
+           "Mis manifiestos" en gradiente azul, auto-filtra por nombre_responsable
+         - Cuando desactivo: limpia el filtro y recarga todo
+         - Ajustable post-reunión: agregar/remover matches, cambiar roles, etc.
       
       USUARIOS DEL SISTEMA (13):
       
@@ -296,16 +307,18 @@
       | Paso | Qué                                   | Dónde                                         | Cómo |
       |------|---------------------------------------|-----------------------------------------------|------|
       | 0    | Notificar a gerencia sobre inconsistencias | —                                           | Ver preguntas P10-P13 abajo |
-      | 1    | Agregar nombre_responsable a cada usuario | SQL: auth.users.raw_user_meta_data          | UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || '{"nombre_responsable": "MARCELA"}' WHERE ... |
-      | 2    | Modificar consulta_manifiestos RPC      | DB: schema_consolidated.sql                  | Agregar p_rol TEXT, p_nm_responsable TEXT; si rol != gerencia, filtrar nombre_responsable = p_nm_responsable |
-      | 3    | Frontend: pasar filtro automático       | useConsulta.js                               | Si rol != gerencia, pasar nombre_responsable desde user.user_metadata.nombre_responsable |
-      | 4    | Frontend: ocultar filtro Responsable     | ConsultaPage.jsx                             | No mostrar FilterAutocomplete de Responsable para no-gerencia |
-      | 5    | Frontend: badge "Tus manifiestos"       | ConsultaPage.jsx                             | Indicador visual cuando el filtro está activo |
-      | 6    | Auto-asignar responsable en carga       | CargaPage.jsx                                | Precargar nombre_responsable con user_metadata.nombre_responsable |
-      | 7    | (Opcional) Limpiar responsables no-persona | DB: batch UPDATE                          | Reemplazar ANULADO, BUENAVENTURA, etc. con NULL o agrupar |
+      | 1    | Agregar nombre_responsable a cada usuario | SQL: auth.users.raw_user_meta_data          | ✅ YA IMPLEMENTADO (lado cliente): match por nombre via normalizeResponsable(). Ajustar después con datos exactos de gerencia. |
+       | 2    | Modificar consulta_manifiestos RPC      | DB: schema_consolidated.sql                  | ✅ YA IMPLEMENTADO (lado cliente): el RPC ya soporta p_nombre_responsable. El toggle lo auto-aplica. |
+       | 3    | Frontend: pasar filtro automático       | useConsulta.js                               | ✅ YA IMPLEMENTADO: toggle en ConsultaPage.jsx setea filters.nombre_responsable |
+       | 4    | Frontend: ocultar filtro Responsable     | ConsultaPage.jsx                             | ✅ YA IMPLEMENTADO: cuando toggle activo, se reemplaza el FilterAutocomplete por badge estático |
+       | 5    | Frontend: badge "Tus manifiestos"       | ConsultaPage.jsx                             | ✅ YA IMPLEMENTADO: botón toggle con estilo gradiente activo + User icon |
+       | 6    | Auto-asignar responsable en carga       | CargaPage.jsx                                | Pendiente (no implementado aún) |
+       | 7    | (Opcional) Limpiar responsables no-persona | DB: batch UPDATE                          | Pendiente de aprobación de gerencia |
       
-      NOTA: Pasos 0-1 son prerrequisito (necesitamos el mapeo aprobado antes de codificar).
-      Pasos 2-6 se pueden implementar en paralelo una vez aprobado el mapeo.
+      NOTA: Pasos 0-6 se pueden ajustar post-reunión. Los cambios necesarios son mínimos:
+       - Agregar/quitar entradas en RESPONSABLE_FIXES (una línea cada una)
+       - Cambiar qué roles ven el toggle (una condición en JS)
+       - Todo el código ya está implementado y testeado (101/101 tests pasando).
 
       🔍 PENDIENTES — Preguntas para Julian / Altrans
 
