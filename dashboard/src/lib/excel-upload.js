@@ -11,19 +11,28 @@ const RESPONSABLE_FIXES = {
   'OPERAIVO 3':     'OPERATIVO 3',
   'LILIANAOBREGON': 'LILIANA OBREGON',
   'VANESA':         'VANESSA',
+  ',':              null,
 }
 
 function normalizeResponsable(s) {
   if (s == null) return null
   const up = String(s).trim().toUpperCase()
   if (!up) return null
-  return RESPONSABLE_FIXES[up] ?? up
+  const fixed = RESPONSABLE_FIXES[up]
+  return fixed === undefined ? up : fixed
 }
 
 const MESES_ARR = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
                    'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE']
 
 const trimOrNull = (v) => v != null ? String(v).trim() : null
+
+const cleanCelular = (v) => {
+  const s = trimOrNull(v)
+  if (!s) return null
+  const digits = s.replace(/\D/g, '')
+  return digits.length === 10 ? digits : null
+}
 
 // Convierte valores numéricos del Excel. Soporta:
 //   - Separadores de miles con coma o punto: "1,420,000" / "1.420.000"
@@ -32,7 +41,9 @@ const trimOrNull = (v) => v != null ? String(v).trim() : null
 export function toNum(v) {
   if (v == null) return null
   if (typeof v === 'number') return v || null
-  const s = String(v).trim()
+  let s = String(v).trim()
+  if (!s) return null
+  s = s.replace(/[^0-9.,;\-]/g, '')
   if (!s) return null
   if (s.includes(';')) {
     const suma = s.split(';').reduce((acc, part) => acc + (toNum(part.trim()) ?? 0), 0)
@@ -117,7 +128,7 @@ export function buildPayload(r, i, fileName = null) {
       p_cliente:              r['GENERADORES'] != null ? String(r['GENERADORES']).split(';')[0].trim() : null,
       p_conductor:            trimOrNull(r['CONDUCTOR']),
       p_cedula_conductor:     trimOrNull(r['DOC. CONDUCTOR']),
-      p_celular:              trimOrNull(r['TEL. CONDUCTOR']),
+      p_celular:              cleanCelular(r['TEL. CONDUCTOR']),
       p_placa:                trimOrNull(r['PLACA']),
       p_tipo_vehiculo:        trimOrNull(r['REMOLQUE']),
       p_propietario:          trimOrNull(r['POSEEDOR'] ?? r['PROPIETARIO']),

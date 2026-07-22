@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, ChevronDown, Check, ChevronLeft, ChevronRight, ExternalLink, AlertTriangle, ShieldCheck, Download } from 'lucide-react'
+import { Search, ChevronDown, Check, ChevronLeft, ChevronRight, ExternalLink, AlertTriangle, ShieldCheck, Download, User } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useCatalogos } from '../hooks/useCatalogos'
@@ -490,8 +490,27 @@ export default function ConsultaPage({ openEnCarga, user }) {
 
   const [filters,   setFilters]   = useState(FILTERS_INIT)
   const [activeTab, setActiveTab] = useState('manifiestos')
+  const [soloMisManifiestos, setSoloMisManifiestos] = useState(false)
+  const [miResponsable, setMiResponsable] = useState(null)
 
   const set = (k, v) => setFilters(f => ({ ...f, [k]: v }))
+
+  const RESPONSABLE_FIXES = {
+    'OPERATIVO3': 'OPERATIVO 3',
+    'OPERAIVO 3': 'OPERATIVO 3',
+    'LILIANAOBREGON': 'LILIANA OBREGON',
+    'VANESA': 'VANESSA',
+  }
+
+  useEffect(() => {
+    if (!catalogos.responsables) return
+    const userName = user?.user_metadata?.nombre || user?.app_metadata?.nombre || ''
+    if (!userName) { setMiResponsable(null); return }
+    const up = userName.trim().toUpperCase()
+    const fixed = RESPONSABLE_FIXES[up] ?? up
+    const match = catalogos.responsables.find(r => r.nombre === fixed)
+    setMiResponsable(match ? match.nombre : null)
+  }, [catalogos.responsables, user])
 
   const [alertas, setAlertas] = useState(null)
   useEffect(() => {
@@ -511,9 +530,27 @@ export default function ConsultaPage({ openEnCarga, user }) {
   const handleNext = () => { buscar(filters, page + 1) }
   const handlePrev = () => { buscar(filters, page - 1) }
 
+  const toggleMisManifiestos = () => {
+    if (soloMisManifiestos) {
+      setSoloMisManifiestos(false)
+      set('nombre_responsable', '')
+      buscar({ ...filters, nombre_responsable: '' }, 0)
+    } else {
+      setSoloMisManifiestos(true)
+      set('nombre_responsable', miResponsable)
+      buscar({ ...filters, nombre_responsable: miResponsable }, 0)
+    }
+  }
+
   const clearAll = () => {
-    setFilters(FILTERS_INIT)
-    buscar(FILTERS_INIT, 0)
+    if (soloMisManifiestos) {
+      const reset = { ...FILTERS_INIT, nombre_responsable: miResponsable }
+      setFilters(reset)
+      buscar(reset, 0)
+    } else {
+      setFilters(FILTERS_INIT)
+      buscar(FILTERS_INIT, 0)
+    }
   }
 
   const filtrarPorVencimiento = tipo => {
@@ -681,8 +718,19 @@ export default function ConsultaPage({ openEnCarga, user }) {
         className="rounded-2xl p-5" style={{ background: BG, border: `1px solid ${BDR}` }}>
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-semibold" style={{ color: TICK }}>Filtros de consulta</span>
-          <button type="button" onClick={clearAll}
-            className="text-xs hover:opacity-80" style={{ color: MUTED }}>Limpiar todo</button>
+          <div className="flex items-center gap-2">
+            {miResponsable && !isGerencia && (
+              <button type="button" onClick={toggleMisManifiestos}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={soloMisManifiestos
+                  ? { background: BTN_GRAD, color: '#fff', boxShadow: BTN_SHADOW }
+                  : { background: '#F1F5F9', color: MUTED, border: `1px solid ${BDR}` }}>
+                <User size={12} /> {soloMisManifiestos ? 'Mis manifiestos' : 'Ver todos'}
+              </button>
+            )}
+            <button type="button" onClick={clearAll}
+              className="text-xs hover:opacity-80" style={{ color: MUTED }}>Limpiar todo</button>
+          </div>
         </div>
 
         {/* Fila 1 */}
@@ -743,8 +791,17 @@ export default function ConsultaPage({ openEnCarga, user }) {
             value={filters.origen} onChange={v => set('origen', v)} />
           <FilterAutocomplete label="Destino" items={catalogos.lugares}
             value={filters.destino} onChange={v => set('destino', v)} />
-          <FilterAutocomplete label="Responsable" items={catalogos.responsables}
-            value={filters.nombre_responsable || null} onChange={v => set('nombre_responsable', v ?? '')} />
+          {soloMisManifiestos ? (
+            <Field label="Responsable">
+              <div className="flex items-center gap-2 px-3 py-2 text-sm rounded-md"
+                style={{ border: `1px solid ${BDR}`, background: '#F1F5F9', color: MUTED }}>
+                <User size={12} /> {miResponsable}
+              </div>
+            </Field>
+          ) : (
+            <FilterAutocomplete label="Responsable" items={catalogos.responsables}
+              value={filters.nombre_responsable || null} onChange={v => set('nombre_responsable', v ?? '')} />
+          )}
         </div>
 
         <button type="submit"
