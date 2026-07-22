@@ -148,6 +148,7 @@ function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, p
   const [saving, setSaving] = useState(false)
   const containerRef = useRef(null)
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setQuery(displayValue || '') }, [displayValue])
 
   const filtered = options
@@ -277,7 +278,7 @@ function PanelManifiestosFE({ manifiestos, manifiestoActual, loading }) {
   )
 }
 
-function SectionCard({ icon: Icon, title, children, cols = 3 }) {
+function SectionCard({ icon: Icon, title, children, cols = 3 }) { // eslint-disable-line no-unused-vars
   return (
     <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
       <div className="flex items-center gap-2 pb-3 border-b" style={{ borderColor: BDR }}>
@@ -916,6 +917,8 @@ export default function CargaPage({ target, clearTarget, user }) {
     })
   }
 
+  const toast = (type, text) => setMsg({ type, text })
+
   const revertAll = () => {
     if (!ficha) return
     setFE(buildEditForm(ficha))
@@ -949,6 +952,7 @@ export default function CargaPage({ target, clearTarget, user }) {
 
   useEffect(() => {
     if (!target) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery(String(target))
     search(target).then(data => {
       if (data) { loadFicha(data); setView('ficha') }
@@ -960,7 +964,7 @@ export default function CargaPage({ target, clearTarget, user }) {
 
   useEffect(() => {
     const fe = formFact.factura_electronica?.trim()
-    if (!fe) { setManifiestosFE(null); return }
+    if (!fe) { setManifiestosFE(null); return } // eslint-disable-line react-hooks/set-state-in-effect
     setLoadingFE(true)
     getManifiestosPorFE(fe)
       .then(data => setManifiestosFE(data))
@@ -968,8 +972,6 @@ export default function CargaPage({ target, clearTarget, user }) {
       .finally(() => setLoadingFE(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formFact.factura_electronica])
-
-  const toast = (type, text) => setMsg({ type, text })
 
   // ── Conductor select helpers ─────────────────────────────────────────────
   const fillConductor = (nombreCond, setter) => {

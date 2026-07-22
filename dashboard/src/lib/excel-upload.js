@@ -43,7 +43,7 @@ export function toNum(v) {
   if (typeof v === 'number') return v || null
   let s = String(v).trim()
   if (!s) return null
-  s = s.replace(/[^0-9.,;\-]/g, '')
+  s = s.replace(/[^0-9.,;-]/g, '')
   if (!s) return null
   if (s.includes(';')) {
     const suma = s.split(';').reduce((acc, part) => acc + (toNum(part.trim()) ?? 0), 0)

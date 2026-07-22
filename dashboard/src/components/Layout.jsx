@@ -102,7 +102,7 @@ export default function Layout({ children, page, setPage, user }) {
               Módulos
             </p>
           )}
-          {navItems.map(({ icon: Icon, label, id }) => {
+          {navItems.map(({ icon: Icon, label, id }) => { // eslint-disable-line no-unused-vars
             const active = page === id
             return (
               <button

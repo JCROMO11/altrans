@@ -7,7 +7,7 @@ const TICK = '#0F172A'
 const BLUE = '#1E6FBF'
 const MUTED = '#64748B'
 
-export default function LoginGate({ children }) {
+export default function LoginGate() {
   const [input, setInput]     = useState({ cedula: '', password: '' })
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(false)

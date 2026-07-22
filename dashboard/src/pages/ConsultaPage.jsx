@@ -495,17 +495,16 @@ export default function ConsultaPage({ openEnCarga, user }) {
 
   const set = (k, v) => setFilters(f => ({ ...f, [k]: v }))
 
-  const RESPONSABLE_FIXES = {
-    'OPERATIVO3': 'OPERATIVO 3',
-    'OPERAIVO 3': 'OPERATIVO 3',
-    'LILIANAOBREGON': 'LILIANA OBREGON',
-    'VANESA': 'VANESSA',
-  }
-
   useEffect(() => {
+    const RESPONSABLE_FIXES = {
+      'OPERATIVO3': 'OPERATIVO 3',
+      'OPERAIVO 3': 'OPERATIVO 3',
+      'LILIANAOBREGON': 'LILIANA OBREGON',
+      'VANESA': 'VANESSA',
+    }
     if (!catalogos.responsables) return
     const userName = user?.user_metadata?.nombre || user?.app_metadata?.nombre || ''
-    if (!userName) { setMiResponsable(null); return }
+    if (!userName) { setMiResponsable(null); return } // eslint-disable-line react-hooks/set-state-in-effect
     const up = userName.trim().toUpperCase()
     const fixed = RESPONSABLE_FIXES[up] ?? up
     const match = catalogos.responsables.find(r => r.nombre === fixed)
