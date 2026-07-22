@@ -93,6 +93,15 @@ export function useManifiesto() {
     if (error) throw error
   }
 
+  const getManifiestosPorFE = async (factura_electronica) => {
+    if (!factura_electronica) return []
+    const { data, error } = await supabase.rpc('get_manifiestos_por_fe', {
+      p_factura_electronica: factura_electronica,
+    })
+    if (error) throw error
+    return data ?? []
+  }
+
   const remove = async (manifiesto_id) => {
     const { error } = await supabase.rpc('borrar_manifiesto', { p_manifiesto: manifiesto_id })
     if (error) throw error
@@ -109,5 +118,5 @@ export function useManifiesto() {
     if (error) throw error
   }
 
-  return { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion }
+  return { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion, getManifiestosPorFE }
 }

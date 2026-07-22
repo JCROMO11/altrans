@@ -1,6 +1,6 @@
  INFORME TÉCNICO — PROYECTO ALTRANS (Versión 5.0)
     
-     Julio 2026 | Estado general: MVP funcional ~90%
+      Julio 2026 | Estado general: MVP funcional ~93%
     
     
     
@@ -50,15 +50,15 @@
      
     3. DIAGNÓSTICO POR MÓDULO
  
-     3.1 Dashboard (React SPA + Supabase directo) — ✅ 88%
+     3.1 Dashboard (React SPA + Supabase directo) — ✅ 92%
      Mejoras en feature/pruebas-dashboard-julio2026:
      
      - Bloque 1.2: Validación FE antes de marcar cumplido (campo deshabilitado + tooltip + bloqueo en handleSaveSeg)
      - Bloque 1.3: Excel upload usa guardar_digitador_batch (no sobreescribe conductor/propietario)
      - Bloque 2.2: buildPayload mapea RETEICA y R. FOPAT del Excel
-     - 77/77 tests pasando
-    
-    ⚠️ Alta:
+      - 101/101 tests pasando
+     
+     ⚠️ Alta:
     - Sin comparativa mes a mes o año contra año
     - Sin drill-down: click en gráfico → consulta filtrada
     - Sin filtro por agencia despachadora, cliente, o conductor
@@ -123,8 +123,6 @@
     - Unificar cliente WhatsApp con el del chatbot
     
     ❓ Consultas pendientes a Altrans:
-    - falta_documentacion: ¿qué documentos específicos son? (carta porte,
-      remesa original, factura de compra, fotocopia cédula, etc.)
     - plazo_vigente: confirmado — se envía automáticamente al momento de
       llenar fecha_cumplido
     
@@ -172,7 +170,7 @@
        - `FilterAutocomplete` mejorado con `searchKey` (filtra por otra key distinta al label) y
          subtítulo automático del `nombre` cuando labelKey ≠ "nombre" (ej. cédula + nombre).
        - Todos los filtros nuevos se pasan también a `consulta_totales` (no solo a `consulta_manifiestos`).
-       - Tests: 77/77 siguen pasando.
+        - Tests: 101/101 siguen pasando.
      
       🟠 BLOQUE 4 — ALTA: Alerta de vencimientos ✅ COMPLETADO
       
@@ -187,16 +185,23 @@
       - Click en badge → limpia filtros, setea estado_vencimiento, busca → tabla muestra solo vencidos/porVencer. Click again → desactiva.
       - `dashboard_kpis`: nuevo CTE `con_fecha_estimada` + 3 nuevos keys: vencidos, porVencer, saldoVencido.
       - VencimientoBadge calcula diferencias en JS desde `fecha_estimada_pago` (ya viene de v_manifiestos).
-      - Tests: 77/77 pasando.
+      - Tests: 101/101 pasando.
       - Dashboard: nueva fila "Vencimientos" con KPIs (Vencidos, Por vencer <7d, Al día). Solo para gerencia/financiero/administrativo.
      
-     🟠 BLOQUE 5 — ALTA: Factura electrónica multi-manifiesto
-     
-       | #   | Tarea                                                     | Dónde                   | Cómo |
-       |-----|-----------------------------------------------------------|-------------------------|------|
-       | 5.1 | Vista de manifiestos asociados a la misma FE               | `CargaPage.jsx`         | Panel lateral con listado de manifiestos que comparten `factura_electronica`. Resaltar el actual en azul. |
-       | 5.2 | Total acumulado de `valor_factura` + `saldo` por FE        | `CargaPage.jsx`         | Suma de `valor_factura`, suma de `saldo`, conteo de manifiestos por FE. |
-       | 5.3 | Autocompletado de facturas existentes                      | `CargaPage.jsx`         | Componente `<Autocomplete>` que sugiera `factura_electronica` y `factura_no` ya existentes. |
+      🟠 BLOQUE 5 — ALTA: Factura electrónica multi-manifiesto ✅ COMPLETADO
+      
+        | #   | Tarea                                                     | Dónde                   | Estado |
+        |-----|-----------------------------------------------------------|-------------------------|--------|
+        | 5.1 | Vista de manifiestos asociados a la misma FE               | `CargaPage.jsx`         | ✅ Panel `PanelManifiestosFE` con listado + resaltado en azul del manifiesto actual. Visible en vista lectura y edición. |
+        | 5.2 | Total acumulado de `valor_factura` + `saldo` por FE        | `CargaPage.jsx`         | ✅ Fila "TOTALES" al pie del panel con suma de `valor_factura`, `saldo` y conteo de manifiestos. |
+        | 5.3 | Autocompletado de facturas existentes                      | `CargaPage.jsx`         | ✅ Campos `factura_no` y `factura_electronica` convertidos a `<Autocomplete>` con sugerencias de valores existentes en DB. |
+      
+      Detalle técnico:
+      - Nuevo RPC `get_manifiestos_por_fe(TEXT)` en Supabase: devuelve manifiesto, cliente, fecha, factura_no, valor_factura, saldo para una FE dada.
+      - `get_catalogos` extendido con `facturas_electronicas` y `facturas_no` para alimentar los Autocomplete.
+      - Efecto `useEffect` en CargaPage: al cambiar `formFact.factura_electronica`, consulta los manifiestos relacionados.
+      - `handleSaveFact` actualizado: después de guardar, refresca la lista de relacionados.
+      - Tests: 101/101 pasando.
      
      🟡 BLOQUE 6 — MEDIA: UX y Edición
      

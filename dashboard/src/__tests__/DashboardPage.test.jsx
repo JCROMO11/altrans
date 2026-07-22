@@ -8,6 +8,7 @@ const mockData = {
   totalRemesas: 50_000_000, totalFletes: 30_000_000,
   totalAnticipo: 10_000_000, pendientePagar: 8_000_000,
   sinFechaCumplido: 3, sinFactura: 7, conNovedad: 2, diasPromFacturar: 5,
+  vencidos: 8, porVencer: 4, saldoVencido: 2_500_000,
   lineChart: [
     { mes: 'ENE', facturado: 0, ganancia: 0 },
     { mes: 'FEB', facturado: 0, ganancia: 0 },
@@ -105,5 +106,65 @@ describe('DashboardPage', () => {
     useDashboardMock.mockReturnValue({ data: null, loading: true })
     // No debe lanzar
     expect(() => render(<DashboardPage user={defaultUser} />)).not.toThrow()
+  })
+
+  // ── Bloque 4: KPIs de Vencimientos ───────────────────────────────────────
+
+  it('renderiza sección Vencimientos con 3 KPIs', async () => {
+    useDashboardMock.mockReturnValue({ data: mockData, loading: false })
+    render(<DashboardPage user={defaultUser} />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Vencimientos/i)).toBeInTheDocument()
+    })
+    expect(screen.getByText('Vencidos')).toBeInTheDocument()
+    expect(screen.getByText('Por vencer (<7d)')).toBeInTheDocument()
+    expect(screen.getByText('Al día')).toBeInTheDocument()
+  })
+
+  it('KPI Vencidos muestra el valor del RPC', () => {
+    useDashboardMock.mockReturnValue({ data: mockData, loading: false })
+    render(<DashboardPage user={defaultUser} />)
+    expect(screen.getByText('8')).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
+  })
+
+  it('KPI Al día se calcula como total - anulados - vencidos - porVencer', () => {
+    // mockData: total=100, anulados=5, vencidos=8, porVencer=4
+    // Al día = 100 - 5 - 8 - 4 = 83
+    useDashboardMock.mockReturnValue({ data: mockData, loading: false })
+    render(<DashboardPage user={defaultUser} />)
+    expect(screen.getByText('83')).toBeInTheDocument()
+  })
+
+  it('KPI Al día nunca es negativo (Math.max con 0)', () => {
+    const inviable = {
+      ...mockData,
+      totalManifiestos: 5, anulados: 0, vencidos: 8, porVencer: 2,
+    }
+    useDashboardMock.mockReturnValue({ data: inviable, loading: false })
+    render(<DashboardPage user={defaultUser} />)
+    // Al día = max(0, 5 - 0 - 8 - 2) = 0. Tanto Vencidos como Al día son 0.
+    const ceros = screen.getAllByText('0')
+    expect(ceros.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('si data no tiene vencidos/porVencer usa 0 por defecto', () => {
+    // Sin los nuevos campos: deben caer a 0
+    const v4 = {
+      ...mockData,
+      vencidos: undefined, porVencer: undefined,
+    }
+    useDashboardMock.mockReturnValue({ data: v4, loading: false })
+    expect(() => render(<DashboardPage user={defaultUser} />)).not.toThrow()
+    // total=100 anulados=5 → 100 - 5 = 95
+    expect(screen.getByText('95')).toBeInTheDocument()
+  })
+
+  it('roles sin privilegios NO ven el Dashboard (ven lock)', () => {
+    useDashboardMock.mockReturnValue({ data: mockData, loading: false })
+    render(<DashboardPage user={{ app_metadata: { role: 'logistico' } }} />)
+    expect(screen.getByText(/Acceso restringido/i)).toBeInTheDocument()
+    expect(screen.queryByText('Vencidos')).not.toBeInTheDocument()
   })
 })

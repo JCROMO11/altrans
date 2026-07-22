@@ -36,6 +36,96 @@ describe('useConsulta', () => {
     expect(params.p_offset).toBe(0)
   })
 
+  // ── Bloque 3: filtros nuevos ──────────────────────────────────────────────
+
+  it('pasa p_cedula_conductor a ambos RPC', async () => {
+    supabase.rpc.mockResolvedValueOnce({ data: sampleRows, error: null })
+                .mockResolvedValueOnce({ data: sampleTotals, error: null })
+
+    const { result } = renderHook(() => useConsulta())
+    await act(async () => {
+      await result.current.buscar({ cedula_conductor: '12345678' })
+    })
+
+    const [r1, params1] = supabase.rpc.mock.calls[0]
+    const [r2, params2] = supabase.rpc.mock.calls[1]
+    expect(r1).toBe('consulta_manifiestos')
+    expect(r2).toBe('consulta_totales')
+    expect(params1.p_cedula_conductor).toBe('12345678')
+    expect(params2.p_cedula_conductor).toBe('12345678')
+  })
+
+  it('pasa p_tiene_fe: true | false | null según el valor del filtro', async () => {
+    supabase.rpc.mockResolvedValueOnce({ data: sampleRows, error: null })
+                .mockResolvedValueOnce({ data: sampleTotals, error: null })
+
+    const { result } = renderHook(() => useConsulta())
+
+    // Test 'true'
+    await act(async () => { await result.current.buscar({ tiene_fe: 'true' }) })
+    expect(supabase.rpc.mock.calls[0][1].p_tiene_fe).toBe(true)
+    expect(supabase.rpc.mock.calls[1][1].p_tiene_fe).toBe(true)
+
+    vi.clearAllMocks()  // limpia llamadas pero mantiene mock return
+    supabase.rpc.mockResolvedValueOnce({ data: sampleRows, error: null })
+                .mockResolvedValueOnce({ data: sampleTotals, error: null })
+
+    // Test 'false'
+    await act(async () => { await result.current.buscar({ tiene_fe: 'false' }) })
+    expect(supabase.rpc.mock.calls[0][1].p_tiene_fe).toBe(false)
+    expect(supabase.rpc.mock.calls[1][1].p_tiene_fe).toBe(false)
+
+    vi.clearAllMocks()
+    supabase.rpc.mockResolvedValueOnce({ data: sampleRows, error: null })
+                .mockResolvedValueOnce({ data: sampleTotals, error: null })
+
+    // Test '' → null
+    await act(async () => { await result.current.buscar({ tiene_fe: '' }) })
+    expect(supabase.rpc.mock.calls[0][1].p_tiene_fe).toBe(null)
+    expect(supabase.rpc.mock.calls[1][1].p_tiene_fe).toBe(null)
+  })
+
+  it('pasa p_nombre_responsable a ambos RPC', async () => {
+    supabase.rpc.mockResolvedValueOnce({ data: sampleRows, error: null })
+                .mockResolvedValueOnce({ data: sampleTotals, error: null })
+
+    const { result } = renderHook(() => useConsulta())
+    await act(async () => {
+      await result.current.buscar({ nombre_responsable: 'ANDRES' })
+    })
+
+    expect(supabase.rpc.mock.calls[0][1].p_nombre_responsable).toBe('ANDRES')
+    expect(supabase.rpc.mock.calls[1][1].p_nombre_responsable).toBe('ANDRES')
+  })
+
+  // ── Bloque 4: estado_vencimiento ──────────────────────────────────────────
+
+  it('pasa p_estado_vencimiento a ambos RPC', async () => {
+    supabase.rpc.mockResolvedValueOnce({ data: sampleRows, error: null })
+                .mockResolvedValueOnce({ data: sampleTotals, error: null })
+
+    const { result } = renderHook(() => useConsulta())
+    await act(async () => {
+      await result.current.buscar({ estado_vencimiento: 'vencidos' })
+    })
+
+    expect(supabase.rpc.mock.calls[0][1].p_estado_vencimiento).toBe('vencidos')
+    expect(supabase.rpc.mock.calls[1][1].p_estado_vencimiento).toBe('vencidos')
+  })
+
+  it('pasa null en p_estado_vencimiento cuando no está seteado', async () => {
+    supabase.rpc.mockResolvedValueOnce({ data: sampleRows, error: null })
+                .mockResolvedValueOnce({ data: sampleTotals, error: null })
+
+    const { result } = renderHook(() => useConsulta())
+    await act(async () => {
+      await result.current.buscar({ estado_vencimiento: '' })
+    })
+
+    expect(supabase.rpc.mock.calls[0][1].p_estado_vencimiento).toBe(null)
+    expect(supabase.rpc.mock.calls[1][1].p_estado_vencimiento).toBe(null)
+  })
+
   it('hasMore=true cuando hay más de PAGE_SIZE filas', async () => {
     const tooMany = Array.from({ length: 51 }, (_, i) => ({ manifiesto: i }))
     supabase.rpc.mockResolvedValueOnce({ data: tooMany, error: null })

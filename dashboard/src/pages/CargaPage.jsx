@@ -206,6 +206,77 @@ function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, p
   )
 }
 
+function PanelManifiestosFE({ manifiestos, manifiestoActual, loading }) {
+  if (loading) {
+    return (
+      <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
+        <p className="text-sm" style={{ color: MUTED }}>Cargando manifiestos relacionados...</p>
+      </div>
+    )
+  }
+  if (!manifiestos || manifiestos.length === 0) return null
+
+  const totalValor = manifiestos.reduce((s, m) => s + (Number(m.valor_factura) || 0), 0)
+  const totalSaldo = manifiestos.reduce((s, m) => s + (Number(m.saldo) || 0), 0)
+
+  return (
+    <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
+      <div className="flex items-center gap-2 pb-3 border-b" style={{ borderColor: BDR }}>
+        <FileText size={13} color={BLUE} />
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: TICK }}>
+          Manifiestos con esta FE
+        </p>
+      </div>
+
+      <div className="grid grid-cols-[80px_1fr_140px_140px] gap-2 text-[10px] font-bold uppercase tracking-wider px-3"
+        style={{ color: MUTED }}>
+        <span>Manifiesto</span>
+        <span>Cliente</span>
+        <span className="text-right">Valor factura</span>
+        <span className="text-right">Saldo</span>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        {manifiestos.map(m => {
+          const esActual = m.manifiesto === manifiestoActual
+          return (
+            <div key={m.manifiesto}
+              className="grid grid-cols-[80px_1fr_140px_140px] gap-2 items-center px-3 py-2 rounded-lg text-sm"
+              style={{
+                background: esActual ? BLUE + '12' : 'transparent',
+                border: esActual ? `1px solid ${BLUE}44` : `1px solid transparent`,
+              }}>
+              <span className="font-mono font-bold" style={{ color: GOLD }}>{m.manifiesto}</span>
+              <span className="truncate" style={{ color: TICK }}>{m.cliente ?? '—'}</span>
+              <span className="text-right font-mono" style={{ color: TICK }}>
+                {m.valor_factura != null ? `$${Number(m.valor_factura).toLocaleString('es-CO')}` : '—'}
+              </span>
+              <span className="text-right font-mono" style={{ color: TICK }}>
+                {m.saldo != null ? `$${Number(m.saldo).toLocaleString('es-CO')}` : '—'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="border-t pt-3" style={{ borderColor: BDR }}>
+        <div className="grid grid-cols-[80px_1fr_140px_140px] gap-2 items-center px-3 text-sm font-bold">
+          <span style={{ color: MUTED }}>TOTALES</span>
+          <span className="text-xs" style={{ color: MUTED }}>
+            {manifiestos.length} manifiesto{manifiestos.length !== 1 ? 's' : ''}
+          </span>
+          <span className="text-right font-mono" style={{ color: TICK }}>
+            ${totalValor.toLocaleString('es-CO')}
+          </span>
+          <span className="text-right font-mono" style={{ color: TICK }}>
+            ${totalSaldo.toLocaleString('es-CO')}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SectionCard({ icon: Icon, title, children, cols = 3 }) {
   return (
     <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
@@ -768,11 +839,13 @@ export default function CargaPage({ target, clearTarget, user }) {
   const [editMode,  setEditMode]    = useState(false)
   const [confirmDel, setConfirmDel]     = useState(false)
   const [deleteText, setDeleteText]     = useState('')
-  const [busy,   setBusy]   = useState(false)
-  const [msg,    setMsg]    = useState(null)
+  const [busy,      setBusy]      = useState(false)
+  const [msg,       setMsg]       = useState(null)
+  const [manifiestosFE, setManifiestosFE] = useState(null)
+  const [loadingFE, setLoadingFE] = useState(false)
 
   const { catalogos } = useCatalogos()
-  const { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion } = useManifiesto()
+  const { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion, getManifiestosPorFE } = useManifiesto()
 
   // ── Catalog options ─────────────────────────────────────────────────────────
   const optConductores  = catalogos.conductores.map(c => ({ id: c.nombre, label: c.nombre, sub: c.cedula }))
@@ -783,6 +856,8 @@ export default function CargaPage({ target, clearTarget, user }) {
   const optRemolques    = catalogos.remolques.map(r => ({ id: r.placa, label: r.placa }))
   const optAgencias     = catalogos.agencias.map(a => ({ id: a.nombre, label: a.nombre }))
   const optPropietarios = catalogos.propietarios.map(p => ({ id: p.nombre, label: p.nombre }))
+  const optFacturasElectronicas = catalogos.facturas_electronicas.map(f => ({ id: f.nombre, label: f.nombre }))
+  const optFacturasNo = catalogos.facturas_no.map(f => ({ id: f.nombre, label: f.nombre }))
 
   const newText = (nombre) => ({ id: nombre, nombre, label: nombre, placa: nombre })
 
@@ -857,6 +932,17 @@ export default function CargaPage({ target, clearTarget, user }) {
     clearTarget?.()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target])
+
+  useEffect(() => {
+    const fe = formFact.factura_electronica?.trim()
+    if (!fe) { setManifiestosFE(null); return }
+    setLoadingFE(true)
+    getManifiestosPorFE(fe)
+      .then(data => setManifiestosFE(data))
+      .catch(() => setManifiestosFE([]))
+      .finally(() => setLoadingFE(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formFact.factura_electronica])
 
   const toast = (type, text) => setMsg({ type, text })
 
@@ -993,6 +1079,11 @@ export default function CargaPage({ target, clearTarget, user }) {
       toast('success', 'Facturación actualizada correctamente.')
       const data = await search(ficha.manifiesto)
       loadFicha(data)
+      if (data?.factura_electronica) {
+        getManifiestosPorFE(data.factura_electronica)
+          .then(d => setManifiestosFE(d))
+          .catch(() => {})
+      }
     } catch (err) { toast('error', err.message ?? 'Error al guardar') }
     finally { setBusy(false) }
   }
@@ -1545,6 +1636,15 @@ export default function CargaPage({ target, clearTarget, user }) {
                   ))}
                 </div>
               </div>
+
+              {ficha.factura_electronica && manifiestosFE && manifiestosFE.length > 0 && (
+                <PanelManifiestosFE
+                  manifiestos={manifiestosFE}
+                  manifiestoActual={ficha.manifiesto}
+                  loading={loadingFE}
+                />
+              )}
+
               <p className="text-xs" style={{ color: MUTED }}>Solo el equipo financiero puede editar esta sección.</p>
             </div>
           )}
@@ -1553,8 +1653,9 @@ export default function CargaPage({ target, clearTarget, user }) {
           {tab === 'facturacion' && canEditFinanciero && (
             <form onSubmit={handleSaveFact} className="flex flex-col gap-4">
               <SectionCard icon={FileText} title="Facturación" cols={2}>
-                <Input label="N° Factura" placeholder="FE-0001"
-                  value={formFact.factura_no} onChange={e => ff('factura_no')(e.target.value)} />
+                <Autocomplete label="N° Factura" displayValue={formFact.factura_no}
+                  placeholder="FE-0001" options={optFacturasNo}
+                  onSelect={o => setFF(p => ({ ...p, factura_no: o.label }))} />
                 <DateInput label="Fecha de emisión de factura"
                   value={formFact.fecha_factura}
                   onChange={e => {
@@ -1567,13 +1668,21 @@ export default function CargaPage({ target, clearTarget, user }) {
                   onChange={e => ff('valor_factura')(e.target.value)} />
               </SectionCard>
               <SectionCard icon={ClipboardList} title="Legalización FE / DS" cols={1}>
-                <Field label="N° Legalización / Propietario vehículo (prefijo: FE, DS, FWP...)" col={1}>
-                  <input className={inputCls} style={{ borderColor: BDR }}
-                    placeholder="FE-MC-00001 / Nombre propietario"
-                    value={formFact.factura_electronica}
-                    onChange={e => ff('factura_electronica')(e.target.value)} />
-                </Field>
+                <Autocomplete label="N° Legalización / Propietario vehículo (prefijo: FE, DS, FWP...)"
+                  displayValue={formFact.factura_electronica}
+                  placeholder="FE-MC-00001 / Nombre propietario"
+                  options={optFacturasElectronicas}
+                  onSelect={o => setFF(p => ({ ...p, factura_electronica: o.label }))} />
               </SectionCard>
+
+              {formFact.factura_electronica?.trim() && (
+                <PanelManifiestosFE
+                  manifiestos={manifiestosFE}
+                  manifiestoActual={ficha?.manifiesto}
+                  loading={loadingFE}
+                />
+              )}
+
               <div className="flex justify-end">
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"

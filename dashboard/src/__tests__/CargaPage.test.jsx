@@ -6,6 +6,7 @@ vi.mock('../hooks/useCatalogos', () => ({
     catalogos: {
       conductores: [], clientes: [], lugares: [],
       responsables: [], vehiculos: [], remolques: [], agencias: [], propietarios: [],
+      facturas_electronicas: [], facturas_no: [],
     },
     loading: false,
     createConductor: vi.fn(), updateConductor: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('../hooks/useManifiesto', () => ({
     updateLogistico: vi.fn(),
     updateTesoreria: vi.fn(),
     updateFacturacion: vi.fn(),
+    getManifiestosPorFE: vi.fn().mockResolvedValue([]),
   }),
 }))
 

@@ -52,6 +52,7 @@ DROP FUNCTION IF EXISTS public.guardar_financiero                  CASCADE;
 DROP FUNCTION IF EXISTS public.borrar_manifiesto                   CASCADE;
 DROP FUNCTION IF EXISTS public.get_usuarios                        CASCADE;
 DROP FUNCTION IF EXISTS public.get_catalogos                       CASCADE;
+DROP FUNCTION IF EXISTS public.get_manifiestos_por_fe              CASCADE;
 DROP FUNCTION IF EXISTS public.user_role                           CASCADE;
 DROP VIEW     IF EXISTS public.v_chatbot_manifiestos               CASCADE;
 DROP VIEW     IF EXISTS public.v_manifiestos                       CASCADE;
@@ -1231,9 +1232,51 @@ AS $$
                 FROM public.manifiestos_flat
                 WHERE compromiso_pago IS NOT NULL AND compromiso_pago <> ''
             ) cp
+        ),
+
+        'facturas_electronicas', (
+            SELECT COALESCE(json_agg(nombre ORDER BY nombre), '[]'::json)
+            FROM (
+                SELECT DISTINCT factura_electronica AS nombre
+                FROM public.manifiestos_flat
+                WHERE factura_electronica IS NOT NULL AND factura_electronica <> ''
+            ) fe
+        ),
+
+        'facturas_no', (
+            SELECT COALESCE(json_agg(nombre ORDER BY nombre), '[]'::json)
+            FROM (
+                SELECT DISTINCT factura_no AS nombre
+                FROM public.manifiestos_flat
+                WHERE factura_no IS NOT NULL AND factura_no <> ''
+            ) fn
         )
 
     )
+$$;
+
+
+-- ── get_manifiestos_por_fe ─────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_manifiestos_por_fe(
+    p_factura_electronica TEXT
+)
+RETURNS JSON
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = ''
+AS $$
+    SELECT COALESCE(json_agg(m ORDER BY m.manifiesto), '[]'::json)
+    FROM (
+        SELECT
+            manifiesto,
+            cliente,
+            fecha_despacho,
+            factura_no,
+            valor_factura,
+            saldo
+        FROM public.manifiestos_flat
+        WHERE factura_electronica = p_factura_electronica
+        ORDER BY manifiesto
+    ) m
 $$;
 
 
@@ -1677,6 +1720,7 @@ REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                 
 REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento()                                                                                               FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_notify_plazo_vigente()                                                                                                   FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_notify_pago_realizado()                                                                                                   FROM PUBLIC;
@@ -1697,6 +1741,7 @@ GRANT EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                  
 GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    TO authenticated;
 GRANT EXECUTE ON FUNCTION public.consulta_alertas_vencimiento()                                                                                               TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
