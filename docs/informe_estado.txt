@@ -64,8 +64,6 @@
     - Sin filtro por agencia despachadora, cliente, o conductor
     
     🟡 Media:
-    - Sin exportar gráficos como imagen
-    - Sin exportación a Excel/CSV de consulta
     - Columnas seleccionables en tabla de consulta
     
     
@@ -81,14 +79,9 @@
      ✅ Rate limiting (login: 5 req/min, chat: 10 req/min por token)
      ✅ Refactor async (FastAPI async + httpx.AsyncClient)
      ✅ Loguru + logging persistente a Supabase + archivo rotativo
-     ✅ Prompts editables desde Supabase con fallback local
-     
-     Pendiente:
-     - Control de costos LLM por tokens (evaluar con uso real)
+     ✅ Prompts editables desde Supabase con fallback local    
     
-    
-    
-      3.3 Módulo de Notificaciones (Backup + Mensajes Automáticos) — ✅ 88%
+3.3 Módulo de Notificaciones (Backup + Mensajes Automáticos) — ✅ 88%
 
     Implementado en feature/notificaciones:
     
@@ -371,27 +364,22 @@
       NOTA: Pasos 0-1 son prerrequisito (necesitamos el mapeo aprobado antes de codificar).
       Pasos 2-6 se pueden implementar en paralelo una vez aprobado el mapeo.
 
-      🔍 PENDIENTES BLOQUE 7 — Preguntas para gerencia (resolver antes de implementar)
+      🔍 PENDIENTES — Preguntas para Julian / Altrans
 
         | #   | Pregunta |
         |-----|----------|
+        | P1  | Regla de retención: si reajuste > X, ¿el 1% retefuente se calcula sobre el reajuste también o solo sobre el flete base? |
+        | P2  | **Campos de dinero agregados**: `reteica`, `r_fopat` (del Excel) + `retencion_conductor` (1% auto). Sin IVA ni otros. ¿Falta algún campo de dinero que debamos agregar? |
+        | P3  | Trazabilidad → **implementar después** (no prioridad ahora) |
+        | P4  | ␀ (eliminada, fusionada con P12) |
+        | P5  | **Filtro por responsable**: ¿restricción TOTAL (solo ve sus manifiestos) o prioridad (ve todos pero primero los suyos)? |
+        | P6  | **`valor_factura`**: ¿tiene formato/validación específica? ej. `factura_electronica` = prefijo + número secuencial, `valor_factura` = valor del servicio IVA incluido o sin IVA, redondeo, decimales? |
+        | P7  | ␀ (resuelta: Marcela se asigna vía `nombre_responsable = "MARCELA"`) |
+        | P8  | **Columnas Excel vs DB**: investigado — las 19 columnas del Excel RNDC mapean correctamente a la BD. No faltan campos del Excel. Las ~30 columnas restantes en BD son para otros roles (logístico, tesorería, financiero) o auto-calculadas. ¿Confirmas que está completo o falta algo? |
+        | P9  | **`neto_a_pagar` / `saldo`**: Actualmente `saldo` es columna GENERADA (flete ± ajustes − retenciones − anticipo). ¿Agregamos columna física `neto_a_pagar` desde el Excel RNDC para conciliación directa, o dejamos el saldo calculado como está? |
         | P10 | **17 responsables sin usuario**: ALEJANDRA, ANGELA G, DAVID, DIANA G., ELIZABETH SUAREZ, HAIR, KAROL, KAROL ARCINIEGAS, KATTY, KATY, LILIANA, LILIANA OBREGON, MILENA GUTIERREZ, VANESSA, YANETH F, YURANY ESTUPINA. ¿Deberían tener acceso al dashboard? ¿O son personas externas (conductores, clientes) que no necesitan cuenta? |
-        | P11 | **"ANGIE" vs "ANGIE OVIEDO"** en la BD: ¿es la misma persona (ANGIE PAOLA OVIEDO OBANDO, logistico) o son dos personas distintas? Si es la misma, unificamos el nombre a "ANGIE OVIEDO". |
-        | P12 | **12 responsables no-persona**: ANULADO, BUENAVENTURA, FLOTA PROPIA, FP, HOJASDEVIDA1, LOGISTICACALI2, OPERATIVO 1/2/3, OPERATIVO BUENA, OTROS, URBANO. ¿Limpiarlos (reemplazar con NULL o agrupar bajo una agencia)? |
-        | P13 | **3 logisticos sin manifiestos**: KATHERINE VACA, LARIZA HERRERA, MIGUEL PEÑALOZA. ¿Es correcto que no tengan manifiestos? ¿O hay que reasignarles los existentes bajo su nombre? |
+        | P11 | **"ANGIE" vs "ANGIE OVIEDO"** en la BD: ¿es la misma persona (ANGIE PAOLA OVIEDO OBANDO, logistico) o son dos personas distintas? Si es la misma, unificamos a "ANGIE OVIEDO". |
+        | P12 | **12 responsables no-persona** (ANULADO, BUENAVENTURA, FLOTA PROPIA, FP, HOJASDEVIDA1, LOGISTICACALI2, OPERATIVO 1/2/3, OPERATIVO BUENA, OTROS, URBANO) + **nombres tipo "bogota2"** (P4 anterior): mismos que los OPERATIVO/LOGISTICACALI? ¿De dónde salen? ¿Limpiarlos (→ NULL o agrupar bajo agencia)? |
+        | P13 | **3 logisticos sin manifiestos**: KATHERINE VACA, LARIZA HERRERA, MIGUEL PEÑALOZA. ¿Es correcto que no tengan? ¿O hay que reasignarles existentes? |
         | P14 | **Nombres propuestos** para nuevos responsables: KATHERINE, LARIZA, MIGUEL. ¿Están bien o prefieren otro nombre? |
-        | P15 | **Exportación CSV/Excel**: Actualmente solo gerencia. ¿Quién más debería poder exportar? (digitador, logistico, tesoreria, financiero?) |
-
-      🔍 PENDIENTES ANTERIORES — Preguntas para Julian / Altrans
-
-        | #   | Pregunta |
-        |-----|----------|
-        | P1  | Regla de retención: ¿si reajuste > X, 1% retefuente se calcula sobre el reajuste? |
-        | P2  | Campos de dinero: ¿cuáles agregar/quitar de la DB? |
-        | P3  | ¿Trazabilidad se implementa ya o después? |
-        | P4  | `responsable` con nombres tipo "bogota2": ¿de dónde sale? ¿cómo automatizarlo? |
-        | P5  | ¿Restricción TOTAL (solo ve sus manifiestos) o prioridad (ve todos, primero los suyos)? |
-        | P6  | `valor_factura`: ¿condiciones específicas? ¿formato de `factura_electronica`? |
-        | P7  | Marcela: ¿qué campo la asigna a sus manifiestos? ¿`responsable` u otro? |
-        | P8  | Campos faltantes en DB: ¿cuáles agregar a `manifiestos_flat`? |
-        | P9  | ¿Agregar columna `neto_a_pagar` (valor NETO A PAGAR del Excel RNDC) para conciliación directa? |
+        | P15 | **Exportación CSV/Excel**: actualmente solo gerencia. ¿Quién más debería poder exportar? (digitador, logistico, tesoreria, financiero?) |
