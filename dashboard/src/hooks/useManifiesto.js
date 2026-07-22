@@ -42,7 +42,7 @@ export function useManifiesto() {
       p_flete_conductor:      form.flete_conductor ? Number(form.flete_conductor) : null,
       p_anticipo:             form.anticipo        ? Number(form.anticipo)        : null,
       p_placa:                form.placa                   || null,
-      p_tipo_vehiculo:        form.tipo_vehiculo            || null,
+      p_placa_remolque:              form.placa_remolque                || null,
       p_conductor:            form.conductor               || null,
       p_celular:              form.celular                 || null,
       p_cedula_conductor:     form.cedula_conductor        || null,

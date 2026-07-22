@@ -13,6 +13,7 @@
 --   - supabase/migrations/20260505_security_hardening.sql
 --
 -- Estructura:
+--   0. ENUMs para columnas categóricas
 --   1. Limpieza
 --   2. Tabla principal manifiestos_flat (con todas las columnas)
 --   3. Índices
@@ -26,6 +27,61 @@
 --  11. RLS sobre manifiestos_flat
 --  12. Permisos finales (REVOKE PUBLIC + GRANT authenticated)
 -- =============================================================================
+
+
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║ 0. ENUMS PARA COLUMNAS CATEGÓRICAS                                       ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+
+DO $$ BEGIN
+    CREATE TYPE compromiso_pago_enum AS ENUM (
+        'PAGO A 15 DIAS', 'PAGO A 20 DIAS', 'PAGO A 30 DIAS', 'PAGO A 5-8 DIAS',
+        'CONTRAENTREGA', 'PRONTO PAGO', 'PAGO NORMAL', 'URBANO', 'ANULADO',
+        'PAGADO', 'PAGO INMEDIATO', 'PRIORITARIO', 'RNDC', 'OTROS',
+        'CONTINGENCIA 20-25 DH'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE estado_interno_enum AS ENUM (
+        'CUMPLIDO', 'NO SE HA CUMPLIDO', 'ANULADO',
+        'PENDIENTE FACTURA ELECTRONICA', 'NOVEDAD PENDIENTE', 'FACTURA RECIBIDA'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE agencia_enum AS ENUM (
+        'CALI', 'BOGOTA', 'IPIALES', 'BUENAVENTURA', 'ANULADO'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE entidad_financiera_enum AS ENUM (
+        'TRANSF BANCOLOMBIA', 'TRANSF DAVIVIENDA', 'TRANSF BANCO DE BOGOTA',
+        'CHEQUE BANCOLOMBIA', 'CHEQUE DAVIVIENDA', 'CHEQUE BANCO DE BOGOTA',
+        'CHEQUE', 'TRANSF/CHEQUE', 'ANULADO', 'OTRO'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE responsable_enum AS ENUM (
+        'KAROL ARCINIEGAS', 'JOHANA UNIGARRO', 'ELIZABETH SUAREZ',
+        'MILENA GUTIERREZ', 'MARIAE', 'FLOTA PROPIA', 'FP', 'ANULADO'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE mes_enum AS ENUM (
+        'ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
+        'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -97,7 +153,7 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
 
     -- ── Vehículo y conductor ────────────────────────────────────────────────
     placa                       TEXT,
-    tipo_vehiculo               TEXT,
+    placa_remolque TEXT,
     conductor                   TEXT,
     celular                     TEXT
         CHECK (celular IS NULL OR celular ~ '^\d{10}$'),
@@ -182,7 +238,52 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
         CHECK (
             fecha_cumplido IS NULL 
             OR (factura_electronica IS NOT NULL AND factura_electronica <> '')
-        )
+        ),
+
+    -- ── Formato de datos ────────────────────────────────────────────────────
+    CONSTRAINT chk_placa_formato
+        CHECK (placa IS NULL OR placa ~ '^[A-Z0-9]{4,7}$' OR placa IN ('ANULADO', 'CONS ANULADO')),
+    CONSTRAINT chk_cedula_conductor_formato
+        CHECK (cedula_conductor IS NULL OR cedula_conductor ~ '^\d{6,10}$'),
+    CONSTRAINT chk_año_rango
+        CHECK (año IS NULL OR (año >= 2023 AND año <= 2026)),
+    CONSTRAINT chk_semana_formato
+        CHECK (semana IS NULL OR semana ~ '^Semana \d+$'),
+
+    -- ── Valores positivos ───────────────────────────────────────────────────
+    CONSTRAINT chk_valor_remesa_positivo
+        CHECK (valor_remesa IS NULL OR valor_remesa >= 0),
+    CONSTRAINT chk_flete_conductor_positivo
+        CHECK (flete_conductor IS NULL OR flete_conductor >= 0),
+    CONSTRAINT chk_anticipo_positivo
+        CHECK (anticipo IS NULL OR anticipo >= 0),
+    CONSTRAINT chk_valor_pagado_positivo
+        CHECK (valor_pagado IS NULL OR valor_pagado >= 0),
+    CONSTRAINT chk_valor_factura_positivo
+        CHECK (valor_factura IS NULL OR valor_factura >= 0),
+
+    -- ── ENUMs categóricos ───────────────────────────────────────────────────
+    CONSTRAINT chk_compromiso_pago_valido
+        CHECK (compromiso_pago IS NULL OR compromiso_pago::compromiso_pago_enum IS NOT NULL),
+    CONSTRAINT chk_estado_interno_valido
+        CHECK (estado_interno IS NULL OR estado_interno::estado_interno_enum IS NOT NULL),
+    CONSTRAINT chk_agencia_despachadora_valida
+        CHECK (agencia_despachadora IS NULL OR agencia_despachadora::agencia_enum IS NOT NULL),
+    CONSTRAINT chk_entidad_financiera_valida
+        CHECK (entidad_financiera IS NULL OR entidad_financiera::entidad_financiera_enum IS NOT NULL),
+    CONSTRAINT chk_responsable_valido
+        CHECK (responsable IS NULL OR responsable::responsable_enum IS NOT NULL),
+    CONSTRAINT chk_mes_valido
+        CHECK (mes IS NULL OR mes::mes_enum IS NOT NULL),
+    CONSTRAINT chk_nombre_responsable_valido
+        CHECK (nombre_responsable IS NULL OR nombre_responsable IN (
+            'ANGELA G', 'ANGIE', 'ANGIE OVIEDO', 'ANULADO', 'BUENAVENTURA',
+            'DAVID', 'DIANA G.', 'ELIANA', 'HAIR', 'HECTOR', 'HOJASDEVIDA1',
+            'INGRID VANESSA', 'JULIAN', 'KAROL', 'KATTY', 'LILIANA',
+            'LILIANA OBREGON', 'LOGISTICACALI2', 'MARCELA', 'OPERATIVO 1',
+            'OPERATIVO 2', 'OPERATIVO 3', 'OPERATIVO BUENA', 'RNDC',
+            'VANESSA', 'YANETH F', 'YURANY ESTUPINA'
+        ))
 );
 
 
@@ -247,7 +348,7 @@ BEGIN
     );
     FOREACH col IN ARRAY ARRAY[
         'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor',
-        'celular','placa','tipo_vehiculo','propietario','agencia_despachadora',
+        'celular','placa','placa_remolque','propietario','agencia_despachadora',
         'nombre_responsable','valor_remesa','flete_conductor','anticipo','remesas',
         'fecha_cumplido','compromiso_pago','novedades','estado_interno',
         'responsable_estado_interno','novedad_conductor','novedad_empresa',
@@ -722,7 +823,7 @@ SELECT
     m.manifiesto, m.archivo_origen, m.mes, m.año, m.periodo, m.semana,
     m.consecutivo_semanal, m.fecha_despacho, m.origen, m.departamento_origen,
     m.destino, m.departamento_destino, m.cliente, m.remesas, m.valor_remesa,
-    m.flete_conductor, m.anticipo, m.placa, m.tipo_vehiculo, m.conductor,
+    m.flete_conductor, m.anticipo, m.placa, m.placa_remolque, m.conductor,
     m.celular, m.cedula_conductor, m.propietario, m.agencia_despachadora,
     m.nombre_responsable, m.fecha_cumplido, m.compromiso_pago, m.novedades,
     m.novedad_conductor, m.novedad_empresa,
@@ -779,7 +880,7 @@ SELECT
     m.manifiesto, m.fecha_despacho,
     m.origen, m.departamento_origen, m.destino, m.departamento_destino,
     m.cliente,
-    m.placa, m.tipo_vehiculo, m.conductor, m.celular, m.cedula_conductor, m.propietario,
+    m.placa, m.placa_remolque, m.conductor, m.celular, m.cedula_conductor, m.propietario,
     m.flete_conductor, m.saldo, m.valor_pagado, m.fecha_pago,
     m.fecha_cumplido, m.compromiso_pago, m.estado_interno,
     m.novedades, m.novedad_conductor,
@@ -1201,9 +1302,9 @@ AS $$
         'remolques', (
             SELECT COALESCE(json_agg(nombre ORDER BY nombre), '[]'::json)
             FROM (
-                SELECT DISTINCT tipo_vehiculo AS nombre
+                SELECT DISTINCT placa_remolque AS nombre
                 FROM public.manifiestos_flat
-                WHERE tipo_vehiculo IS NOT NULL AND tipo_vehiculo <> ''
+                WHERE placa_remolque IS NOT NULL AND placa_remolque <> ''
             ) r
         ),
 
@@ -1326,7 +1427,7 @@ CREATE OR REPLACE FUNCTION public.guardar_digitador(
     p_flete_conductor       NUMERIC  DEFAULT NULL,
     p_anticipo              NUMERIC  DEFAULT NULL,
     p_placa                 TEXT     DEFAULT NULL,
-    p_tipo_vehiculo         TEXT     DEFAULT NULL,
+    p_placa_remolque         TEXT     DEFAULT NULL,
     p_conductor             TEXT     DEFAULT NULL,
     p_celular               TEXT     DEFAULT NULL,
     p_cedula_conductor      TEXT     DEFAULT NULL,
@@ -1348,14 +1449,14 @@ BEGIN
         manifiesto, archivo_origen, mes, año, periodo, semana, consecutivo_semanal,
         fecha_despacho, origen, departamento_origen, destino, departamento_destino,
         cliente, remesas, valor_remesa, flete_conductor, anticipo,
-        placa, tipo_vehiculo, conductor, celular, cedula_conductor,
+        placa, placa_remolque, conductor, celular, cedula_conductor,
         propietario, agencia_despachadora, nombre_responsable,
         reteica, r_fopat
     ) VALUES (
         p_manifiesto, p_archivo_origen, p_mes, p_año, p_periodo, p_semana, p_consecutivo_semanal,
         p_fecha_despacho, p_origen, p_departamento_origen, p_destino, p_departamento_destino,
         p_cliente, p_remesas, p_valor_remesa, p_flete_conductor, p_anticipo,
-        p_placa, p_tipo_vehiculo, p_conductor, p_celular, p_cedula_conductor,
+        p_placa, p_placa_remolque, p_conductor, p_celular, p_cedula_conductor,
         p_propietario, p_agencia_despachadora, p_nombre_responsable,
         p_reteica, p_r_fopat
     )
@@ -1377,7 +1478,7 @@ BEGIN
         flete_conductor       = COALESCE(EXCLUDED.flete_conductor,      public.manifiestos_flat.flete_conductor),
         anticipo              = COALESCE(EXCLUDED.anticipo,             public.manifiestos_flat.anticipo),
         placa                 = COALESCE(EXCLUDED.placa,                public.manifiestos_flat.placa),
-        tipo_vehiculo         = COALESCE(EXCLUDED.tipo_vehiculo,        public.manifiestos_flat.tipo_vehiculo),
+        placa_remolque         = COALESCE(EXCLUDED.placa_remolque,      public.manifiestos_flat.placa_remolque),
         conductor             = COALESCE(EXCLUDED.conductor,            public.manifiestos_flat.conductor),
         celular               = COALESCE(EXCLUDED.celular,              public.manifiestos_flat.celular),
         cedula_conductor      = COALESCE(EXCLUDED.cedula_conductor,     public.manifiestos_flat.cedula_conductor),
@@ -1412,7 +1513,7 @@ CREATE OR REPLACE FUNCTION public.guardar_digitador_batch(
     p_flete_conductor       NUMERIC  DEFAULT NULL,
     p_anticipo              NUMERIC  DEFAULT NULL,
     p_placa                 TEXT     DEFAULT NULL,
-    p_tipo_vehiculo         TEXT     DEFAULT NULL,
+    p_placa_remolque         TEXT     DEFAULT NULL,
     p_conductor             TEXT     DEFAULT NULL,
     p_celular               TEXT     DEFAULT NULL,
     p_cedula_conductor      TEXT     DEFAULT NULL,
@@ -1434,14 +1535,14 @@ BEGIN
         manifiesto, archivo_origen, mes, año, periodo, semana, consecutivo_semanal,
         fecha_despacho, origen, departamento_origen, destino, departamento_destino,
         cliente, remesas, valor_remesa, flete_conductor, anticipo,
-        placa, tipo_vehiculo, conductor, celular, cedula_conductor,
+        placa, placa_remolque, conductor, celular, cedula_conductor,
         propietario, agencia_despachadora, nombre_responsable,
         reteica, r_fopat
     ) VALUES (
         p_manifiesto, p_archivo_origen, p_mes, p_año, p_periodo, p_semana, p_consecutivo_semanal,
         p_fecha_despacho, p_origen, p_departamento_origen, p_destino, p_departamento_destino,
         p_cliente, p_remesas, p_valor_remesa, p_flete_conductor, p_anticipo,
-        p_placa, p_tipo_vehiculo, p_conductor, p_celular, p_cedula_conductor,
+        p_placa, p_placa_remolque, p_conductor, p_celular, p_cedula_conductor,
         p_propietario, p_agencia_despachadora, p_nombre_responsable,
         p_reteica, p_r_fopat
     )
@@ -1463,8 +1564,8 @@ BEGIN
         flete_conductor       = COALESCE(EXCLUDED.flete_conductor,      public.manifiestos_flat.flete_conductor),
         anticipo              = COALESCE(EXCLUDED.anticipo,             public.manifiestos_flat.anticipo),
         placa                 = COALESCE(EXCLUDED.placa,                public.manifiestos_flat.placa),
-        tipo_vehiculo         = COALESCE(EXCLUDED.tipo_vehiculo,        public.manifiestos_flat.tipo_vehiculo),
-        -- conductor / propietario no se sobreescriben en recarga (inmutables)
+        placa_remolque         = COALESCE(EXCLUDED.placa_remolque,      public.manifiestos_flat.placa_remolque),
+            -- conductor / propietario no se sobreescriben en recarga (inmutables)
         celular               = COALESCE(EXCLUDED.celular,              public.manifiestos_flat.celular),
         agencia_despachadora  = COALESCE(EXCLUDED.agencia_despachadora, public.manifiestos_flat.agencia_despachadora),
         nombre_responsable    = COALESCE(EXCLUDED.nombre_responsable,   public.manifiestos_flat.nombre_responsable),

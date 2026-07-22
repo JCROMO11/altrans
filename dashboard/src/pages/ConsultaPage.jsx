@@ -253,7 +253,7 @@ function Th({ children, sticky, width }) {
 // ── Campos auditables ─────────────────────────────────────────────────────────
 const CAMPOS_OPTS = [
   'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor',
-  'celular','placa','tipo_vehiculo','propietario','agencia_despachadora',
+  'celular','placa','placa_remolque','propietario','agencia_despachadora',
   'nombre_responsable','valor_remesa','flete_conductor','anticipo','remesas',
   'fecha_cumplido','compromiso_pago','novedades','estado_interno',
   'responsable_estado_interno','novedad_conductor','novedad_empresa',
@@ -579,7 +579,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
     ['Flete Neto',              'flete_conductor',        'money'],
     ['Anticipo',                'anticipo',               'money'],
     ['Placa',                   'placa',                  'raw'],
-    ['Remolque',                'tipo_vehiculo',          'raw'],
+    ['Remolque',                'placa_remolque',          'raw'],
     ['Conductor',               'conductor',              'raw'],
     ['Celular',                 'celular',                'raw'],
     ['Cédula',                  'cedula_conductor',       'raw'],
@@ -907,7 +907,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
                       <Td mono width="110px">{money(r.saldo ?? r.flete_conductor)}</Td>
                       <Td mono muted width="95px">{money(r.anticipo)}</Td>
                       <Td mono muted width="80px">{r.placa ?? '—'}</Td>
-                      <Td muted width="105px">{r.tipo_vehiculo ?? '—'}</Td>
+                      <Td muted width="105px">{r.placa_remolque ?? '—'}</Td>
                       <Td width="240px">{r.conductor ?? '—'}</Td>
                       <Td muted width="100px">{r.celular ?? '—'}</Td>
                       <Td muted width="95px">{r.cedula_conductor ?? '—'}</Td>

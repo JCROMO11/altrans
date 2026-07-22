@@ -130,7 +130,7 @@ export function buildPayload(r, i, fileName = null) {
       p_cedula_conductor:     trimOrNull(r['DOC. CONDUCTOR']),
       p_celular:              cleanCelular(r['TEL. CONDUCTOR']),
       p_placa:                trimOrNull(r['PLACA']),
-      p_tipo_vehiculo:        trimOrNull(r['REMOLQUE']),
+      p_placa_remolque:              trimOrNull(r['REMOLQUE']),
       p_propietario:          trimOrNull(r['POSEEDOR'] ?? r['PROPIETARIO']),
       p_agencia_despachadora: trimOrNull(r['AGENCIA']),
       p_nombre_responsable:   normalizeResponsable(r['CREADO POR']),
@@ -143,4 +143,71 @@ export function buildPayload(r, i, fileName = null) {
       p_archivo_origen:       fileName,
     },
   }
+}
+
+// ── Validaciones matching DB CHECK constraints ──────────────────────────────
+
+const PLACA_RE = /^[A-Z0-9]{4,7}$/
+const PLACA_ALLOWLIST = new Set(['ANULADO', 'CONS ANULADO'])
+const CEDULA_RE = /^\d{6,10}$/
+
+export function validatePlaca(v) {
+  if (!v) return null
+  const s = String(v).trim().toUpperCase()
+  if (!s || PLACA_ALLOWLIST.has(s) || PLACA_RE.test(s)) return null
+  return `Formato de placa inválido: "${s}" (deben ser 4-7 caracteres alfanuméricos)`
+}
+
+export function validateCedula(v) {
+  if (!v) return null
+  const s = String(v).trim()
+  if (!s) return null
+  if (CEDULA_RE.test(s)) return null
+  return `Cédula inválida: "${s}" (deben ser 6-10 dígitos)`
+}
+
+export function validateAño(v) {
+  if (v == null) return null
+  const n = Number(v)
+  if (isNaN(n)) return `Año inválido: "${v}"`
+  if (n >= 2023 && n <= 2026) return null
+  return `Año fuera de rango: ${n} (debe ser 2023-2026)`
+}
+
+export function validateMonto(v, label) {
+  if (v == null) return null
+  const n = Number(v)
+  if (isNaN(n)) return `${label} inválido: "${v}"`
+  if (n >= 0) return null
+  return `${label} no puede ser negativo: ${n}`
+}
+
+export function validatePayload(payload) {
+  const errors = []
+  const e = payload
+  if (e.p_placa) {
+    const err = validatePlaca(e.p_placa)
+    if (err) errors.push({ campo: 'PLACA', valor: e.p_placa, error: err })
+  }
+  if (e.p_cedula_conductor) {
+    const err = validateCedula(e.p_cedula_conductor)
+    if (err) errors.push({ campo: 'DOC. CONDUCTOR', valor: e.p_cedula_conductor, error: err })
+  }
+  if (e.p_año) {
+    const err = validateAño(e.p_año)
+    if (err) errors.push({ campo: 'AÑO', valor: e.p_año, error: err })
+  }
+  if (e.p_valor_remesa != null) {
+    const err = validateMonto(e.p_valor_remesa, 'VALOR REMESA')
+    if (err) errors.push({ campo: 'VALORES REMESAS', valor: e.p_valor_remesa, error: err })
+  }
+  if (e.p_flete_conductor != null) {
+    const err = validateMonto(e.p_flete_conductor, 'FLETE')
+    if (err) errors.push({ campo: 'FLETE', valor: e.p_flete_conductor, error: err })
+  }
+  if (e.p_anticipo != null) {
+    const err = validateMonto(e.p_anticipo, 'ANTICIPO')
+    if (err) errors.push({ campo: 'ANTICIPO', valor: e.p_anticipo, error: err })
+  }
+  return errors.length ? errors : null
 }

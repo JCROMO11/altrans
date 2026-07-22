@@ -328,13 +328,13 @@ const FACT_INIT = {
 // Campos comparables entre payload y DB para detectar cambios
 const DB_FIELDS = [
   'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor','celular',
-  'placa','tipo_vehiculo','propietario','agencia_despachadora','nombre_responsable',
+  'placa','placa_remolque','propietario','agencia_despachadora','nombre_responsable',
   'valor_remesa','flete_conductor','anticipo','remesas',
 ]
 const FIELD_LABELS = {
   fecha_despacho:'Fecha despacho', origen:'Origen', destino:'Destino',
   cliente:'Cliente', conductor:'Conductor', cedula_conductor:'Cédula', celular:'Celular',
-  placa:'Placa', tipo_vehiculo:'Remolque', propietario:'Propietario',
+  placa:'Placa', placa_remolque:'Remolque', propietario:'Propietario',
   agencia_despachadora:'Agencia Despachadora', nombre_responsable:'Responsable',
   valor_remesa:'Valor remesa', flete_conductor:'Flete', anticipo:'Anticipo',
   remesas:'Remesas',
@@ -870,7 +870,7 @@ export default function CargaPage({ target, clearTarget, user }) {
     cedula_conductor:     data.cedula_conductor     || '',
     celular:              data.celular              || '',
     placa:                data.placa                || '',
-    tipo_vehiculo:        data.tipo_vehiculo        || '',
+    placa_remolque:         data.placa_remolque         || '',
     propietario:          data.propietario          || '',
     cliente:              data.cliente              || '',
     origen:               data.origen               || '',
@@ -1286,7 +1286,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                       { l: 'Cédula',          v: ficha.cedula_conductor },
                       { l: 'Celular',         v: ficha.celular },
                       { l: 'Placa',           v: ficha.placa },
-                      { l: 'Tipo vehículo',   v: ficha.tipo_vehiculo },
+                      { l: 'Remolque',   v: ficha.placa_remolque },
                       { l: 'Propietario',     v: ficha.propietario },
                       { l: 'Cliente',         v: ficha.cliente },
                       { l: 'Origen',          v: ficha.origen },
@@ -1387,9 +1387,9 @@ export default function CargaPage({ target, clearTarget, user }) {
                 <Autocomplete label="Placa vehículo" displayValue={formEdit.placa}
                   placeholder="Placa del vehículo" options={optVehiculos} onCreate={newText}
                   onSelect={o => setFE(p => ({ ...p, placa: o.label }))} />
-                <Autocomplete label="Placa remolque" displayValue={formEdit.tipo_vehiculo}
+                <Autocomplete label="Placa remolque" displayValue={formEdit.placa_remolque}
                   placeholder="Placa del remolque" options={optRemolques} onCreate={newText}
-                  onSelect={o => setFE(p => ({ ...p, tipo_vehiculo: o.label }))} />
+                  onSelect={o => setFE(p => ({ ...p, placa_remolque: o.label }))} />
                 <Autocomplete label="Propietario vehículo" displayValue={formEdit.propietario ?? ''}
                   placeholder="Nombre del propietario" options={optPropietarios} onCreate={newText}
                   onSelect={o => setFE(p => ({ ...p, propietario: o.label }))} />

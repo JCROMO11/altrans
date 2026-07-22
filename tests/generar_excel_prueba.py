@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 # Columnas en el mismo orden que el Excel fuente real (Lista_Manifiestos)
 HEADERS = [
     "MANIFIESTO", "FECHA EMISIÓN", "AGENCIA", "ORIGEN", "DESTINO",
-    "PLACA", "REMOLQUE", "REMESAS", "VALORES REMESAS",
+    "PLACA", "TIPO DE VEHICULO", "REMESAS", "VALORES REMESAS",
     "CONDUCTOR", "DOC. CONDUCTOR", "TEL. CONDUCTOR",
     "GENERADORES", "FLETE", "ANTICIPO", "CREADO POR",
     "POSEEDOR", "PROPIETARIO",

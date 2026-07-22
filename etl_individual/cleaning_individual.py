@@ -133,7 +133,7 @@ def _parse_periodo(stem: str):
 RENAME_MAP = {
     # Universales
     "f. despacho":                                       "fecha_despacho",
-    "tipo de vehiculo":                                  "tipo_vehiculo",
+    "tipo de vehiculo":                                  "placa_remolque",
     "cedula conductor":                                  "cedula_conductor",
     "nombre responsable":                                "nombre_responsable",
     "fecha de pago":                                     "fecha_pago",
@@ -1034,13 +1034,13 @@ def _cedula(val) -> str | None:
         return digits if digits else None
 
 
-def _clean_tipo_vehiculo(val) -> tuple[str | None, str | None]:
-    """
-    Placa de remolque o descriptor de tipo de vehículo.
+def _clean_placa_remolque(val) -> tuple[str | None, str | None]:
+    
+    Placa de remolque o descriptor inútil.
     Valores con letras+dígitos (placas) → se conservan.
     Descriptores de tipo (MULA, TURBO, SENCILLO, etc.) → NULL + nota en novedades.
     ANULADO y similares → NULL sin nota.
-    """
+    
     if pd.isna(val):
         return None, None
     s = str(val).strip().upper()
@@ -1050,7 +1050,7 @@ def _clean_tipo_vehiculo(val) -> tuple[str | None, str | None]:
         return None, None
     if re.search(r'\d', s):
         return s, None
-    return None, f"[TIPO VEHICULO: {s}]"
+    return None, f"[PLACA_REMOLQUE: {s}]"
 
 
 def _clean_celular(val) -> tuple[str | None, str | None]:
@@ -1213,10 +1213,10 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
         df["cedula_conductor"] = parsed.apply(lambda t: t[0])
         df = _apply_novedades(df, parsed.apply(lambda t: t[1]))
 
-    # 6i. Tipo vehículo: descriptores sin placa → NULL + nota en novedades
-    if "tipo_vehiculo" in df.columns:
-        parsed = df["tipo_vehiculo"].apply(_clean_tipo_vehiculo)
-        df["tipo_vehiculo"] = parsed.apply(lambda t: t[0])
+    # 6i. Remolque: descriptores sin placa → NULL + nota en novedades
+    if "placa_remolque" in df.columns:
+        parsed = df["placa_remolque"].apply(_clean_placa_remolque)
+        df["placa_remolque"] = parsed.apply(lambda t: t[0])
         df = _apply_novedades(df, parsed.apply(lambda t: t[1]))
 
     # 6d. Columnas de departamento junto a origen y destino

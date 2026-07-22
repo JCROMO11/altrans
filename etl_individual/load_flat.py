@@ -30,7 +30,7 @@ COLS = [
     "consecutivo_semanal", "fecha_despacho", "origen", "departamento_origen",
     "destino", "departamento_destino", "cliente", "remesas",
     "valor_remesa", "flete_conductor", "anticipo",
-    "placa", "tipo_vehiculo", "conductor", "celular", "cedula_conductor", "propietario",
+    "placa", "placa_remolque", "conductor", "celular", "cedula_conductor", "propietario",
     "agencia_despachadora", "nombre_responsable",
     "fecha_cumplido", "compromiso_pago", "novedades",
     "fecha_pago", "valor_pagado", "entidad_financiera", "responsable",
