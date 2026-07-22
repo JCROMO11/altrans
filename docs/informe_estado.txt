@@ -271,45 +271,127 @@
       Recomendación: implementar 1, 2 y 5 por ser las de mayor impacto visual
       con mínimo esfuerzo. Consultar con usuaria antes.
      
-     🟡 BLOQUE 7 — MEDIA: Roles y permisos
-     
-       | #   | Tarea                                                     | Dónde                   | Cómo |
-       |-----|-----------------------------------------------------------|-------------------------|------|
-       | 7.1 | Marcela: ver solo sus manifiestos                          | DB + Dashboard          | Filtrar por campo de asignación (¿`responsable`?). Por defecto, solo ver sus manifiestos. |
-       | 7.2 | Responsable: prioridad de sus manifiestos al entrar         | `ConsultaPage.jsx` + `CargaPage.jsx` | Pre-seleccionar filtro `responsable = current_user` al cargar. Pendiente Julian: ¿restricción total o prioridad? |
-       | 7.3 | `valor_factura` restringido a roles financieros             | DB: `v_manifiestos`     | Ya implementado enmascaramiento (línea 718-720). Verificar que funcione. Solo `admin` y `contadora` ven `valor_factura`. |
-       | 7.4 | Exportación solo para Kate                                 | Dashboard               | Gatear botón exportación por rol/usuario. |
-     
-     🔴 CRÍTICO — Configuración pendiente
-     
-       | #   | Tarea                                                     | Estado |
-       |-----|-----------------------------------------------------------|--------|
-       | C1  | BACKUP_EMAIL_TO: definir correos de gerencia               | ⬜     |
-       | C2  | WA_TOKEN: generar token en Meta FB Business                | ⬜     |
-       | C3  | BREVO_SMTP_PASSWORD: ya configurado ✅                     | ✅    |
-       | C4  | Preguntar a Altrans: ¿qué documentos en falta_documentacion | ⬜    |
-       | C5  | Verificación de negocio en Facebook Business               | ⬜     |
-       | C6  | Solucionar bloqueo de creación de apps en Facebook         | ⬜     |
-     
-     ℹ️ Facebook = última tarea del día, independientemente del avance.
-     
-     🔍 PENDIENTES — Preguntas para Julian / Altrans
-     
-       | #   | Pregunta |
-       |-----|----------|
-       | P1  | Regla de retención: ¿si reajuste > X, 1% retefuente se calcula sobre el reajuste? |
-       | P2  | Campos de dinero: ¿cuáles agregar/quitar de la DB? |
-       | P3  | ¿Trazabilidad se implementa ya o después? |
-       | P4  | `responsable` con nombres tipo "bogota2": ¿de dónde sale? ¿cómo automatizarlo? |
-       | P5  | `responsable`: ¿restricción TOTAL (solo ve sus manifiestos) o prioridad (ve todos, primero los suyos)? |
-       | P6  | `valor_factura`: ¿condiciones específicas? ¿formato de `factura_electronica`? |
-       | P7  | Marcela: ¿qué campo la asigna a sus manifiestos? ¿`responsable` u otro? |
+🟡 BLOQUE 7 — MEDIA: Roles, permisos y filtrado por responsable
+      
+      ─────────────────────────────────────────────────────────────────────
+      DIAGNÓSTICO COMPLETO
+      ─────────────────────────────────────────────────────────────────────
+      
+      USUARIOS DEL SISTEMA (13):
+      
+        Cédula       | Nombre                                              | Rol          | Cargo
+        -------------|-----------------------------------------------------|--------------|--------------------------------
+        1004564051   | MARCELA STEFANYA CUASQUEN ARCINIEGAS                | digitador    | AUXILIAR OPERATIVA Y LOGISTICA
+        37008344     | MARIA ELENA LUCERO PAREDES                          | financiero   | AUXILIAR CONTABLE
+        1193057039   | JULIAN FUERTES ENRIQUEZ                             | gerencia     | SUBGERENTE
+        13015050     | JULIO FUERTES VELA                                  | gerencia     | GERENTE
+        1233188009   | ANGIE PAOLA OVIEDO OBANDO                           | logistico    | DIRECTOR OPERATIVO Y LOGISTICO
+        1085928088   | CATHERIN MARCELA RODRIGUEZ PASTAS                   | logistico    | DIRECTOR OPERATIVO Y LOGISTICO
+        1118292701   | ELIANA LUCIA GUEVARA RAMOS                          | logistico    | AUXILIAR OPERATIVO Y LOGISTICO
+        1085336031   | HECTOR FLAMINIO MELO LEITON                         | logistico    | DIRECTOR OPERATIVO Y LOGISTICO
+        1085899873   | INGRID VANESSA CALPA YANDUN                         | logistico    | AUXILIAR OPERATIVA Y LOGISTICA
+        1007156550   | KATHERINE STHEFANIA VACA SOLANO                     | logistico    | AUXILIAR OPERATIVA Y LOGISTICA
+        29974867     | LARIZA HERRERA VISCONDE                             | logistico    | AUXILIAR OPERATIVO Y LOGISTICO CALI
+        1151441687   | MIGUEL ANGEL PEÑALOZA GALLEGO                       | logistico    | COORDINADOR AGENCIA BUENAVENTURA
+        36861498     | JOHANA DEL SOCORRO UNIGARRO CEBALLOS                | tesoreria    | AUXILIAR FINANCIERA
+      
+      RESPONSABLES EN BD (38 valores únicos, de columnas nombre_responsable / responsable / responsable_estado_interno):
+      
+        Coinciden con usuario (9):  MARCELA, MARIAE, JULIAN, ANGIE, ANGIE OVIEDO,
+                                    CATHERIN, ELIANA, HECTOR, INGRID VANESSA,
+                                    JOHANA UNIGARRO
+        Sin usuario (17 personas):  ALEJANDRA, ANGELA G, DAVID, DIANA G.,
+                                    ELIZABETH SUAREZ, HAIR, KAROL, KAROL ARCINIEGAS,
+                                    KATTY, KATY, LILIANA, LILIANA OBREGON,
+                                    MILENA GUTIERREZ, VANESSA, YANETH F, YURANY ESTUPINA
+        No son personas (12):       ANULADO, BUENAVENTURA, FLOTA PROPIA, FP,
+                                    HOJASDEVIDA1, LOGISTICACALI2, OPERATIVO 1/2/3,
+                                    OPERATIVO BUENA, OTROS, URBANO
+      
+      USUARIOS SIN MANIFIESTOS ASIGNADOS (4):
+        - JULIO FUERTES VELA (gerencia) — ve todo, no necesita
+        - KATHERINE STHEFANIA VACA SOLANO (logistico)
+        - LARIZA HERRERA VISCONDE (logistico)
+        - MIGUEL ANGEL PEÑALOZA GALLEGO (logistico)
+      
+      ─────────────────────────────────────────────────────────────────────
+      MAPEO PROPUESTO: nombre_responsable en BD → usuario
+      ─────────────────────────────────────────────────────────────────────
+      
+        Responsable BD  → Usuario                                        Rol          Estado
+        ────────────────┼────────────────────────────────────────────────┼─────────────┼────────
+        MARCELA         → MARCELA STEFANYA CUASQUEN ARCINIEGAS          digitador    ✅
+        MARIAE          → MARIA ELENA LUCERO PAREDES                     financiero   ✅
+        JULIAN          → JULIAN FUERTES ENRIQUEZ                        gerencia     ✅
+        (nuevo)         → JULIO FUERTES VELA                             gerencia     🔵 ve todo
+        ANGIE           → ¿ANGIE PAOLA OVIEDO OBANDO?                    logistico    ❓ duplicado
+        ANGIE OVIEDO    → ANGIE PAOLA OVIEDO OBANDO                      logistico    ✅
+        CATHERIN        → CATHERIN MARCELA RODRIGUEZ PASTAS              logistico    ✅
+        ELIANA          → ELIANA LUCIA GUEVARA RAMOS                     logistico    ✅
+        HECTOR          → HECTOR FLAMINIO MELO LEITON                    logistico    ✅
+        INGRID VANESSA  → INGRID VANESSA CALPA YANDUN                    logistico    ✅
+        (nuevo)         → KATHERINE STHEFANIA VACA SOLANO                logistico    🔵 nuevo
+        (nuevo)         → LARIZA HERRERA VISCONDE                        logistico    🔵 nuevo
+        (nuevo)         → MIGUEL ANGEL PEÑALOZA GALLEGO                  logistico    🔵 nuevo
+        JOHANA UNIGARRO → JOHANA DEL SOCORRO UNIGARRO CEBALLOS           tesoreria    ✅
+      
+      ─────────────────────────────────────────────────────────────────────
+      VALOR FACTURA — VERIFICACIÓN
+      ─────────────────────────────────────────────────────────────────────
+      
+        Código actual:   canVerValorFactura = ['financiero', 'contadora',
+                          'administrativo', 'gerencia'].includes(rol)
+        Usuarios actuales: financiero (MARIA ELENA) ✅, gerencia (JULIAN, JULIO) ✅
+        Roles sin representación: contadora, administrativo — no existen aún
+        Conclusión: ✅ Ya cubre a todos los que deberían verlo
+      
+      ─────────────────────────────────────────────────────────────────────
+      EXPORTACIÓN — VERIFICACIÓN
+      ─────────────────────────────────────────────────────────────────────
+      
+        Código actual:   isGerencia = rol === 'gerencia'
+        Botones CSV/Excel visibles solo para gerencia ✅
+        Pendiente: Preguntar mañana si otros roles deben acceder.
+      
+      ─────────────────────────────────────────────────────────────────────
+      PLAN DE IMPLEMENTACIÓN
+      ─────────────────────────────────────────────────────────────────────
+      
+      | Paso | Qué                                   | Dónde                                         | Cómo |
+      |------|---------------------------------------|-----------------------------------------------|------|
+      | 0    | Notificar a gerencia sobre inconsistencias | —                                           | Ver preguntas P10-P13 abajo |
+      | 1    | Agregar nombre_responsable a cada usuario | SQL: auth.users.raw_user_meta_data          | UPDATE auth.users SET raw_user_meta_data = raw_user_meta_data || '{"nombre_responsable": "MARCELA"}' WHERE ... |
+      | 2    | Modificar consulta_manifiestos RPC      | DB: schema_consolidated.sql                  | Agregar p_rol TEXT, p_nm_responsable TEXT; si rol != gerencia, filtrar nombre_responsable = p_nm_responsable |
+      | 3    | Frontend: pasar filtro automático       | useConsulta.js                               | Si rol != gerencia, pasar nombre_responsable desde user.user_metadata.nombre_responsable |
+      | 4    | Frontend: ocultar filtro Responsable     | ConsultaPage.jsx                             | No mostrar FilterAutocomplete de Responsable para no-gerencia |
+      | 5    | Frontend: badge "Tus manifiestos"       | ConsultaPage.jsx                             | Indicador visual cuando el filtro está activo |
+      | 6    | Auto-asignar responsable en carga       | CargaPage.jsx                                | Precargar nombre_responsable con user_metadata.nombre_responsable |
+      | 7    | (Opcional) Limpiar responsables no-persona | DB: batch UPDATE                          | Reemplazar ANULADO, BUENAVENTURA, etc. con NULL o agrupar |
+      
+      NOTA: Pasos 0-1 son prerrequisito (necesitamos el mapeo aprobado antes de codificar).
+      Pasos 2-6 se pueden implementar en paralelo una vez aprobado el mapeo.
+
+      🔍 PENDIENTES BLOQUE 7 — Preguntas para gerencia (resolver antes de implementar)
+
+        | #   | Pregunta |
+        |-----|----------|
+        | P10 | **17 responsables sin usuario**: ALEJANDRA, ANGELA G, DAVID, DIANA G., ELIZABETH SUAREZ, HAIR, KAROL, KAROL ARCINIEGAS, KATTY, KATY, LILIANA, LILIANA OBREGON, MILENA GUTIERREZ, VANESSA, YANETH F, YURANY ESTUPINA. ¿Deberían tener acceso al dashboard? ¿O son personas externas (conductores, clientes) que no necesitan cuenta? |
+        | P11 | **"ANGIE" vs "ANGIE OVIEDO"** en la BD: ¿es la misma persona (ANGIE PAOLA OVIEDO OBANDO, logistico) o son dos personas distintas? Si es la misma, unificamos el nombre a "ANGIE OVIEDO". |
+        | P12 | **12 responsables no-persona**: ANULADO, BUENAVENTURA, FLOTA PROPIA, FP, HOJASDEVIDA1, LOGISTICACALI2, OPERATIVO 1/2/3, OPERATIVO BUENA, OTROS, URBANO. ¿Limpiarlos (reemplazar con NULL o agrupar bajo una agencia)? |
+        | P13 | **3 logisticos sin manifiestos**: KATHERINE VACA, LARIZA HERRERA, MIGUEL PEÑALOZA. ¿Es correcto que no tengan manifiestos? ¿O hay que reasignarles los existentes bajo su nombre? |
+        | P14 | **Nombres propuestos** para nuevos responsables: KATHERINE, LARIZA, MIGUEL. ¿Están bien o prefieren otro nombre? |
+        | P15 | **Exportación CSV/Excel**: Actualmente solo gerencia. ¿Quién más debería poder exportar? (digitador, logistico, tesoreria, financiero?) |
+
+      🔍 PENDIENTES ANTERIORES — Preguntas para Julian / Altrans
+
+        | #   | Pregunta |
+        |-----|----------|
+        | P1  | Regla de retención: ¿si reajuste > X, 1% retefuente se calcula sobre el reajuste? |
+        | P2  | Campos de dinero: ¿cuáles agregar/quitar de la DB? |
+        | P3  | ¿Trazabilidad se implementa ya o después? |
+        | P4  | `responsable` con nombres tipo "bogota2": ¿de dónde sale? ¿cómo automatizarlo? |
+        | P5  | ¿Restricción TOTAL (solo ve sus manifiestos) o prioridad (ve todos, primero los suyos)? |
+        | P6  | `valor_factura`: ¿condiciones específicas? ¿formato de `factura_electronica`? |
+        | P7  | Marcela: ¿qué campo la asigna a sus manifiestos? ¿`responsable` u otro? |
         | P8  | Campos faltantes en DB: ¿cuáles agregar a `manifiestos_flat`? |
         | P9  | ¿Agregar columna `neto_a_pagar` (valor NETO A PAGAR del Excel RNDC) para conciliación directa? |
-     
-     🔍 POR INVESTIGAR — Infraestructura
-     
-       | #   | Tarea |
-       |-----|-------|
-       | I1  | Evaluar si Cloudflare Pages cubre la carga esperada de Altrans |
-       | I2  | Verificar costos asociados de Cloudflare Pages |
