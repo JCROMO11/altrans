@@ -513,13 +513,13 @@ function ExcelUploadPanel({ onDone }) {
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           onClick={() => inputRef.current?.click()}
-          className="flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed py-20 cursor-pointer transition-colors"
+          className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed py-20 cursor-pointer transition-colors"
           style={{ borderColor: dragging ? BLUE : BDR, background: dragging ? BLUE + '08' : '#FAFBFC' }}>
           <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden"
             onChange={e => { if (e.target.files[0]) parseFile(e.target.files[0]) }} />
-          <Upload size={36} style={{ color: dragging ? BLUE : MUTED }} />
-          <p className="text-base font-medium" style={{ color: TICK }}>Arrastre el archivo Excel aquí o haga clic para seleccionarlo</p>
-          <p className="text-sm" style={{ color: MUTED }}>.xlsx · .xls · Una hoja por archivo</p>
+          <Upload size={28} style={{ color: dragging ? BLUE : MUTED }} />
+          <p className="text-sm font-medium" style={{ color: TICK }}>Arrastre el archivo Excel aquí o haga clic para seleccionarlo</p>
+          <p className="text-xs" style={{ color: MUTED }}>.xlsx · .xls · Una hoja por archivo</p>
         </div>
       )}
 
@@ -1123,7 +1123,7 @@ export default function CargaPage({ target, clearTarget, user }) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto">
+    <div className="flex flex-col gap-6 max-w-5xl mx-auto">
 
       {/* Search bar */}
       <form onSubmit={handleSearch} className="flex gap-3">
@@ -1131,12 +1131,12 @@ export default function CargaPage({ target, clearTarget, user }) {
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: MUTED }} />
           <input value={query} onChange={e => setQuery(e.target.value)}
             placeholder="Buscar por número de manifiesto..."
-            className={inputCls + ' pl-11 text-base'} style={{ borderColor: BDR, paddingTop: '12px', paddingBottom: '12px' }}
+            className={inputCls + ' pl-11 text-base'} style={{ borderColor: BDR, paddingTop: '14px', paddingBottom: '14px' }}
           />
         </div>
         <button type="submit" disabled={busy || !query.trim()}
-          className="px-6 text-base rounded-lg font-semibold transition-opacity disabled:opacity-50"
-          style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW, paddingTop: '12px', paddingBottom: '12px' }}>
+          className="px-6 text-base font-semibold rounded-xl transition-opacity disabled:opacity-50 whitespace-nowrap"
+          style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW, paddingTop: '14px', paddingBottom: '14px' }}>
           Buscar
         </button>
       </form>
@@ -1146,10 +1146,10 @@ export default function CargaPage({ target, clearTarget, user }) {
         <div className="flex flex-col gap-6">
           {/* Upload panel para digitadores */}
           {canUploadExcel && (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2 pl-1">
-                <Upload size={16} color={BLUE} />
-                <p className="text-sm font-bold uppercase tracking-widest" style={{ color: TICK }}>Importar desde Excel</p>
+                <Upload size={15} color={BLUE} />
+                <p className="text-xs font-bold uppercase tracking-widest" style={{ color: TICK }}>Importar desde Excel</p>
               </div>
               <ExcelUploadPanel onDone={() => {}} />
             </div>
