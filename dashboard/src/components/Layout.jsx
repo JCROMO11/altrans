@@ -184,7 +184,7 @@ export default function Layout({ children, page, setPage, user }) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 px-6 py-3 overflow-hidden">
+        <main className="flex-1 px-6 py-3 overflow-hidden flex flex-col">
           {children}
         </main>
 
