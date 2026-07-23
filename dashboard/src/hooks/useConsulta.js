@@ -72,5 +72,13 @@ export function useConsulta() {
   const nextPage = () => { if (hasMore && lastFilters) buscar(lastFilters, page + 1) }
   const prevPage = () => { if (page > 0 && lastFilters) buscar(lastFilters, page - 1) }
 
-  return { rows, totals, loading, page, hasMore, buscar, nextPage, prevPage }
+  const fetchAll = useCallback(async (filters) => {
+    const params = { ...buildParams(filters, 0) }
+    delete params.p_limit
+    delete params.p_offset
+    const { data } = await supabase.rpc('consulta_manifiestos', params)
+    return data ?? []
+  }, [])
+
+  return { rows, totals, loading, page, hasMore, buscar, fetchAll, nextPage, prevPage }
 }

@@ -1019,13 +1019,16 @@ $$;
 
 
 -- ── consulta_alertas_vencimiento ──────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.consulta_alertas_vencimiento()
+CREATE OR REPLACE FUNCTION public.consulta_alertas_vencimiento(
+    p_nombre_responsable TEXT DEFAULT NULL
+)
 RETURNS JSON
 LANGUAGE sql STABLE
 SET search_path = ''
 AS $$
     WITH base AS (
         SELECT * FROM public.v_manifiestos
+        WHERE (p_nombre_responsable IS NULL OR nombre_responsable = p_nombre_responsable)
     )
     SELECT json_build_object(
         'vencidos',     (SELECT COUNT(*)                        FROM base WHERE fecha_estimada_pago < CURRENT_DATE),
@@ -1819,7 +1822,7 @@ REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT,
 REVOKE EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT)                             FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento()                                                                                               FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               FROM PUBLIC;
@@ -1840,7 +1843,7 @@ GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, 
 GRANT EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT)                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    TO authenticated;
-GRANT EXECUTE ON FUNCTION public.consulta_alertas_vencimiento()                                                                                               TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               TO authenticated;

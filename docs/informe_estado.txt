@@ -1,341 +1,46 @@
- INFORME TÉCNICO — PROYECTO ALTRANS (Versión 5.0)
-    
-      Julio 2026 | Estado general: MVP funcional ~93%
-    
-    
-    
-    1. RESUMEN EJECUTIVO
-    
-     El proyecto Altrans consta de 4 módulos: Dashboard (React SPA), Chatbot (FastAPI), Mensajes WhatsApp y Notificaciones Automáticas (Backup + Mensajes automáticos). El dashboard es una aplicación standalone React + Vite que se conecta directamente a Supabase. El módulo del chatbot está completo (97%) con autenticación por WhatsApp + bcrypt, rate limiting, fallback Groq, logging persistente, prompts editables desde Supabase y restricción de datos vía v_chatbot_manifiestos. El módulo de notificaciones ahora incluye backup con Brevo SMTP + mensajes automáticos vía WhatsApp (5 plantillas: 4 de pendientes + pago_realizado). El sistema de seguridad por roles (7 roles, RLS, RPCs, audit_log) está implementado correctamente en BD.
+===============================================================================
+ INFORME DE ESTADO — Módulo Consulta (Altrans)
+===============================================================================
 
-     Tiempo estimado para producción: 2-3 semanas (mejoras dashboard + WhatsApp).
-    
-    
-    
-    2. ARQUITECTURA ACTUAL
-    
-    
-     ┌──────────────────────────────────────────────────────────┐
-     │                    CLIENTE (Browser)                      │
-     │  Dashboard (React SPA) │ Admin WhatsApp                  │
-     └────────────────────┬──┴──────────────────────────────────┘
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-     ┌──────────────┐       ┌──────────────────┐
-     │  SUPABASE    │       │  META WABA       │
-     │  (Auth + DB  │       │  (WhatsApp API)  │
-     │   + RPCs)    │       └──────────────────┘
-     └──────┬───────┘
-            │
-            ▼
-     ┌──────────────────────────────────────────────┐
-      │  NOTIFICATIONS (FastAPI / Python)             │
-      │  ┌──────────┐ ┌──────────────────────┐      │
-       │  │ Backup   │ │ Mensajes Auto (WABA) │      │
-       │  │ Brevo    │ └──────────────────────┘      │
-      │  └──────────┘                                │
-     │  ┌──────────────────────────────────────┐     │
-     │  │ APScheduler: backup 2x/sem + diario  │     │
-     │  └──────────────────────────────────────┘     │
-     └──────────────────────────────────────────────┘
-     
-     ┌──────────────────────────────────────┐
-     │  CHATBOT (FastAPI / ai_agent)         │
-     │  OpenRouter → DeepSeek / Claude / Groq│
-     │  Meta WABA ↔ Webhook                    │
-     └──────────────────────────────────────┘
-    
-    
-     
-    3. DIAGNÓSTICO POR MÓDULO
- 
-     3.1 Dashboard (React SPA + Supabase directo) — ✅ 93%
-     Mejoras en feature/pruebas-dashboard-julio2026:
-     
-     - Bloque 1.2: Validación FE antes de marcar cumplido (campo deshabilitado + tooltip + bloqueo en handleSaveSeg)
-     - Bloque 1.3: Excel upload usa guardar_digitador_batch (no sobreescribe conductor/propietario)
-     - Bloque 2.2: buildPayload mapea RETEICA y R. FOPAT del Excel
-      - 101/101 tests pasando
-     
-     ⚠️ Alta:
-    - Sin comparativa mes a mes o año contra año
-    - Sin drill-down: click en gráfico → consulta filtrada
-    - Sin filtro por agencia despachadora, cliente, o conductor
-    
-    🟡 Media:
-    - Columnas seleccionables en tabla de consulta
-    
-    
-    
-     3.2 Chatbot (WhatsApp / ai_agent) — ✅ 97%
-     
-     Implementado en feature/chatbot-restriccion-datos (rebasada sobre main):
-     
-     ✅ Vista v_chatbot_manifiestos — restringe datos expuestos por perfil
-       (conductor ve su cédula, propietario ve su placa, admin ve todo)
-     ✅ Admin auth por WhatsApp con bcrypt — seed con números reales
-     ✅ Fallback extremo LLM con Groq si OpenRouter falla
-     ✅ Rate limiting (login: 5 req/min, chat: 10 req/min por token)
-     ✅ Refactor async (FastAPI async + httpx.AsyncClient)
-     ✅ Loguru + logging persistente a Supabase + archivo rotativo
-     ✅ Prompts editables desde Supabase con fallback local    
-    
-3.3 Módulo de Notificaciones (Backup + Mensajes Automáticos) — ✅ 88%
+ Fecha: 2026-07-22
 
-    Implementado en feature/notificaciones:
-    
-    ✅ Backup:
-    - Envío de ZIP completo de la DB por Brevo SMTP a gerencia (2x/semana)
-    - Migrado SendGrid → Brevo: SMTP estándar (smtplib, 0 dependencias extras)
-    - Verificación de consistencia: compara backup vs DB en vivo
-    - Reintentos en caso de fallo (3 intentos, 30s entre cada uno)
-    - Backup probado: POST /admin/backup → 200 OK, email recibido en jromoguijarro@gmail.com
-    
-    ✅ Mensajes automáticos (WhatsApp):
-    - 5 plantillas implementadas: saldo_falta_factura, saldo_falta_documentacion,
-      saldo_novedad_pendiente, saldo_plazo_vigente, pago_realizado
-    - Trigger por evento: al marcar fecha_cumplido → envía plazo_vigente
-    - Trigger por evento: al marcar fecha_pago → envía pago_realizado
-    - Cron diario (6AM + 12PM Colombia): revisa manifiestos no pagados y envía
-      plantilla correspondiente según el motivo de retención
-    - Tabla messages_sent en BD para control de reenvíos (no enviar misma
-      plantilla al mismo conductor en < 7 días)
-    - RPC get_pendientes_notificacion: consulta centralizada de manifiestos
-      categorizados por tipo de bloqueo
-    
-    ✅ Bugfixes (sesión 2026-07-15):
-    - fecha_str vacío → None: evita "...aproximadamente el ." en plazo_vigente
-    - messages_sent: GRANT SELECT TO authenticated (RLS estaba roto, gerencia
-      no podía leer el historial de envíos)
-    - messages_sent: GRANT ALL TO postgres (consistencia con manifiestos_flat)
+===============================================================================
+ OBSERVACIONES PENDIENTES
+===============================================================================
 
-    ⚠️ Pendiente:
-    - WA_TOKEN vacío — configuración pendiente de Meta FB Business
-    - Resumen semanal de pendientes a conductores
-    - Unificar cliente WhatsApp con el del chatbot
-    
-    ❓ Consultas pendientes a Altrans:
-    - plazo_vigente: confirmado — se envía automáticamente al momento de
-      llenar fecha_cumplido
-    
-    
-     4. PLAN DE ACCIÓN FUNCIONAL (ACTUALIZADO — Sesión Julio 2026)
-     
-     ✅ COMPLETADO — Sprint anterior
-       (Chatbot 97%, Dashboard 82%, Notificaciones 88%)
-     
-     ─────────────────────────────────────────────────────────────
-     
-      🔴 BLOQUE 1 — CRÍTICO: Reglas de negocio ✅ COMPLETADO
-      
-        | #   | Tarea                                                     | Dónde                   | Estado |
-        |-----|-----------------------------------------------------------|-------------------------|--------|
-        | 1.1 | Subir Drive + limpiar cumplidos sin FE                     | DB (script)             | ✅ Cargado (13,542 manif). 11 excepciones con `PENDIENTE_LEGALIZACION`. |
-        | 1.2 | FE/legalización OBLIGATORIA para cumplido                  | DB + Dashboard          | ✅ CHECK `chk_cumplido_requiere_fe`. Dashboard: campo `fecha_cumplido` deshabilitado si no hay FE + bloqueo en `handleSaveSeg`. |
-        | 1.3 | Propietario y conductor INMUTABLES en re-carga Excel       | Módulo Excel            | ✅ `guardar_digitador_batch` excluye conductor/cedula/propietario del UPDATE. `load_flat.py` con `IMMUTABLE_RELOAD_COLS`. |
-         | 1.4 | Validaciones Excel: $, celular, responsables, ciudades    | `excel-upload.js`, `geography.js` | ✅ `toNum()` limpia símbolos no numéricos (`$` , espacios). `cleanCelular()` valida 10 dígitos (match DB CHECK). `',' → null` en RESPONSABLE_FIXES (match Python ETL). `SANTA FE DE BOGOTA` y `SANTA MARTA` en fallbacks. |
-        | 1.4 | Validaciones `valor_factura`                               | DB + Dashboard          | ✅ Se decidió dejar como campo manual (solo gerencia/financiero). Sin cambios en DB ni dashboard. |
-     
-      🔴 BLOQUE 2 — CRÍTICO: Campos de dinero + Saldo ✅ COMPLETADO
-      
-        | #   | Tarea                                                     | Dónde                   | Estado |
-        |-----|-----------------------------------------------------------|-------------------------|--------|
-        | 2.1 | Comparar campos numéricos DB vs Excel (Lista_Manifiestos)  | Excel vs DB             | ✅ Analizadas 930 filas vs DB. Discrepancias: DB no tiene `reteica` ni `r_fopat`. RETEFUENTE coincide con FLETE×1% en 99.6% de casos. Saldo DB sobredeclarado en $23.7M total. |
-        | 2.2 | Agregar RETEICA y R. FOPAT a la DB + corregir saldo       | DB + Dashboard + ETL    | ✅ Columnas `reteica`/`r_fopat` agregadas a `manifiestos_flat`. Fórmula de `saldo` actualizada para restarlas. `buildPayload` mapea RETEICA y R. FOPAT del Excel. `load_flat.py` preparado. Commit `0a31e39`. |
-        
-        Las columnas `reteica` y `r_fopat` son NUMERIC regulares (no GENERATED). Cualquier
-        persona autorizada (digitador, gerencia) puede editarlas directamente desde el
-        dashboard o DB. El `saldo` se recalcula automáticamente al ser GENERATED ALWAYS.
-        
-        ❓ Pendiente consultar con gerencia: ¿agregar columna `neto_a_pagar` para conciliación
-        directa con el valor NETO A PAGAR del Excel RNDC? (Quedó pactado consultar antes).
-     
-     🟠 BLOQUE 3 — ALTA: Filtros en Consulta ✅ COMPLETADO
-     
-       | #   | Tarea                                                     | Dónde                   | Estado |
-       |-----|-----------------------------------------------------------|-------------------------|--------|
-       | 3.1 | Filtro por cédula conductor                               | `ConsultaPage.jsx` + RPC | ✅ FilterAutocomplete con `searchKey="cedula"`. Muestra cédula + nombre. Catalogos existente. |
-       | 3.2 | Filtro por placa                                          | `ConsultaPage.jsx` + RPC | ✅ Ya existía desde el inicio. Sin cambios. |
-       | 3.3 | Filtro por factura electrónica (tiene/no tiene)           | `ConsultaPage.jsx` + RPC | ✅ Toggle de 3 estados: Todas / Con FE / Sin FE. `p_tiene_fe BOOLEAN` en ambos RPCs. |
-       | 3.4 | Filtro por responsable (`nombre_responsable`)             | `ConsultaPage.jsx` + RPC | ✅ FilterAutocomplete con `catalogos.responsables`. Coincide con columna en tabla. |
-       
-       Detalle técnico:
-       - `FilterAutocomplete` mejorado con `searchKey` (filtra por otra key distinta al label) y
-         subtítulo automático del `nombre` cuando labelKey ≠ "nombre" (ej. cédula + nombre).
-       - Todos los filtros nuevos se pasan también a `consulta_totales` (no solo a `consulta_manifiestos`).
-        - Tests: 101/101 siguen pasando.
-     
-      🟠 BLOQUE 4 — ALTA: Alerta de vencimientos ✅ COMPLETADO
-      
-        | #   | Tarea                                                     | Dónde                   | Estado |
-        |-----|-----------------------------------------------------------|-------------------------|--------|
-        | 4.1 | Panel de alertas en Consulta (todos los roles) + KPIs Dashboard | `ConsultaPage.jsx` + `DashboardPage.jsx` + RPC | ✅ Barra clickeable "Vencidos: N" y "Por vencer (<7d): N" arriba de filtros. KPIs en Dashboard (roles privilegiados). |
-        | 4.2 | Columna "días para vencer" en Consulta                     | `ConsultaPage.jsx`      | ✅ `VencimientoBadge`: badge rojo "VENCIDO Xd", badge ámbar "Xd", o normal. Sin color de fila para evitar conflicto con sidebar. |
-      
-      Detalle técnico:
-      - Nuevo RPC `consulta_alertas_vencimiento()`: retorna vencidos, porVencer, saldoVencido en JSON. Usa v_manifiestos (respeta RLS).
-      - `consulta_manifiestos` + `consulta_totales`: nuevo parámetro `p_estado_vencimiento TEXT` ('vencidos' | 'por_vencer').
-      - Click en badge → limpia filtros, setea estado_vencimiento, busca → tabla muestra solo vencidos/porVencer. Click again → desactiva.
-      - `dashboard_kpis`: nuevo CTE `con_fecha_estimada` + 3 nuevos keys: vencidos, porVencer, saldoVencido.
-      - VencimientoBadge calcula diferencias en JS desde `fecha_estimada_pago` (ya viene de v_manifiestos).
-      - Tests: 101/101 pasando.
-      - Dashboard: nueva fila "Vencimientos" con KPIs (Vencidos, Por vencer <7d, Al día). Solo para gerencia/financiero/administrativo.
-     
-      🟠 BLOQUE 5 — ALTA: Factura electrónica multi-manifiesto ✅ COMPLETADO
-      
-        | #   | Tarea                                                     | Dónde                   | Estado |
-        |-----|-----------------------------------------------------------|-------------------------|--------|
-        | 5.1 | Vista de manifiestos asociados a la misma FE               | `CargaPage.jsx`         | ✅ Panel `PanelManifiestosFE` con listado + resaltado en azul del manifiesto actual. Visible en vista lectura y edición. |
-        | 5.2 | Total acumulado de `valor_factura` + `saldo` por FE        | `CargaPage.jsx`         | ✅ Fila "TOTALES" al pie del panel con suma de `valor_factura`, `saldo` y conteo de manifiestos. |
-        | 5.3 | Autocompletado de facturas existentes                      | `CargaPage.jsx`         | ✅ Campos `factura_no` y `factura_electronica` convertidos a `<Autocomplete>` con sugerencias de valores existentes en DB. |
-      
-      Detalle técnico:
-      - Nuevo RPC `get_manifiestos_por_fe(TEXT)` en Supabase: devuelve manifiesto, cliente, fecha, factura_no, valor_factura, saldo para una FE dada.
-      - `get_catalogos` extendido con `facturas_electronicas` y `facturas_no` para alimentar los Autocomplete.
-      - Efecto `useEffect` en CargaPage: al cambiar `formFact.factura_electronica`, consulta los manifiestos relacionados.
-      - `handleSaveFact` actualizado: después de guardar, refresca la lista de relacionados.
-      - Tests: 101/101 pasando.
-     
-      🟢 BLOQUE 6 — MEDIA: UX y Edición ✅ COMPLETADO
-      
-        | #   | Tarea                                                     | Dónde                   | Estado |
-        |-----|-----------------------------------------------------------|-------------------------|--------|
-        | 6.1 | Botón "Restablecer" en todas las tabs de edición           | `CargaPage.jsx`         | ✅ Botón `Restablecer` (icono RotateCcw) en Despacho, Cumplimiento (x2), Tesorería y Facturación. Función `revertAll()` restaura los 4 formularios desde `ficha`. Visible para todos los roles en edición. |
-        | 6.2 | Exportar consulta a Excel/CSV                              | `ConsultaPage.jsx`      | ✅ Dos botones (CSV y Excel) visibles solo para `gerencia`. Exportan 41 columnas con valores formateados. Usa XLSX para Excel, CSV con quoting y BOM. |
-        | 6.3 | Colores/filtros visuales en tabla de consulta              | `ConsultaPage.jsx`      | ✅ Icono verde ✓ (Check lucide) en columna FE cuando `factura_electronica` existe. Tooltip nativo (`title`) ya existía en celdas Novedades/Novedad Conductor/Novedad Empresa. |
-      
-⚠️ PENDIENTE: Definir qué roles deben tener acceso al botón de exportación (actualmente solo gerencia).
-         Preguntar a usuaria: "¿Además de gerencia, qué otro(s) rol(es) deberían poder exportar la consulta a Excel/CSV?"
-      
-      🟡 BLOQUE 7 — MEDIA: Roles, permisos y filtrado por responsable
-       
-       ─────────────────────────────────────────────────────────────────────
-       DIAGNÓSTICO COMPLETO
-       ─────────────────────────────────────────────────────────────────────
-       
-       ✅ IMPLEMENTADO: Toggle "Ver solo mis manifiestos" en ConsultaPage
-         - Match nombre_usuario (user_metadata.nombre) contra catalogos.responsables
-           usando normalizeResponsable() para consistencia con Excel
-         - Botón toggle en barra de filtros, visible solo para roles no-gerencia
-           que tengan responsable asociado
-         - Cuando activo: deshabilita filtro manual de Responsable, muestra badge
-           "Mis manifiestos" en gradiente azul, auto-filtra por nombre_responsable
-         - Cuando desactivo: limpia el filtro y recarga todo
-         - Ajustable post-reunión: agregar/remover matches, cambiar roles, etc.
-      
-      USUARIOS DEL SISTEMA (13):
-      
-        Cédula       | Nombre                                              | Rol          | Cargo
-        -------------|-----------------------------------------------------|--------------|--------------------------------
-        1004564051   | MARCELA STEFANYA CUASQUEN ARCINIEGAS                | digitador    | AUXILIAR OPERATIVA Y LOGISTICA
-        37008344     | MARIA ELENA LUCERO PAREDES                          | financiero   | AUXILIAR CONTABLE
-        1193057039   | JULIAN FUERTES ENRIQUEZ                             | gerencia     | SUBGERENTE
-        13015050     | JULIO FUERTES VELA                                  | gerencia     | GERENTE
-        1233188009   | ANGIE PAOLA OVIEDO OBANDO                           | logistico    | DIRECTOR OPERATIVO Y LOGISTICO
-        1085928088   | CATHERIN MARCELA RODRIGUEZ PASTAS                   | logistico    | DIRECTOR OPERATIVO Y LOGISTICO
-        1118292701   | ELIANA LUCIA GUEVARA RAMOS                          | logistico    | AUXILIAR OPERATIVO Y LOGISTICO
-        1085336031   | HECTOR FLAMINIO MELO LEITON                         | logistico    | DIRECTOR OPERATIVO Y LOGISTICO
-        1085899873   | INGRID VANESSA CALPA YANDUN                         | logistico    | AUXILIAR OPERATIVA Y LOGISTICA
-        1007156550   | KATHERINE STHEFANIA VACA SOLANO                     | logistico    | AUXILIAR OPERATIVA Y LOGISTICA
-        29974867     | LARIZA HERRERA VISCONDE                             | logistico    | AUXILIAR OPERATIVO Y LOGISTICO CALI
-        1151441687   | MIGUEL ANGEL PEÑALOZA GALLEGO                       | logistico    | COORDINADOR AGENCIA BUENAVENTURA
-        36861498     | JOHANA DEL SOCORRO UNIGARRO CEBALLOS                | tesoreria    | AUXILIAR FINANCIERA
-      
-      RESPONSABLES EN BD (38 valores únicos, de columnas nombre_responsable / responsable / responsable_estado_interno):
-      
-        Coinciden con usuario (9):  MARCELA, MARIAE, JULIAN, ANGIE, ANGIE OVIEDO,
-                                    CATHERIN, ELIANA, HECTOR, INGRID VANESSA,
-                                    JOHANA UNIGARRO
-        Sin usuario (17 personas):  ALEJANDRA, ANGELA G, DAVID, DIANA G.,
-                                    ELIZABETH SUAREZ, HAIR, KAROL, KAROL ARCINIEGAS,
-                                    KATTY, KATY, LILIANA, LILIANA OBREGON,
-                                    MILENA GUTIERREZ, VANESSA, YANETH F, YURANY ESTUPINA
-        No son personas (12):       ANULADO, BUENAVENTURA, FLOTA PROPIA, FP,
-                                    HOJASDEVIDA1, LOGISTICACALI2, OPERATIVO 1/2/3,
-                                    OPERATIVO BUENA, OTROS, URBANO
-      
-      USUARIOS SIN MANIFIESTOS ASIGNADOS (4):
-        - JULIO FUERTES VELA (gerencia) — ve todo, no necesita
-        - KATHERINE STHEFANIA VACA SOLANO (logistico)
-        - LARIZA HERRERA VISCONDE (logistico)
-        - MIGUEL ANGEL PEÑALOZA GALLEGO (logistico)
-      
-      ─────────────────────────────────────────────────────────────────────
-      MAPEO PROPUESTO: nombre_responsable en BD → usuario
-      ─────────────────────────────────────────────────────────────────────
-      
-        Responsable BD  → Usuario                                        Rol          Estado
-        ────────────────┼────────────────────────────────────────────────┼─────────────┼────────
-        MARCELA         → MARCELA STEFANYA CUASQUEN ARCINIEGAS          digitador    ✅
-        MARIAE          → MARIA ELENA LUCERO PAREDES                     financiero   ✅
-        JULIAN          → JULIAN FUERTES ENRIQUEZ                        gerencia     ✅
-        (nuevo)         → JULIO FUERTES VELA                             gerencia     🔵 ve todo
-        ANGIE           → ¿ANGIE PAOLA OVIEDO OBANDO?                    logistico    ❓ duplicado
-        ANGIE OVIEDO    → ANGIE PAOLA OVIEDO OBANDO                      logistico    ✅
-        CATHERIN        → CATHERIN MARCELA RODRIGUEZ PASTAS              logistico    ✅
-        ELIANA          → ELIANA LUCIA GUEVARA RAMOS                     logistico    ✅
-        HECTOR          → HECTOR FLAMINIO MELO LEITON                    logistico    ✅
-        INGRID VANESSA  → INGRID VANESSA CALPA YANDUN                    logistico    ✅
-        (nuevo)         → KATHERINE STHEFANIA VACA SOLANO                logistico    🔵 nuevo
-        (nuevo)         → LARIZA HERRERA VISCONDE                        logistico    🔵 nuevo
-        (nuevo)         → MIGUEL ANGEL PEÑALOZA GALLEGO                  logistico    🔵 nuevo
-        JOHANA UNIGARRO → JOHANA DEL SOCORRO UNIGARRO CEBALLOS           tesoreria    ✅
-      
-      ─────────────────────────────────────────────────────────────────────
-      VALOR FACTURA — VERIFICACIÓN
-      ─────────────────────────────────────────────────────────────────────
-      
-        Código actual:   canVerValorFactura = ['financiero', 'contadora',
-                          'administrativo', 'gerencia'].includes(rol)
-        Usuarios actuales: financiero (MARIA ELENA) ✅, gerencia (JULIAN, JULIO) ✅
-        Roles sin representación: contadora, administrativo — no existen aún
-        Conclusión: ✅ Ya cubre a todos los que deberían verlo
-      
-      ─────────────────────────────────────────────────────────────────────
-      EXPORTACIÓN — VERIFICACIÓN
-      ─────────────────────────────────────────────────────────────────────
-      
-        Código actual:   isGerencia = rol === 'gerencia'
-        Botones CSV/Excel visibles solo para gerencia ✅
-        Pendiente: Preguntar mañana si otros roles deben acceder.
-      
-      ─────────────────────────────────────────────────────────────────────
-      PLAN DE IMPLEMENTACIÓN
-      ─────────────────────────────────────────────────────────────────────
-      
-      | Paso | Qué                                   | Dónde                                         | Cómo |
-      |------|---------------------------------------|-----------------------------------------------|------|
-      | 0    | Notificar a gerencia sobre inconsistencias | —                                           | Ver preguntas P10-P13 abajo |
-      | 1    | Agregar nombre_responsable a cada usuario | SQL: auth.users.raw_user_meta_data          | ✅ YA IMPLEMENTADO (lado cliente): match por nombre via normalizeResponsable(). Ajustar después con datos exactos de gerencia. |
-       | 2    | Modificar consulta_manifiestos RPC      | DB: schema_consolidated.sql                  | ✅ YA IMPLEMENTADO (lado cliente): el RPC ya soporta p_nombre_responsable. El toggle lo auto-aplica. |
-       | 3    | Frontend: pasar filtro automático       | useConsulta.js                               | ✅ YA IMPLEMENTADO: toggle en ConsultaPage.jsx setea filters.nombre_responsable |
-       | 4    | Frontend: ocultar filtro Responsable     | ConsultaPage.jsx                             | ✅ YA IMPLEMENTADO: cuando toggle activo, se reemplaza el FilterAutocomplete por badge estático |
-       | 5    | Frontend: badge "Tus manifiestos"       | ConsultaPage.jsx                             | ✅ YA IMPLEMENTADO: botón toggle con estilo gradiente activo + User icon |
-       | 6    | Auto-asignar responsable en carga       | CargaPage.jsx                                | Pendiente (no implementado aún) |
-       | 7    | (Opcional) Limpiar responsables no-persona | DB: batch UPDATE                          | Pendiente de aprobación de gerencia |
-      
-      NOTA: Pasos 0-6 se pueden ajustar post-reunión. Los cambios necesarios son mínimos:
-       - Agregar/quitar entradas en RESPONSABLE_FIXES (una línea cada una)
-       - Cambiar qué roles ven el toggle (una condición en JS)
-       - Todo el código ya está implementado y testeado (101/101 tests pasando).
+ 1. Coherencia Estado Interno ↔ Factura Electrónica
+ ─────────────────────────────────────────────────────────────────────────────
 
-      🔍 PENDIENTES — Preguntas para Julian / Altrans
+   Verificación en DB (manifiestos_flat, 13,542 filas):
 
-        | #   | Pregunta |
-        |-----|----------|
-        | P1  | Regla de retención: si reajuste > X, ¿el 1% retefuente se calcula sobre el reajuste también o solo sobre el flete base? |
-        | P2  | **Campos de dinero agregados**: `reteica`, `r_fopat` (del Excel) + `retencion_conductor` (1% auto). Sin IVA ni otros. ¿Falta algún campo de dinero que debamos agregar? |
-        | P3  | Trazabilidad → **implementar después** (no prioridad ahora) |
-        | P4  | ␀ (eliminada, fusionada con P12) |
-        | P5  | **Filtro por responsable**: ¿restricción TOTAL (solo ve sus manifiestos) o prioridad (ve todos pero primero los suyos)? |
-        | P6  | **`valor_factura`**: ¿tiene formato/validación específica? ej. `factura_electronica` = prefijo + número secuencial, `valor_factura` = valor del servicio IVA incluido o sin IVA, redondeo, decimales? |
-        | P7  | ␀ (resuelta: Marcela se asigna vía `nombre_responsable = "MARCELA"`) |
-        | P8  | **Columnas Excel vs DB**: investigado — las 19 columnas del Excel RNDC mapean correctamente a la BD. No faltan campos del Excel. Las ~30 columnas restantes en BD son para otros roles (logístico, tesorería, financiero) o auto-calculadas. ¿Confirmas que está completo o falta algo? |
-        | P9  | **`neto_a_pagar` / `saldo`**: Actualmente `saldo` es columna GENERADA (flete ± ajustes − retenciones − anticipo). ¿Agregamos columna física `neto_a_pagar` desde el Excel RNDC para conciliación directa, o dejamos el saldo calculado como está? |
-        | P10 | **17 responsables sin usuario**: ALEJANDRA, ANGELA G, DAVID, DIANA G., ELIZABETH SUAREZ, HAIR, KAROL, KAROL ARCINIEGAS, KATTY, KATY, LILIANA, LILIANA OBREGON, MILENA GUTIERREZ, VANESSA, YANETH F, YURANY ESTUPINA. ¿Deberían tener acceso al dashboard? ¿O son personas externas (conductores, clientes) que no necesitan cuenta? |
-        | P11 | **"ANGIE" vs "ANGIE OVIEDO"** en la BD: ¿es la misma persona (ANGIE PAOLA OVIEDO OBANDO, logistico) o son dos personas distintas? Si es la misma, unificamos a "ANGIE OVIEDO". |
-        | P12 | **12 responsables no-persona** (ANULADO, BUENAVENTURA, FLOTA PROPIA, FP, HOJASDEVIDA1, LOGISTICACALI2, OPERATIVO 1/2/3, OPERATIVO BUENA, OTROS, URBANO) + **nombres tipo "bogota2"** (P4 anterior): mismos que los OPERATIVO/LOGISTICACALI? ¿De dónde salen? ¿Limpiarlos (→ NULL o agrupar bajo agencia)? |
-        | P13 | **3 logisticos sin manifiestos**: KATHERINE VACA, LARIZA HERRERA, MIGUEL PEÑALOZA. ¿Es correcto que no tengan? ¿O hay que reasignarles existentes? |
-        | P14 | **Nombres propuestos** para nuevos responsables: KATHERINE, LARIZA, MIGUEL. ¿Están bien o prefieren otro nombre? |
-        | P15 | **Exportación CSV/Excel**: actualmente solo gerencia. ¿Quién más debería poder exportar? (digitador, logistico, tesoreria, financiero?) |
+   Estado Interno                      Total   Con FE   Sin FE   % Con FE
+   ─────────────────────────────────────────────────────────────────────
+   (nulo)                              6,584   6,577        7     99.9%
+   CUMPLIDO                            6,221   6,215        6     99.9%
+   NO SE HA CUMPLIDO                     412     214      198     51.9%
+   PENDIENTE FACTURA ELECTRONICA          89      89        0    100.0%
+   NOVEDAD PENDIENTE                      33      33        0    100.0%
+   FACTURA RECIBIDA                       23      23        0    100.0%
+   ANULADO                               180     180        0    100.0%
+
+   Observaciones:
+   - "PENDIENTE FACTURA ELECTRONICA" tiene FE en el 100% de los casos.
+     El nombre del estado es engañoso: los datos están actualizados pero el
+     label no refleja la realidad (el valor real de factura_electronica
+     es el literal "FE", posiblemente un placeholder).
+   - CUMPLIDO tiene 6 filas sin FE (son las limpiadas durante el proceso
+     de migración que tenía fecha_cumplido pero no FE).
+   - (nulo) tiene 7 filas sin FE.
+   - "NO SE HA CUMPLIDO" está 50/50 (no es predictivo).
+
+   Conclusión: La cobertura es ~99.9% para CUMPLIDO y (nulo), pero
+   NO es viable eliminar el filtro de FE aún. Pendiente de revisión
+   con gerencia para decidir si se limpian los datos inconsistentes
+   y se unifica la lógica.
+
+ 2. Pendientes técnicos
+ ─────────────────────────────────────────────────────────────────────────────
+
+   - Ninguno por el momento.
+
+===============================================================================

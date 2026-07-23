@@ -1035,12 +1035,12 @@ def _cedula(val) -> str | None:
 
 
 def _clean_placa_remolque(val) -> tuple[str | None, str | None]:
-    
+    """
     Placa de remolque o descriptor inútil.
-    Valores con letras+dígitos (placas) → se conservan.
-    Descriptores de tipo (MULA, TURBO, SENCILLO, etc.) → NULL + nota en novedades.
-    ANULADO y similares → NULL sin nota.
-    
+    Valores con letras+dígitos (placas) -> se conservan.
+    Descriptores de tipo (MULA, TURBO, SENCILLO, etc.) -> NULL + nota en novedades.
+    ANULADO y similares -> NULL sin nota.
+    """
     if pd.isna(val):
         return None, None
     s = str(val).strip().upper()
@@ -1219,6 +1219,34 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
         df["placa_remolque"] = parsed.apply(lambda t: t[0])
         df = _apply_novedades(df, parsed.apply(lambda t: t[1]))
 
+    # 6j. Normalizar placa: trim, anulado case-insensitive, swap con placa_remolque si está mal
+    if "placa" in df.columns:
+        raw = df["placa"].str.strip()
+        lower = raw.str.lower().fillna("")
+        mask_anulado = lower.isin({"anulado", "anulacion", "anulado ", "anulada", "sin placa"})
+        mask_cons = lower == "cons anulado"
+        if mask_anulado.any():
+            df.loc[mask_anulado, "placa"] = "ANULADO"
+        if mask_cons.any():
+            df.loc[mask_cons, "placa"] = "CONS ANULADO"
+        raw = df["placa"].str.strip()
+        valid_plate = raw.str.match(r"^[A-Z0-9]{4,7}$", na=True) | raw.isin(["ANULADO", "CONS ANULADO"])
+        if "placa_remolque" in df.columns:
+            swap = ~valid_plate & df["placa_remolque"].str.match(r"^[A-Z0-9]{4,7}$", na=False)
+            if swap.any():
+                note = "PLACA INVALIDA (era novedades), se usó placa_remolque como placa"
+                df.loc[swap, "novedades"] = df.loc[swap, "novedades"].fillna("").astype(str) + note
+                df.loc[swap, "placa"] = df.loc[swap, "placa_remolque"]
+                df.loc[swap, "placa_remolque"] = None
+
+    # 6k. Fecha cumplido requiere factura electrónica (chk_cumplido_requiere_fe)
+    if "fecha_cumplido" in df.columns and "factura_electronica" in df.columns:
+        df["factura_electronica"] = df["factura_electronica"].str.strip()
+        no_fe = df["factura_electronica"].isna() | (df["factura_electronica"] == "")
+        mask_cumplido_sin_fe = df["fecha_cumplido"].notna() & no_fe
+        if mask_cumplido_sin_fe.any():
+            df.loc[mask_cumplido_sin_fe, "fecha_cumplido"] = None
+
     # 6d. Columnas de departamento junto a origen y destino
     for city_col, dept_col in [("origen", "departamento_origen"), ("destino", "departamento_destino")]:
         if city_col in df.columns:
@@ -1253,6 +1281,7 @@ def clean_values(df: pd.DataFrame) -> pd.DataFrame:
         df = df.drop(columns=dead)
 
     return df
+
 
 
 def expand_remesas(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
