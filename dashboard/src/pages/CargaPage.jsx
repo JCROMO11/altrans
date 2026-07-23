@@ -504,7 +504,7 @@ function ExcelUploadPanel({ onDone }) {
   const totalImportar = revision ? revision.nuevos.length + seleccionados.size : 0
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="w-full flex flex-col gap-4">
 
       {/* Drop zone */}
       {!preview && !result && !revision && (
@@ -513,7 +513,7 @@ function ExcelUploadPanel({ onDone }) {
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           onClick={() => inputRef.current?.click()}
-          className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed py-20 cursor-pointer transition-colors"
+          className="w-full flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed py-28 cursor-pointer transition-colors"
           style={{ borderColor: dragging ? BLUE : BDR, background: dragging ? BLUE + '08' : '#FAFBFC' }}>
           <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden"
             onChange={e => { if (e.target.files[0]) parseFile(e.target.files[0]) }} />
@@ -1123,7 +1123,7 @@ export default function CargaPage({ target, clearTarget, user }) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-6 max-w-5xl mx-auto">
+    <div className="w-full flex flex-col gap-6 max-w-5xl mx-auto">
 
       {/* Search bar */}
       <form onSubmit={handleSearch} className="flex gap-3">
@@ -1143,7 +1143,7 @@ export default function CargaPage({ target, clearTarget, user }) {
 
       {/* ── INICIO ─────────────────────────────────────────────────────────── */}
       {view === 'inicio' && (
-        <div className="flex flex-col gap-6">
+        <div className="w-full flex flex-col gap-6">
           {/* Upload panel para digitadores */}
           {canUploadExcel && (
             <div className="flex flex-col gap-3">
@@ -1168,7 +1168,7 @@ export default function CargaPage({ target, clearTarget, user }) {
 
       {/* ── FICHA ──────────────────────────────────────────────────────────── */}
       {view === 'ficha' && ficha && (
-        <div className="flex flex-col gap-4">
+        <div className="w-full flex flex-col gap-4">
           {/* Header */}
           <div className="flex items-center gap-3 flex-wrap">
             <button type="button" onClick={volver}

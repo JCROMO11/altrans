@@ -184,7 +184,7 @@ export default function Layout({ children, page, setPage, user }) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 px-6 py-3 overflow-auto flex flex-col">
+        <main className="flex-1 px-6 py-3 flex flex-col overflow-y-scroll">
           {children}
         </main>
 
