@@ -42,41 +42,51 @@ export function useConsulta() {
     setPage(pageNum)
 
     const rowParams = buildParams(filters, pageNum)
-    const totParams = {
-      p_manifiesto:         rowParams.p_manifiesto,
-      p_fecha_desde:        rowParams.p_fecha_desde,
-      p_fecha_hasta:        rowParams.p_fecha_hasta,
-      p_conductor:          rowParams.p_conductor,
-      p_cedula_conductor:   rowParams.p_cedula_conductor,
-      p_cliente:            rowParams.p_cliente,
-      p_origen:             rowParams.p_origen,
-      p_destino:            rowParams.p_destino,
-      p_placa:              rowParams.p_placa,
-      p_agencia:            rowParams.p_agencia,
-      p_compromiso_pago:    rowParams.p_compromiso_pago,
-      p_estado_interno:     rowParams.p_estado_interno,
-      p_mes:                rowParams.p_mes,
-      p_año:                rowParams.p_año,
-      p_tiene_fe:           rowParams.p_tiene_fe,
-      p_nombre_responsable: rowParams.p_nombre_responsable,
-      p_estado_vencimiento: rowParams.p_estado_vencimiento,
+
+    try {
+      const rowRes = await supabase.rpc('consulta_manifiestos', rowParams)
+      if (rowRes.error) throw new Error('consulta_manifiestos: ' + rowRes.error.message)
+
+      const fetched = rowRes.data ?? []
+      setHasMore(fetched.length > PAGE_SIZE)
+      setRows(fetched.slice(0, PAGE_SIZE))
+    } finally {
+      setLoading(false)
     }
 
-    const [rowRes, totRes] = await Promise.all([
-      supabase.rpc('consulta_manifiestos', rowParams),
-      pageNum === 0
-        ? supabase.rpc('consulta_totales', totParams)
-        : Promise.resolve({ data: null }),
-    ])
-
-    if (rowRes.error) console.error('consulta_manifiestos:', rowRes.error)
-    if (totRes.error) console.error('consulta_totales:', totRes.error)
-
-    const fetched = rowRes.data ?? []
-    setHasMore(fetched.length > PAGE_SIZE)
-    setRows(fetched.slice(0, PAGE_SIZE))
-    if (totRes.data) setTotals(totRes.data[0] ?? null)
-    setLoading(false)
+    if (pageNum === 0) {
+      try {
+        const totParams = {
+          p_manifiesto:         rowParams.p_manifiesto,
+          p_fecha_desde:        rowParams.p_fecha_desde,
+          p_fecha_hasta:        rowParams.p_fecha_hasta,
+          p_conductor:          rowParams.p_conductor,
+          p_cedula_conductor:   rowParams.p_cedula_conductor,
+          p_cliente:            rowParams.p_cliente,
+          p_origen:             rowParams.p_origen,
+          p_destino:            rowParams.p_destino,
+          p_placa:              rowParams.p_placa,
+          p_agencia:            rowParams.p_agencia,
+          p_compromiso_pago:    rowParams.p_compromiso_pago,
+          p_estado_interno:     rowParams.p_estado_interno,
+          p_mes:                rowParams.p_mes,
+          p_año:                rowParams.p_año,
+          p_tiene_fe:           rowParams.p_tiene_fe,
+          p_nombre_responsable: rowParams.p_nombre_responsable,
+          p_estado_vencimiento: rowParams.p_estado_vencimiento,
+        }
+        const totRes = await supabase.rpc('consulta_totales', totParams)
+        console.log('consulta_totales raw:', totRes)
+        if (totRes.error) {
+          console.error('consulta_totales RPC error:', totRes.error)
+        } else if (totRes.data && totRes.data.length > 0) {
+          setTotals(totRes.data[0])
+          console.log('consulta_totales data[0]:', totRes.data[0])
+        }
+      } catch (err) {
+        console.error('consulta_totales exception:', err)
+      }
+    }
   }, [])
 
   const nextPage = () => { if (hasMore && lastFilters) buscar(lastFilters, page + 1) }
