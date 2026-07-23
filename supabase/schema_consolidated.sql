@@ -967,11 +967,15 @@ $$;
 
 -- ── consulta_totales ────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.consulta_totales(
+    p_manifiesto          INTEGER  DEFAULT NULL,
     p_fecha_desde         DATE     DEFAULT NULL,
     p_fecha_hasta         DATE     DEFAULT NULL,
     p_conductor           TEXT     DEFAULT NULL,
     p_cedula_conductor    TEXT     DEFAULT NULL,
     p_cliente             TEXT     DEFAULT NULL,
+    p_origen              TEXT     DEFAULT NULL,
+    p_destino             TEXT     DEFAULT NULL,
+    p_placa               TEXT     DEFAULT NULL,
     p_agencia             TEXT     DEFAULT NULL,
     p_compromiso_pago     TEXT     DEFAULT NULL,
     p_estado_interno      TEXT     DEFAULT NULL,
@@ -1000,11 +1004,15 @@ AS $$
         COALESCE(SUM(valor_pagado),         0),
         COALESCE(SUM(saldo), 0) - COALESCE(SUM(valor_pagado), 0)
     FROM public.v_manifiestos
-    WHERE (p_fecha_desde         IS NULL OR fecha_despacho            >= p_fecha_desde)
+    WHERE (p_manifiesto         IS NULL OR manifiesto                   = p_manifiesto)
+      AND (p_fecha_desde         IS NULL OR fecha_despacho            >= p_fecha_desde)
       AND (p_fecha_hasta         IS NULL OR fecha_despacho            <= p_fecha_hasta)
       AND (p_conductor           IS NULL OR conductor            ILIKE '%' || p_conductor || '%')
       AND (p_cedula_conductor    IS NULL OR cedula_conductor     ILIKE '%' || p_cedula_conductor || '%')
       AND (p_cliente             IS NULL OR cliente              ILIKE '%' || p_cliente   || '%')
+      AND (p_origen              IS NULL OR origen               ILIKE '%' || p_origen    || '%')
+      AND (p_destino             IS NULL OR destino              ILIKE '%' || p_destino   || '%')
+      AND (p_placa               IS NULL OR placa                ILIKE '%' || p_placa     || '%')
       AND (p_agencia             IS NULL OR agencia_despachadora      = p_agencia)
       AND (p_compromiso_pago     IS NULL OR compromiso_pago           = p_compromiso_pago)
       AND (p_estado_interno      IS NULL OR estado_interno            = p_estado_interno)

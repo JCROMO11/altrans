@@ -41,11 +41,15 @@ export function useConsulta() {
 
     const rowParams = buildParams(filters, pageNum)
     const totParams = {
+      p_manifiesto:         rowParams.p_manifiesto,
       p_fecha_desde:        rowParams.p_fecha_desde,
       p_fecha_hasta:        rowParams.p_fecha_hasta,
       p_conductor:          rowParams.p_conductor,
       p_cedula_conductor:   rowParams.p_cedula_conductor,
       p_cliente:            rowParams.p_cliente,
+      p_origen:             rowParams.p_origen,
+      p_destino:            rowParams.p_destino,
+      p_placa:              rowParams.p_placa,
       p_compromiso_pago:    rowParams.p_compromiso_pago,
       p_estado_interno:     rowParams.p_estado_interno,
       p_mes:                rowParams.p_mes,
@@ -73,9 +77,7 @@ export function useConsulta() {
   const prevPage = () => { if (page > 0 && lastFilters) buscar(lastFilters, page - 1) }
 
   const fetchAll = useCallback(async (filters) => {
-    const params = { ...buildParams(filters, 0) }
-    delete params.p_limit
-    delete params.p_offset
+    const params = { ...buildParams(filters, 0), p_limit: 999999, p_offset: 0 }
     const { data } = await supabase.rpc('consulta_manifiestos', params)
     return data ?? []
   }, [])

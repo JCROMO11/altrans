@@ -33,11 +33,8 @@ const TICK_XXS = { fontSize: 9,  fill: TICK }
 const fmtCOP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v)
 const fmtK   = v => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}K` : String(v)
 
-// Formato compacto para KPIs grandes: > 10M usa abreviatura, si no formato COP completo.
 const fmtKpi = v => {
   if (typeof v !== 'number' || !isFinite(v)) return fmtCOP(0)
-  if (v >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(2)}MM`
-  if (v >= 10_000_000)    return `$${(v / 1_000_000).toFixed(1)}M`
   return fmtCOP(v)
 }
 

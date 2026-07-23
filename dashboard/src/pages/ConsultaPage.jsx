@@ -312,6 +312,8 @@ function AuditoriaPanel() {
     setPage(pg)
     setLoading(false)
   }, [])
+  // Carga automática al abrir — igual que la pestaña Manifiestos
+  useEffect(() => { buscar({ manifiesto: '', campo: '', usuario: '', fecha_desde: '', fecha_hasta: '' }, 0) }, []) // eslint-disable-line
 
   const handleSearch = e => { e?.preventDefault(); buscar(filters, 0) }
   const clearAll = () => {
@@ -698,56 +700,6 @@ export default function ConsultaPage({ openEnCarga, user }) {
         ? <AuditoriaPanel />
         : <>
 
-      {/* Alertas de vencimiento */}
-      {alertas && (
-        <div className="flex gap-3 items-center rounded-2xl px-5 py-3"
-          style={{ background: BG, border: `1px solid ${BDR}` }}>
-          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>Vencimientos</span>
-          <button type="button" onClick={() => filtrarPorVencimiento('vencidos')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-            style={filters.estado_vencimiento === 'vencidos'
-              ? { background: 'linear-gradient(135deg, #E05252 0%, #EF4444 100%)', color: '#fff', boxShadow: '0 2px 8px 0 rgba(224,82,82,0.25)' }
-              : alertas.vencidos > 0
-                ? { background: RED + '18', color: RED, border: `1px solid ${RED}44` }
-                : { background: '#F1F5F9', color: MUTED } }
-            disabled={!alertas.vencidos > 0}>
-            <AlertTriangle size={12} /> Vencidos: {alertas.vencidos ?? '—'}
-            {alertas.saldoVencido > 0 && (
-              <span className="ml-1 text-[10px] opacity-75">· {money(alertas.saldoVencido)}</span>
-            )}
-          </button>
-          <button type="button" onClick={() => filtrarPorVencimiento('por_vencer')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-            style={filters.estado_vencimiento === 'por_vencer'
-              ? { background: 'linear-gradient(135deg, #F59E0B 0%, #F97316 100%)', color: '#fff', boxShadow: '0 2px 8px 0 rgba(245,158,11,0.25)' }
-              : alertas.porVencer > 0
-                ? { background: AMBAR + '18', color: AMBAR, border: `1px solid ${AMBAR}44` }
-                : { background: '#F1F5F9', color: MUTED } }
-            disabled={!alertas.porVencer > 0}>
-            Por vencer (&lt;7d): {alertas.porVencer ?? '—'}
-          </button>
-          {filters.estado_vencimiento && (
-            <button type="button" onClick={() => {
-              const next = { ...filters, estado_vencimiento: '' }
-              setFilters(next)
-              buscar(next, 0)
-            }}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-opacity hover:opacity-80"
-              style={{ background: '#F1F5F9', color: MUTED, border: `1px solid ${BDR}` }}>
-              <X size={11} /> Limpiar vencimiento
-            </button>
-          )}
-          {miResponsable && misAlertas && (
-            <span className="text-xs ml-auto" style={{ color: MUTED }}>
-              <User size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />{' '}
-              <strong>{miResponsable}</strong>:
-              {' '}{misAlertas.vencidos ?? 0} vencidos{misAlertas.saldoVencido > 0 ? ` (${money(misAlertas.saldoVencido)})` : ''}
-              {' · '}{misAlertas.porVencer ?? 0} por vencer
-            </span>
-          )}
-        </div>
-      )}
-
       {/* Main flex row: sidebar + content */}
       <div className="flex gap-6 items-start">
 
@@ -755,10 +707,58 @@ export default function ConsultaPage({ openEnCarga, user }) {
         <form onSubmit={handleSearch}
           className="w-72 shrink-0 rounded-2xl p-4"
           style={{ background: '#F8FAFC', border: `1px solid ${BDR}` }}>
+          {/* Vencimientos dentro del sidebar */}
+          {alertas && (
+            <div className="flex flex-wrap gap-1.5 items-center mb-4 px-2 py-2 rounded-lg"
+              style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
+              <span className="text-[10px] font-bold uppercase tracking-wider mr-1" style={{ color: MUTED }}>Venc.</span>
+              <button type="button" onClick={() => filtrarPorVencimiento('vencidos')}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all"
+                style={filters.estado_vencimiento === 'vencidos'
+                  ? { background: 'linear-gradient(135deg, #E05252 0%, #EF4444 100%)', color: '#fff', boxShadow: '0 2px 8px 0 rgba(224,82,82,0.25)' }
+                  : alertas.vencidos > 0
+                    ? { background: RED + '18', color: RED, border: `1px solid ${RED}44` }
+                    : { background: '#FFFFFF', color: MUTED, border: `1px solid ${BDR}` } }
+                disabled={!alertas.vencidos > 0}>
+                <AlertTriangle size={10} /> V:{alertas.vencidos ?? '—'}
+              </button>
+              <button type="button" onClick={() => filtrarPorVencimiento('por_vencer')}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-all"
+                style={filters.estado_vencimiento === 'por_vencer'
+                  ? { background: 'linear-gradient(135deg, #F59E0B 0%, #F97316 100%)', color: '#fff', boxShadow: '0 2px 8px 0 rgba(245,158,11,0.25)' }
+                  : alertas.porVencer > 0
+                    ? { background: AMBAR + '18', color: AMBAR, border: `1px solid ${AMBAR}44` }
+                    : { background: '#FFFFFF', color: MUTED, border: `1px solid ${BDR}` } }
+                disabled={!alertas.porVencer > 0}>
+                &lt;7d: {alertas.porVencer ?? '—'}
+              </button>
+              {filters.estado_vencimiento && (
+                <button type="button" onClick={() => {
+                  const next = { ...filters, estado_vencimiento: '' }
+                  setFilters(next)
+                  buscar(next, 0)
+                }}
+                  className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[10px] transition-opacity hover:opacity-80"
+                  style={{ background: '#FFFFFF', color: MUTED, border: `1px solid ${BDR}` }}>
+                  <X size={10} />
+                </button>
+              )}
+              {miResponsable && misAlertas && (
+                <span className="text-[10px]" style={{ color: MUTED }}>
+                  <User size={10} style={{ display: 'inline', verticalAlign: 'middle' }} />{' '}
+                  {misAlertas.vencidos ?? 0}/{misAlertas.porVencer ?? 0}
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-semibold" style={{ color: TICK }}>Filtros</span>
             <button type="button" onClick={clearAll}
-              className="text-[10px] hover:opacity-80" style={{ color: MUTED }}>Limpiar</button>
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-opacity hover:opacity-80"
+              style={{ background: '#F1F5F9', color: MUTED, border: `1px solid ${BDR}` }}>
+              <X size={11} /> Limpiar
+            </button>
           </div>
 
           <div className="flex flex-col gap-2.5">
@@ -804,6 +804,18 @@ export default function ConsultaPage({ openEnCarga, user }) {
             <FilterSelect label="Mes" value={filters.mes} onChange={v => set('mes', v)} options={MESES_OPTS} />
             <FilterSelect label="Año" value={filters.año} onChange={v => set('año', v)} options={AÑOS_OPTS} />
 
+            {soloMisManifiestos ? (
+              <Field label="Responsable">
+                <div className="flex items-center gap-2 px-3 py-2 text-xs rounded-md"
+                  style={{ border: `1px solid ${BDR}`, background: '#F1F5F9', color: MUTED }}>
+                  <User size={11} /> {miResponsable}
+                </div>
+              </Field>
+            ) : (
+              <FilterAutocomplete label="Responsable" items={catalogos.responsables}
+                value={filters.nombre_responsable || null} onChange={v => set('nombre_responsable', v ?? '')} />
+            )}
+
             <FilterSelect label="Compromiso de pago" value={filters.compromiso_pago} onChange={v => set('compromiso_pago', v)} options={catalogos.compromisos_pago} />
             <FilterSelect label="Estado interno" value={filters.estado_interno} onChange={v => set('estado_interno', v)} options={ESTADO_INTERNO_OPTS} />
 
@@ -818,18 +830,6 @@ export default function ConsultaPage({ openEnCarga, user }) {
               value={filters.origen} onChange={v => set('origen', v)} />
             <FilterAutocomplete label="Destino" items={catalogos.lugares}
               value={filters.destino} onChange={v => set('destino', v)} />
-
-            {soloMisManifiestos ? (
-              <Field label="Responsable">
-                <div className="flex items-center gap-2 px-3 py-2 text-xs rounded-md"
-                  style={{ border: `1px solid ${BDR}`, background: '#F1F5F9', color: MUTED }}>
-                  <User size={11} /> {miResponsable}
-                </div>
-              </Field>
-            ) : (
-              <FilterAutocomplete label="Responsable" items={catalogos.responsables}
-                value={filters.nombre_responsable || null} onChange={v => set('nombre_responsable', v ?? '')} />
-            )}
 
             {miResponsable && !isGerencia && (
               <button type="button" onClick={toggleMisManifiestos}

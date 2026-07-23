@@ -166,12 +166,15 @@ export function validateCedula(v) {
   return `Cédula inválida: "${s}" (deben ser 6-10 dígitos)`
 }
 
+const AÑO_MIN = 2013
+const AÑO_MAX = new Date().getFullYear() + 10
+
 export function validateAño(v) {
   if (v == null) return null
   const n = Number(v)
   if (isNaN(n)) return `Año inválido: "${v}"`
-  if (n >= 2023 && n <= 2026) return null
-  return `Año fuera de rango: ${n} (debe ser 2023-2026)`
+  if (n >= AÑO_MIN && n <= AÑO_MAX) return null
+  return `Año fuera de rango: ${n} (debe ser ${AÑO_MIN}-${AÑO_MAX})`
 }
 
 export function validateMonto(v, label) {

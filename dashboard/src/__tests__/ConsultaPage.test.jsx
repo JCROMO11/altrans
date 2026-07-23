@@ -248,9 +248,9 @@ describe('ConsultaPage', () => {
     render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
 
     await waitFor(() => {
-      expect(screen.getByText(/Vencidos: 5/i)).toBeInTheDocument()
+      expect(screen.getByText(/V:\s*5/i)).toBeInTheDocument()
     })
-    expect(screen.getByText(/Por vencer.*3/i)).toBeInTheDocument()
+    expect(screen.getByText(/<7d.*3/i)).toBeInTheDocument()
   })
 
   it('click en "Vencidos" dispara buscar con estado_vencimiento=vencidos', async () => {
@@ -267,9 +267,9 @@ describe('ConsultaPage', () => {
 
     buscar.mockClear()
     await waitFor(() => {
-      expect(screen.getByText(/Vencidos: 5/i)).toBeInTheDocument()
+      expect(screen.getByText(/V:\s*5/i)).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByText(/Vencidos: 5/i))
+    fireEvent.click(screen.getByText(/V:\s*5/i))
 
     expect(buscar).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -293,9 +293,9 @@ describe('ConsultaPage', () => {
 
     buscar.mockClear()
     await waitFor(() => {
-      expect(screen.getByText(/Por vencer.*4/i)).toBeInTheDocument()
+      expect(screen.getByText(/<7d.*4/i)).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByText(/Por vencer.*4/i))
+    fireEvent.click(screen.getByText(/<7d.*4/i))
 
     expect(buscar).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -319,10 +319,10 @@ describe('ConsultaPage', () => {
 
     // Primer click → activa vencidos
     await waitFor(() => {
-      expect(screen.getByText(/Vencidos: 3/i)).toBeInTheDocument()
+      expect(screen.getByText(/V:\s*3/i)).toBeInTheDocument()
     })
     buscar.mockClear()
-    fireEvent.click(screen.getByText(/Vencidos: 3/i))
+    fireEvent.click(screen.getByText(/V:\s*3/i))
     expect(buscar).toHaveBeenCalledWith(
       expect.objectContaining({ estado_vencimiento: 'vencidos' }), 0,
     )
@@ -330,7 +330,7 @@ describe('ConsultaPage', () => {
     // Segundo click → desactiva solo vencimiento
     buscar.mockClear()
     await waitFor(() => {
-      fireEvent.click(screen.getByText(/Vencidos: 3/i))
+      fireEvent.click(screen.getByText(/V:\s*3/i))
       expect(buscar).toHaveBeenCalledWith(
         expect.objectContaining({ estado_vencimiento: '' }), 0,
       )
