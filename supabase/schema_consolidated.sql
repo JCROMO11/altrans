@@ -1827,7 +1827,7 @@ REVOKE ALL                    ON public.admin_usuarios      FROM PUBLIC, anon, a
 
 -- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
 REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, INTEGER, INTEGER) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT)                             FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               FROM PUBLIC;
@@ -1848,7 +1848,7 @@ REVOKE EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT) 
 
 -- Otorgar a authenticated
 GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, INTEGER, INTEGER) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT)                             TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    TO authenticated;
 GRANT EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               TO authenticated;

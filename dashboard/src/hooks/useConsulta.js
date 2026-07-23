@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 const PAGE_SIZE = 50
+const FETCH_BATCH = 5000
 
 export function useConsulta() {
   const [rows,    setRows]    = useState([])
@@ -21,6 +22,7 @@ export function useConsulta() {
     p_origen:             filters.origen             || null,
     p_destino:            filters.destino            || null,
     p_placa:              filters.placa              || null,
+    p_agencia:            filters.agencia            || null,
     p_compromiso_pago:    filters.compromiso_pago    || null,
     p_estado_interno:     filters.estado_interno     || null,
     p_mes:                filters.mes                || null,
@@ -50,6 +52,7 @@ export function useConsulta() {
       p_origen:             rowParams.p_origen,
       p_destino:            rowParams.p_destino,
       p_placa:              rowParams.p_placa,
+      p_agencia:            rowParams.p_agencia,
       p_compromiso_pago:    rowParams.p_compromiso_pago,
       p_estado_interno:     rowParams.p_estado_interno,
       p_mes:                rowParams.p_mes,
@@ -66,6 +69,9 @@ export function useConsulta() {
         : Promise.resolve({ data: null }),
     ])
 
+    if (rowRes.error) console.error('consulta_manifiestos:', rowRes.error)
+    if (totRes.error) console.error('consulta_totales:', totRes.error)
+
     const fetched = rowRes.data ?? []
     setHasMore(fetched.length > PAGE_SIZE)
     setRows(fetched.slice(0, PAGE_SIZE))
@@ -77,9 +83,17 @@ export function useConsulta() {
   const prevPage = () => { if (page > 0 && lastFilters) buscar(lastFilters, page - 1) }
 
   const fetchAll = useCallback(async (filters) => {
-    const params = { ...buildParams(filters, 0), p_limit: 999999, p_offset: 0 }
-    const { data } = await supabase.rpc('consulta_manifiestos', params)
-    return data ?? []
+    const all = []
+    let offset = 0
+    let batch
+    do {
+      const params = { ...buildParams(filters, 0), p_limit: FETCH_BATCH, p_offset: offset }
+      const { data } = await supabase.rpc('consulta_manifiestos', params)
+      batch = data ?? []
+      all.push(...batch)
+      offset += FETCH_BATCH
+    } while (batch.length >= FETCH_BATCH)
+    return all
   }, [])
 
   return { rows, totals, loading, page, hasMore, buscar, fetchAll, nextPage, prevPage }

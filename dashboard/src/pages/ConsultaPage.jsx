@@ -673,7 +673,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
   }
 
   return (
-    <div className="flex flex-col gap-6 pb-8">
+    <div className="flex flex-col gap-6 pb-8 h-full">
 
       {/* Tab bar — Auditoría solo visible para admin */}
       {isGerencia && (
@@ -701,7 +701,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
         : <>
 
       {/* Main flex row: sidebar + content */}
-      <div className="flex gap-6 items-start">
+      <div className="flex gap-6 flex-1 min-h-0 items-stretch">
 
         {/* Filter sidebar */}
         <form onSubmit={handleSearch}
@@ -850,7 +850,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
         </form>
 
         {/* Content area */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
 
           {/* Results count + export */}
           {!loading && (
@@ -880,7 +880,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
           )}
 
           {/* Results table */}
-          <div className="rounded-2xl overflow-hidden" style={{ border: `1px solid ${BDR}` }}>
+          <div className="rounded-2xl overflow-hidden flex flex-col flex-1 min-h-0" style={{ border: `1px solid ${BDR}` }}>
             {loading ? (
               <div className="flex items-center justify-center h-32">
                 <span className="text-sm animate-pulse" style={{ color: MUTED }}>Cargando...</span>
@@ -890,7 +890,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
                 <span className="text-sm" style={{ color: MUTED }}>Sin resultados para los filtros seleccionados.</span>
               </div>
             ) : (
-              <div style={{ maxHeight: '68vh', overflow: 'auto' }}>
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
                 <table className="text-sm border-collapse" style={{ minWidth: '3620px' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
                     <tr style={{ background: '#F1F5F9' }}>
