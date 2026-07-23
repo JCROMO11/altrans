@@ -184,7 +184,7 @@ export default function Layout({ children, page, setPage, user }) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 p-6 overflow-auto">
+        <main className="flex-1 p-6 overflow-hidden">
           {children}
         </main>
 

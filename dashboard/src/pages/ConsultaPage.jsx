@@ -673,11 +673,11 @@ export default function ConsultaPage({ openEnCarga, user }) {
   }
 
   return (
-    <div className="flex flex-col gap-6 pb-8 h-full">
+    <div className="flex flex-col flex-1 min-h-0">
 
       {/* Tab bar — Auditoría solo visible para admin */}
       {isGerencia && (
-        <div className="flex gap-1 p-1 rounded-xl self-start" style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
+        <div className="flex gap-1 p-1 rounded-xl self-start mb-6" style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
           {[
             { id: 'manifiestos', label: 'Manifiestos' },
             { id: 'auditoria',   label: 'Auditoría', icon: <ShieldCheck size={13} /> },
