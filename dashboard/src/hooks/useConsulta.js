@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 const PAGE_SIZE = 50
-const FETCH_BATCH = 5000
+const FETCH_BATCH = 900
 
 export function useConsulta() {
   const [rows,    setRows]    = useState([])
@@ -92,7 +92,7 @@ export function useConsulta() {
       batch = data ?? []
       all.push(...batch)
       offset += FETCH_BATCH
-    } while (batch.length >= FETCH_BATCH)
+    } while (batch.length >= PAGE_SIZE)
     return all
   }, [])
 

@@ -677,7 +677,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
 
       {/* Tab bar — Auditoría solo visible para admin */}
       {isGerencia && (
-        <div className="flex gap-1 p-1 rounded-xl self-start mb-6" style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
+        <div className="flex gap-1 p-1 rounded-xl self-start mb-3" style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
           {[
             { id: 'manifiestos', label: 'Manifiestos' },
             { id: 'auditoria',   label: 'Auditoría', icon: <ShieldCheck size={13} /> },
@@ -701,15 +701,15 @@ export default function ConsultaPage({ openEnCarga, user }) {
         : <>
 
       {/* Main flex row: sidebar + content */}
-      <div className="flex gap-6 flex-1 min-h-0 items-stretch">
+      <div className="flex gap-4 flex-1 min-h-0 items-stretch">
 
         {/* Filter sidebar */}
         <form onSubmit={handleSearch}
-          className="w-72 shrink-0 rounded-2xl p-4"
+          className="w-72 shrink-0 rounded-2xl p-3"
           style={{ background: '#F8FAFC', border: `1px solid ${BDR}` }}>
           {/* Vencimientos dentro del sidebar */}
           {alertas && (
-            <div className="flex flex-wrap gap-1.5 items-center mb-4 px-2 py-2 rounded-lg"
+            <div className="flex flex-wrap gap-1.5 items-center mb-3 px-2 py-1.5 rounded-lg"
               style={{ background: '#F1F5F9', border: `1px solid ${BDR}` }}>
               <span className="text-[10px] font-bold uppercase tracking-wider mr-1" style={{ color: MUTED }}>Venc.</span>
               <button type="button" onClick={() => filtrarPorVencimiento('vencidos')}
@@ -752,7 +752,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
             </div>
           )}
 
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold" style={{ color: TICK }}>Filtros</span>
             <button type="button" onClick={clearAll}
               className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-opacity hover:opacity-80"
@@ -761,7 +761,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
             </button>
           </div>
 
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2">
             <Field label="Manifiesto">
               <input className={`${inputCls} text-xs`} style={{ borderColor: BDR, padding: '6px 8px' }}
                 type="number" placeholder="Número..."
@@ -854,7 +854,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
 
           {/* Results count + export */}
           {!loading && (
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-semibold" style={{ color: TICK }}>
                 {totals && totals.total_manifiestos != null
                   ? `${Number(totals.total_manifiestos).toLocaleString('es-CO')} resultados encontrados`
@@ -1042,7 +1042,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
               <div className="flex items-center justify-between px-4 py-3"
                 style={{ borderTop: `1px solid ${BDR}`, background: '#F1F5F9' }}>
                 <span className="text-xs" style={{ color: MUTED }}>
-                  Página {page + 1}{hasMore ? '+' : ''} · {rows.length} resultados
+                  Página {page + 1}{hasMore ? '+' : ''} · {totals && totals.total_manifiestos != null ? Number(totals.total_manifiestos).toLocaleString('es-CO') : rows.length} resultados
                 </span>
                 <div className="flex gap-2">
                   <button type="button" onClick={handlePrev} disabled={page === 0}
