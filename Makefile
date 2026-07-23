@@ -284,12 +284,15 @@ demo-notify:
 # ── Deploy Railway ────────────────────────────────────────────────────────────
 
 deploy-chatbot:
-	cd ai_agent && railway up --service "Altrans Chatbot" --detach
+	cd ai_agent && railway up --service "Chatbot Altrans" --detach
 
 deploy-notifications:
-	cd notifications && railway up --service "Altrans Notifications" --detach
+	cd notifications && railway up --service "Notifications Altrans" --detach
 
-deploy-all: deploy-chatbot deploy-notifications
+deploy-dashboard:
+	cd dashboard && railway up --service "Dashboard Altrans" --detach
+
+deploy-all: deploy-chatbot deploy-notifications deploy-dashboard
 
 clean:
 	@find . -type d \( -name __pycache__ -o -name .pytest_cache \) -exec rm -rf {} + 2>/dev/null || true
