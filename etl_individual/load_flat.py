@@ -30,12 +30,13 @@ COLS = [
     "consecutivo_semanal", "fecha_despacho", "origen", "departamento_origen",
     "destino", "departamento_destino", "cliente", "remesas",
     "valor_remesa", "flete_conductor", "anticipo",
-    "placa", "tipo_vehiculo", "conductor", "celular", "cedula_conductor", "propietario",
+    "placa", "placa_remolque", "conductor", "celular", "cedula_conductor", "propietario",
     "agencia_despachadora", "nombre_responsable",
     "fecha_cumplido", "compromiso_pago", "novedades",
     "fecha_pago", "valor_pagado", "entidad_financiera", "responsable",
     "factura_no", "fecha_factura", "factura_electronica", "mes_facturacion",
     "estado_interno", "responsable_estado_interno",
+    "reteica", "r_fopat",
 ]
 
 # Campos de fecha para parseo
@@ -43,7 +44,7 @@ DATE_COLS    = ["fecha_despacho", "fecha_cumplido", "fecha_pago", "fecha_factura
 # Enteros (smallint/integer en DB) — deben ir sin decimales en el COPY
 INT_COLS     = ["año", "consecutivo_semanal", "mes_facturacion"]
 # Decimales (numeric en DB)
-DECIMAL_COLS = ["valor_remesa", "flete_conductor", "anticipo", "valor_pagado"]
+DECIMAL_COLS = ["valor_remesa", "flete_conductor", "anticipo", "valor_pagado", "reteica", "r_fopat"]
 NUMERIC_COLS = INT_COLS + DECIMAL_COLS
 
 
@@ -122,7 +123,8 @@ def load_flat(df: pd.DataFrame, engine, dry_run: bool = False) -> dict:
     import io
     df = _prep(df)
     available_cols = [c for c in COLS if c in df.columns]
-    update_cols    = [c for c in available_cols if c != "manifiesto"]
+    IMMUTABLE_RELOAD_COLS = {"conductor", "cedula_conductor", "propietario"}
+    update_cols    = [c for c in available_cols if c != "manifiesto" and c not in IMMUTABLE_RELOAD_COLS]
 
     update_clause = ",\n            ".join(
         f"{c} = COALESCE(EXCLUDED.{c}, manifiestos_flat.{c})"

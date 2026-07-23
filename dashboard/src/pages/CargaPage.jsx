@@ -128,12 +128,13 @@ function Select({ label, col, value, onChange, options, placeholder = 'Seleccion
   )
 }
 
-function DateInput({ label, col, value, onChange }) {
+function DateInput({ label, col, value, onChange, disabled }) {
   return (
     <Field label={label} col={col}>
       <div className="relative">
         <input type="date" value={value} onChange={onChange}
-          className={inputCls} style={{ borderColor: BDR }} />
+          disabled={disabled}
+          className={inputCls} style={{ borderColor: BDR, opacity: disabled ? 0.5 : 1 }} />
         <Calendar size={13} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
           style={{ color: BLUE }} />
       </div>
@@ -147,6 +148,7 @@ function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, p
   const [saving, setSaving] = useState(false)
   const containerRef = useRef(null)
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setQuery(displayValue || '') }, [displayValue])
 
   const filtered = options
@@ -205,7 +207,78 @@ function Autocomplete({ label, col, displayValue, onSelect, onCreate, options, p
   )
 }
 
-function SectionCard({ icon: Icon, title, children, cols = 3 }) {
+function PanelManifiestosFE({ manifiestos, manifiestoActual, loading }) {
+  if (loading) {
+    return (
+      <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
+        <p className="text-sm" style={{ color: MUTED }}>Cargando manifiestos relacionados...</p>
+      </div>
+    )
+  }
+  if (!manifiestos || manifiestos.length === 0) return null
+
+  const totalValor = manifiestos.reduce((s, m) => s + (Number(m.valor_factura) || 0), 0)
+  const totalSaldo = manifiestos.reduce((s, m) => s + (Number(m.saldo) || 0), 0)
+
+  return (
+    <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
+      <div className="flex items-center gap-2 pb-3 border-b" style={{ borderColor: BDR }}>
+        <FileText size={13} color={BLUE} />
+        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: TICK }}>
+          Manifiestos con esta FE
+        </p>
+      </div>
+
+      <div className="grid grid-cols-[80px_1fr_140px_140px] gap-2 text-[10px] font-bold uppercase tracking-wider px-3"
+        style={{ color: MUTED }}>
+        <span>Manifiesto</span>
+        <span>Cliente</span>
+        <span className="text-right">Valor factura</span>
+        <span className="text-right">Saldo</span>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        {manifiestos.map(m => {
+          const esActual = m.manifiesto === manifiestoActual
+          return (
+            <div key={m.manifiesto}
+              className="grid grid-cols-[80px_1fr_140px_140px] gap-2 items-center px-3 py-2 rounded-lg text-sm"
+              style={{
+                background: esActual ? BLUE + '12' : 'transparent',
+                border: esActual ? `1px solid ${BLUE}44` : `1px solid transparent`,
+              }}>
+              <span className="font-mono font-bold" style={{ color: GOLD }}>{m.manifiesto}</span>
+              <span className="truncate" style={{ color: TICK }}>{m.cliente ?? '—'}</span>
+              <span className="text-right font-mono" style={{ color: TICK }}>
+                {m.valor_factura != null ? `$${Number(m.valor_factura).toLocaleString('es-CO')}` : '—'}
+              </span>
+              <span className="text-right font-mono" style={{ color: TICK }}>
+                {m.saldo != null ? `$${Number(m.saldo).toLocaleString('es-CO')}` : '—'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="border-t pt-3" style={{ borderColor: BDR }}>
+        <div className="grid grid-cols-[80px_1fr_140px_140px] gap-2 items-center px-3 text-sm font-bold">
+          <span style={{ color: MUTED }}>TOTALES</span>
+          <span className="text-xs" style={{ color: MUTED }}>
+            {manifiestos.length} manifiesto{manifiestos.length !== 1 ? 's' : ''}
+          </span>
+          <span className="text-right font-mono" style={{ color: TICK }}>
+            ${totalValor.toLocaleString('es-CO')}
+          </span>
+          <span className="text-right font-mono" style={{ color: TICK }}>
+            ${totalSaldo.toLocaleString('es-CO')}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SectionCard({ icon: Icon, title, children, cols = 3 }) { // eslint-disable-line no-unused-vars
   return (
     <div className="rounded-xl p-5 flex flex-col gap-4" style={{ background: BG, border: `1px solid ${BDR}` }}>
       <div className="flex items-center gap-2 pb-3 border-b" style={{ borderColor: BDR }}>
@@ -256,13 +329,13 @@ const FACT_INIT = {
 // Campos comparables entre payload y DB para detectar cambios
 const DB_FIELDS = [
   'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor','celular',
-  'placa','tipo_vehiculo','propietario','agencia_despachadora','nombre_responsable',
+  'placa','placa_remolque','propietario','agencia_despachadora','nombre_responsable',
   'valor_remesa','flete_conductor','anticipo','remesas',
 ]
 const FIELD_LABELS = {
   fecha_despacho:'Fecha despacho', origen:'Origen', destino:'Destino',
   cliente:'Cliente', conductor:'Conductor', cedula_conductor:'Cédula', celular:'Celular',
-  placa:'Placa', tipo_vehiculo:'Remolque', propietario:'Propietario',
+  placa:'Placa', placa_remolque:'Remolque', propietario:'Propietario',
   agencia_despachadora:'Agencia Despachadora', nombre_responsable:'Responsable',
   valor_remesa:'Valor remesa', flete_conductor:'Flete', anticipo:'Anticipo',
   remesas:'Remesas',
@@ -393,7 +466,7 @@ function ExcelUploadPanel({ onDone }) {
     ]
     for (let i = 0; i < toUpload.length; i += UPLOAD_BATCH) {
       const chunk = toUpload.slice(i, i + UPLOAD_BATCH)
-      const res   = await Promise.all(chunk.map(p => supabase.rpc('guardar_digitador', p.payload)))
+      const res   = await Promise.all(chunk.map(p => supabase.rpc('guardar_digitador_batch', p.payload)))
       res.forEach((r, j) => {
         if (r.error) errores.push({ fila: chunk[j].fila, msg: r.error.message })
         else if (chunk[j]._isNuevo) ok++
@@ -767,11 +840,13 @@ export default function CargaPage({ target, clearTarget, user }) {
   const [editMode,  setEditMode]    = useState(false)
   const [confirmDel, setConfirmDel]     = useState(false)
   const [deleteText, setDeleteText]     = useState('')
-  const [busy,   setBusy]   = useState(false)
-  const [msg,    setMsg]    = useState(null)
+  const [busy,      setBusy]      = useState(false)
+  const [msg,       setMsg]       = useState(null)
+  const [manifiestosFE, setManifiestosFE] = useState(null)
+  const [loadingFE, setLoadingFE] = useState(false)
 
   const { catalogos } = useCatalogos()
-  const { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion } = useManifiesto()
+  const { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion, getManifiestosPorFE } = useManifiesto()
 
   // ── Catalog options ─────────────────────────────────────────────────────────
   const optConductores  = catalogos.conductores.map(c => ({ id: c.nombre, label: c.nombre, sub: c.cedula }))
@@ -782,6 +857,8 @@ export default function CargaPage({ target, clearTarget, user }) {
   const optRemolques    = catalogos.remolques.map(r => ({ id: r.placa, label: r.placa }))
   const optAgencias     = catalogos.agencias.map(a => ({ id: a.nombre, label: a.nombre }))
   const optPropietarios = catalogos.propietarios.map(p => ({ id: p.nombre, label: p.nombre }))
+  const optFacturasElectronicas = catalogos.facturas_electronicas.map(f => ({ id: f.nombre, label: f.nombre }))
+  const optFacturasNo = catalogos.facturas_no.map(f => ({ id: f.nombre, label: f.nombre }))
 
   const newText = (nombre) => ({ id: nombre, nombre, label: nombre, placa: nombre })
 
@@ -794,7 +871,7 @@ export default function CargaPage({ target, clearTarget, user }) {
     cedula_conductor:     data.cedula_conductor     || '',
     celular:              data.celular              || '',
     placa:                data.placa                || '',
-    tipo_vehiculo:        data.tipo_vehiculo        || '',
+    placa_remolque:         data.placa_remolque         || '',
     propietario:          data.propietario          || '',
     cliente:              data.cliente              || '',
     origen:               data.origen               || '',
@@ -840,14 +917,42 @@ export default function CargaPage({ target, clearTarget, user }) {
     })
   }
 
-  const revertEdit = () => {
+  const toast = (type, text) => setMsg({ type, text })
+
+  const revertAll = () => {
     if (!ficha) return
     setFE(buildEditForm(ficha))
+    setFS({
+      fecha_cumplido:              ficha.fecha_cumplido              || '',
+      compromiso_pago:             ficha.compromiso_pago             || 'PAGO A 15 DIAS',
+      novedades:                   ficha.novedades                   ?? '',
+      estado_interno:              ficha.estado_interno              || '',
+      responsable_estado_interno:  ficha.responsable_estado_interno  || '',
+      novedad_conductor:           ficha.novedad_conductor           ?? '',
+      novedad_empresa:             ficha.novedad_empresa             ?? '',
+      ajuste_positivo_flete:       ficha.ajuste_positivo_flete       ?? '',
+      ajuste_negativo_flete:       ficha.ajuste_negativo_flete       ?? '',
+      consignacion_a_terceros:     ficha.consignacion_a_terceros     ?? '',
+    })
+    setFT({
+      fecha_pago:         ficha.fecha_pago         || '',
+      valor_pagado:       ficha.valor_pagado        ?? '',
+      entidad_financiera: ficha.entidad_financiera  || '',
+      responsable:        ficha.responsable         || '',
+    })
+    setFF({
+      factura_no:          ficha.factura_no          || '',
+      fecha_factura:       ficha.fecha_factura        || '',
+      factura_electronica: ficha.factura_electronica  || '',
+      mes_facturacion:     ficha.mes_facturacion      ?? '',
+      valor_factura:       ficha.valor_factura        ?? '',
+    })
     toast('success', 'Campos restaurados a los valores guardados.')
   }
 
   useEffect(() => {
     if (!target) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQuery(String(target))
     search(target).then(data => {
       if (data) { loadFicha(data); setView('ficha') }
@@ -857,7 +962,16 @@ export default function CargaPage({ target, clearTarget, user }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target])
 
-  const toast = (type, text) => setMsg({ type, text })
+  useEffect(() => {
+    const fe = formFact.factura_electronica?.trim()
+    if (!fe) { setManifiestosFE(null); return } // eslint-disable-line react-hooks/set-state-in-effect
+    setLoadingFE(true)
+    getManifiestosPorFE(fe)
+      .then(data => setManifiestosFE(data))
+      .catch(() => setManifiestosFE([]))
+      .finally(() => setLoadingFE(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formFact.factura_electronica])
 
   // ── Conductor select helpers ─────────────────────────────────────────────
   const fillConductor = (nombreCond, setter) => {
@@ -932,6 +1046,10 @@ export default function CargaPage({ target, clearTarget, user }) {
 
   const handleSaveSeg = async (e) => {
     e.preventDefault()
+    if (formSeg.fecha_cumplido && !ficha.factura_electronica) {
+      toast('error', 'No se puede marcar cumplido sin factura electrónica. Completá la legalización primero.')
+      setBusy(false); return
+    }
     setBusy(true)
     try {
       await updateLogistico(ficha.manifiesto, { ...formSeg, responsable_estado_interno: userName })
@@ -988,6 +1106,11 @@ export default function CargaPage({ target, clearTarget, user }) {
       toast('success', 'Facturación actualizada correctamente.')
       const data = await search(ficha.manifiesto)
       loadFicha(data)
+      if (data?.factura_electronica) {
+        getManifiestosPorFE(data.factura_electronica)
+          .then(d => setManifiestosFE(d))
+          .catch(() => {})
+      }
     } catch (err) { toast('error', err.message ?? 'Error al guardar') }
     finally { setBusy(false) }
   }
@@ -1165,7 +1288,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                       { l: 'Cédula',          v: ficha.cedula_conductor },
                       { l: 'Celular',         v: ficha.celular },
                       { l: 'Placa',           v: ficha.placa },
-                      { l: 'Tipo vehículo',   v: ficha.tipo_vehiculo },
+                      { l: 'Remolque',   v: ficha.placa_remolque },
                       { l: 'Propietario',     v: ficha.propietario },
                       { l: 'Cliente',         v: ficha.cliente },
                       { l: 'Origen',          v: ficha.origen },
@@ -1266,9 +1389,9 @@ export default function CargaPage({ target, clearTarget, user }) {
                 <Autocomplete label="Placa vehículo" displayValue={formEdit.placa}
                   placeholder="Placa del vehículo" options={optVehiculos} onCreate={newText}
                   onSelect={o => setFE(p => ({ ...p, placa: o.label }))} />
-                <Autocomplete label="Placa remolque" displayValue={formEdit.tipo_vehiculo}
+                <Autocomplete label="Placa remolque" displayValue={formEdit.placa_remolque}
                   placeholder="Placa del remolque" options={optRemolques} onCreate={newText}
-                  onSelect={o => setFE(p => ({ ...p, tipo_vehiculo: o.label }))} />
+                  onSelect={o => setFE(p => ({ ...p, placa_remolque: o.label }))} />
                 <Autocomplete label="Propietario vehículo" displayValue={formEdit.propietario ?? ''}
                   placeholder="Nombre del propietario" options={optPropietarios} onCreate={newText}
                   onSelect={o => setFE(p => ({ ...p, propietario: o.label }))} />
@@ -1289,7 +1412,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                 </Field>
               </SectionCard>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={revertEdit}
+                <button type="button" onClick={revertAll}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
                   style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
                   <RotateCcw size={13} /> Restablecer
@@ -1375,7 +1498,12 @@ export default function CargaPage({ target, clearTarget, user }) {
                     </div>
                   </Field>
                 </SectionCard>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={revertAll}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
+                    style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
+                    <RotateCcw size={13} /> Restablecer
+                  </button>
                   <button type="submit" disabled={busy}
                     className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                     style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
@@ -1390,8 +1518,17 @@ export default function CargaPage({ target, clearTarget, user }) {
           {tab === 'cumplimiento' && canEditLogistico && (
             <form onSubmit={handleSaveSeg} className="flex flex-col gap-4">
               <SectionCard icon={ClipboardList} title="Cumplimiento operativo" cols={3}>
-                <DateInput label="Fecha cumplido"
-                  value={formSeg.fecha_cumplido} onChange={e => fs('fecha_cumplido')(e.target.value)} />
+                <div className="relative">
+                  <DateInput label="Fecha cumplido"
+                    value={formSeg.fecha_cumplido} onChange={e => fs('fecha_cumplido')(e.target.value)}
+                    disabled={!ficha.factura_electronica} />
+                  {!ficha.factura_electronica && (
+                    <span className="absolute -bottom-5 left-0 text-xs whitespace-nowrap"
+                      style={{ color: '#D97706' }}>
+                      Requiere factura electrónica
+                    </span>
+                  )}
+                </div>
                 <Select label="Compromiso de pago" value={formSeg.compromiso_pago}
                   onChange={fs('compromiso_pago')} options={COMPROMISO_PAGO_OPTS} />
                 <Select label="Estado interno" value={formSeg.estado_interno}
@@ -1450,7 +1587,12 @@ export default function CargaPage({ target, clearTarget, user }) {
                   ))}
                 </SectionCard>
               )}
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={revertAll}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
+                  <RotateCcw size={13} /> Restablecer
+                </button>
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                   style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
@@ -1502,7 +1644,12 @@ export default function CargaPage({ target, clearTarget, user }) {
                   </div>
                 </Field>
               </SectionCard>
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={revertAll}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
+                  <RotateCcw size={13} /> Restablecer
+                </button>
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                   style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>
@@ -1531,6 +1678,15 @@ export default function CargaPage({ target, clearTarget, user }) {
                   ))}
                 </div>
               </div>
+
+              {ficha.factura_electronica && manifiestosFE && manifiestosFE.length > 0 && (
+                <PanelManifiestosFE
+                  manifiestos={manifiestosFE}
+                  manifiestoActual={ficha.manifiesto}
+                  loading={loadingFE}
+                />
+              )}
+
               <p className="text-xs" style={{ color: MUTED }}>Solo el equipo financiero puede editar esta sección.</p>
             </div>
           )}
@@ -1539,8 +1695,9 @@ export default function CargaPage({ target, clearTarget, user }) {
           {tab === 'facturacion' && canEditFinanciero && (
             <form onSubmit={handleSaveFact} className="flex flex-col gap-4">
               <SectionCard icon={FileText} title="Facturación" cols={2}>
-                <Input label="N° Factura" placeholder="FE-0001"
-                  value={formFact.factura_no} onChange={e => ff('factura_no')(e.target.value)} />
+                <Autocomplete label="N° Factura" displayValue={formFact.factura_no}
+                  placeholder="FE-0001" options={optFacturasNo}
+                  onSelect={o => setFF(p => ({ ...p, factura_no: o.label }))} />
                 <DateInput label="Fecha de emisión de factura"
                   value={formFact.fecha_factura}
                   onChange={e => {
@@ -1553,14 +1710,27 @@ export default function CargaPage({ target, clearTarget, user }) {
                   onChange={e => ff('valor_factura')(e.target.value)} />
               </SectionCard>
               <SectionCard icon={ClipboardList} title="Legalización FE / DS" cols={1}>
-                <Field label="N° Legalización / Propietario vehículo (prefijo: FE, DS, FWP...)" col={1}>
-                  <input className={inputCls} style={{ borderColor: BDR }}
-                    placeholder="FE-MC-00001 / Nombre propietario"
-                    value={formFact.factura_electronica}
-                    onChange={e => ff('factura_electronica')(e.target.value)} />
-                </Field>
+                <Autocomplete label="N° Legalización / Propietario vehículo (prefijo: FE, DS, FWP...)"
+                  displayValue={formFact.factura_electronica}
+                  placeholder="FE-MC-00001 / Nombre propietario"
+                  options={optFacturasElectronicas}
+                  onSelect={o => setFF(p => ({ ...p, factura_electronica: o.label }))} />
               </SectionCard>
-              <div className="flex justify-end">
+
+              {formFact.factura_electronica?.trim() && (
+                <PanelManifiestosFE
+                  manifiestos={manifiestosFE}
+                  manifiestoActual={ficha?.manifiesto}
+                  loading={loadingFE}
+                />
+              )}
+
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={revertAll}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: GOLD + '18', color: '#78400A', border: `1px solid ${GOLD}44` }}>
+                  <RotateCcw size={13} /> Restablecer
+                </button>
                 <button type="submit" disabled={busy}
                   className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
                   style={{ background: BTN_GRAD, color: '#FFFFFF', boxShadow: BTN_SHADOW }}>

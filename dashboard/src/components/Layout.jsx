@@ -68,7 +68,7 @@ export default function Layout({ children, page, setPage, user }) {
   const rol    = user?.app_metadata?.role || ''
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen bg-background">
 
       {/* Sidebar */}
       <aside
@@ -102,7 +102,7 @@ export default function Layout({ children, page, setPage, user }) {
               Módulos
             </p>
           )}
-          {navItems.map(({ icon: Icon, label, id }) => {
+          {navItems.map(({ icon: Icon, label, id }) => { // eslint-disable-line no-unused-vars
             const active = page === id
             return (
               <button
@@ -184,7 +184,7 @@ export default function Layout({ children, page, setPage, user }) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 p-6 overflow-auto">
+        <main className="flex-1 px-6 py-3 overflow-auto flex flex-col">
           {children}
         </main>
 

@@ -21,7 +21,10 @@ export function normalizeVal(v, field) {
 
 export function removeAccents(s) {
   if (!s) return s
-  return s.replace(/ñ/g, '\x00').replace(/Ñ/g, '\x01')
+  const placeholderLower = '\x00'
+  const placeholderUpper = '\x01'
+  return s.replace(/ñ/g, placeholderLower).replace(/Ñ/g, placeholderUpper)
     .normalize('NFD').replace(/\p{Mn}/gu, '')
-    .replace(/\x00/g, 'ñ').replace(/\x01/g, 'Ñ')
+    .replace(new RegExp(placeholderLower, 'g'), 'ñ')
+    .replace(new RegExp(placeholderUpper, 'g'), 'Ñ')
 }

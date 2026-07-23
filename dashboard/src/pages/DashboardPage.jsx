@@ -16,6 +16,8 @@ const AÑOS        = Array.from({ length: new Date().getFullYear() - AÑOS_BASE 
 const BLUE   = '#1E6FBF'
 const GOLD   = '#C9A84C'
 const ALERT  = '#E05252'
+const GREEN  = '#16A34A'
+const AMBAR  = '#F59E0B'
 const TICK   = '#0F172A'
 const GRID   = '#E2E8F0'
 const TT_BG  = '#FFFFFF'
@@ -31,11 +33,8 @@ const TICK_XXS = { fontSize: 9,  fill: TICK }
 const fmtCOP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v)
 const fmtK   = v => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}K` : String(v)
 
-// Formato compacto para KPIs grandes: > 10M usa abreviatura, si no formato COP completo.
 const fmtKpi = v => {
   if (typeof v !== 'number' || !isFinite(v)) return fmtCOP(0)
-  if (v >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(2)}MM`
-  if (v >= 10_000_000)    return `$${(v / 1_000_000).toFixed(1)}M`
   return fmtCOP(v)
 }
 
@@ -201,7 +200,24 @@ export default function DashboardPage({ user }) {
         {operativos.map(k => <KpiCard key={k.label} loading={loading} {...k} />)}
       </div>
 
-      {/* Row 3: Línea tendencia */}
+      {/* Row 3: KPIs de vencimientos */}
+      <SectionLabel>Vencimientos</SectionLabel>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <KpiCard label="Vencidos"
+          value={data?.vencidos ?? 0}
+          textColor={ALERT} borderColor={ALERT}
+          loading={loading} />
+        <KpiCard label="Por vencer (&lt;7d)"
+          value={data?.porVencer ?? 0}
+          textColor={AMBAR} borderColor={AMBAR}
+          loading={loading} />
+        <KpiCard label="Al día"
+          value={Math.max(0, (data?.totalManifiestos ?? 0) - (data?.anulados ?? 0) - (data?.vencidos ?? 0) - (data?.porVencer ?? 0))}
+          textColor={GREEN} borderColor={GREEN}
+          loading={loading} />
+      </div>
+
+      {/* Row 4: Línea tendencia */}
       <SectionLabel>Tendencia anual</SectionLabel>
       <ChartCard title={`Facturado vs Ganancia bruta${año ? ` — ${año}` : ''}`}>
         {loading ? <ChartSkeleton /> : (

@@ -17,6 +17,7 @@ vi.mock('../hooks/useCatalogos', () => ({
   }),
 }))
 
+import { supabase } from '../lib/supabase'
 import ConsultaPage from '../pages/ConsultaPage'
 
 const sampleRows = [
@@ -30,27 +31,33 @@ const sampleRows = [
     estado_interno: 'CUMPLIDO', fecha_pago: '2026-05-10', compromiso_pago: 'CONTRAENTREGA' },
 ]
 
+function fmtLocalDate(d) {
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
 describe('ConsultaPage', () => {
   beforeEach(() => {
     useConsultaMock.mockReset()
     useConsultaMock.mockReturnValue({
       rows: sampleRows, totals: null, loading: false,
       page: 0, hasMore: false,
-      buscar: vi.fn(), nextPage: vi.fn(), prevPage: vi.fn(),
+      buscar: vi.fn(), nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
     })
   })
 
   it('renderiza el panel de filtros', () => {
     render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
-    expect(screen.getByText(/Filtros de consulta/i)).toBeInTheDocument()
-    expect(screen.getByText(/Limpiar todo/i)).toBeInTheDocument()
+    expect(screen.getByText(/Filtros/i)).toBeInTheDocument()
+    expect(screen.getByText(/Limpiar/i)).toBeInTheDocument()
   })
 
   it('al montar dispara buscar con filtros iniciales (mes=null, etc)', () => {
     const buscar = vi.fn()
     useConsultaMock.mockReturnValue({
       rows: [], totals: null, loading: false, page: 0, hasMore: false,
-      buscar, nextPage: vi.fn(), prevPage: vi.fn(),
+      buscar, nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
     })
     render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
 
@@ -64,7 +71,7 @@ describe('ConsultaPage', () => {
     const buscar = vi.fn()
     useConsultaMock.mockReturnValue({
       rows: [], totals: null, loading: false, page: 0, hasMore: false,
-      buscar, nextPage: vi.fn(), prevPage: vi.fn(),
+      buscar, nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
     })
     render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
 
@@ -83,12 +90,12 @@ describe('ConsultaPage', () => {
     const buscar = vi.fn()
     useConsultaMock.mockReturnValue({
       rows: [], totals: null, loading: false, page: 0, hasMore: false,
-      buscar, nextPage: vi.fn(), prevPage: vi.fn(),
+      buscar, nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
     })
     render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
 
     buscar.mockClear()
-    fireEvent.click(screen.getByText(/Limpiar todo/i))
+    fireEvent.click(screen.getByText(/Limpiar/i))
 
     expect(buscar).toHaveBeenCalledWith(
       expect.objectContaining({ manifiesto: '', fecha_desde: '' }), 0,
@@ -103,5 +110,243 @@ describe('ConsultaPage', () => {
   it('rol logistico NO ve pestaña de Auditoría', () => {
     render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
     expect(screen.queryByText(/Auditoría/i)).not.toBeInTheDocument()
+  })
+
+  // ── Bloque 3: Filtros en UI ──────────────────────────────────────────────
+
+  it('renderiza el filtro de Cédula', () => {
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+    // "Cédula" aparece como label del filtro + header de columna en tabla
+    const matches = screen.getAllByText('Cédula')
+    expect(matches.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renderiza el toggle de Factura Electrónica (Todas/Con FE/Sin FE)', () => {
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+    expect(screen.getByText('Factura Electrónica')).toBeInTheDocument()
+    expect(screen.getByText('Todas')).toBeInTheDocument()
+    expect(screen.getByText('Con FE')).toBeInTheDocument()
+    expect(screen.getByText('Sin FE')).toBeInTheDocument()
+  })
+
+  it('renderiza el filtro de Responsable', () => {
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+    // "Responsable" aparece como label del filtro + headers de columna
+    const matches = screen.getAllByText('Responsable')
+    expect(matches.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('al enviar formulario pasa los nuevos filtros al buscar', () => {
+    const buscar = vi.fn()
+    useConsultaMock.mockReturnValue({
+      rows: [], totals: null, loading: false, page: 0, hasMore: false,
+      buscar, nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+
+    buscar.mockClear()
+    const form = screen.getByText('Filtros').closest('form')
+    fireEvent.submit(form)
+
+    expect(buscar).toHaveBeenCalledWith(expect.objectContaining({
+      cedula_conductor: '', tiene_fe: '', nombre_responsable: '',
+      estado_vencimiento: '',
+    }), 0)
+  })
+
+  // ── Bloque 4: VencimientoBadge ───────────────────────────────────────────
+
+  it('VencimientoBadge muestra "—" cuando fecha_estimada_pago es null', () => {
+    const rows = [{
+      ...sampleRows[0],
+      fecha_estimada_pago: null,
+    }]
+    useConsultaMock.mockReturnValue({
+      rows, totals: null, loading: false,
+      page: 0, hasMore: false,
+      buscar: vi.fn(), nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+    // Columna "Días x Vencer" existe
+    expect(screen.getByText('Días x Vencer')).toBeInTheDocument()
+    // La tabla tiene 1 fila → no debe fallar por null en fecha_estimada_pago
+    expect(screen.getByText('21001')).toBeInTheDocument()
+  })
+
+  it('VencimientoBadge muestra VENCIDO para fecha pasada', () => {
+    const hoy = new Date()
+    const pasada = new Date(hoy)
+    pasada.setDate(hoy.getDate() - 3)
+    const fechaPasada = fmtLocalDate(pasada)
+
+    const rows = [{
+      ...sampleRows[0],
+      fecha_estimada_pago: fechaPasada,
+    }]
+    useConsultaMock.mockReturnValue({
+      rows, totals: null, loading: false,
+      page: 0, hasMore: false,
+      buscar: vi.fn(), nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+    expect(screen.getByText(/VENCIDO/i)).toBeInTheDocument()
+  })
+
+  it('VencimientoBadge renderiza sin romperse para fecha próxima (<7d)', () => {
+    const hoy = new Date()
+    const proxima = new Date(hoy)
+    proxima.setDate(hoy.getDate() + 3)
+    const fechaProxima = fmtLocalDate(proxima)
+
+    const rows = [{
+      ...sampleRows[0],
+      fecha_estimada_pago: fechaProxima,
+    }]
+    useConsultaMock.mockReturnValue({
+      rows, totals: null, loading: false,
+      page: 0, hasMore: false,
+      buscar: vi.fn(), nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    // No debe crashear
+    expect(() => {
+      render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+    }).not.toThrow()
+  })
+
+  it('VencimientoBadge renderiza sin romperse para fecha lejana (> 7d)', () => {
+    const hoy = new Date()
+    const lejana = new Date(hoy)
+    lejana.setDate(hoy.getDate() + 15)
+    const fechaLejana = fmtLocalDate(lejana)
+
+    const rows = [{
+      ...sampleRows[0],
+      fecha_estimada_pago: fechaLejana,
+    }]
+    useConsultaMock.mockReturnValue({
+      rows, totals: null, loading: false,
+      page: 0, hasMore: false,
+      buscar: vi.fn(), nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    expect(() => {
+      render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+    }).not.toThrow()
+  })
+
+  // ── Bloque 4: Alertas y drill-down ───────────────────────────────────────
+
+  it('barra de alertas muestra conteo de vencidos y por vencer', async () => {
+    supabase.rpc.mockResolvedValueOnce({
+      data: { vencidos: 5, porVencer: 3, saldoVencido: 1000000 },
+      error: null,
+    })
+    const buscar = vi.fn()
+    useConsultaMock.mockReturnValue({
+      rows: [], totals: null, loading: false, page: 0, hasMore: false,
+      buscar, nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/V:\s*5/i)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/<7d.*3/i)).toBeInTheDocument()
+  })
+
+  it('click en "Vencidos" dispara buscar con estado_vencimiento=vencidos', async () => {
+    const buscar = vi.fn()
+    supabase.rpc.mockResolvedValueOnce({
+      data: { vencidos: 5, porVencer: 0, saldoVencido: 500000 },
+      error: null,
+    })
+    useConsultaMock.mockReturnValue({
+      rows: [], totals: null, loading: false, page: 0, hasMore: false,
+      buscar, nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+
+    buscar.mockClear()
+    await waitFor(() => {
+      expect(screen.getByText(/V:\s*5/i)).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText(/V:\s*5/i))
+
+    expect(buscar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        estado_vencimiento: 'vencidos',
+        manifiesto: '', fecha_desde: '', fecha_hasta: '',
+      }), 0,
+    )
+  })
+
+  it('click en "Por vencer" dispara buscar con estado_vencimiento=por_vencer', async () => {
+    const buscar = vi.fn()
+    supabase.rpc.mockResolvedValueOnce({
+      data: { vencidos: 0, porVencer: 4, saldoVencido: 0 },
+      error: null,
+    })
+    useConsultaMock.mockReturnValue({
+      rows: [], totals: null, loading: false, page: 0, hasMore: false,
+      buscar, nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+
+    buscar.mockClear()
+    await waitFor(() => {
+      expect(screen.getByText(/<7d.*4/i)).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText(/<7d.*4/i))
+
+    expect(buscar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        estado_vencimiento: 'por_vencer',
+        manifiesto: '', fecha_desde: '', fecha_hasta: '',
+      }), 0,
+    )
+  })
+
+  it('click again en badge activo desactiva filtro de vencimiento', async () => {
+    const buscar = vi.fn()
+    supabase.rpc.mockResolvedValueOnce({
+      data: { vencidos: 3, porVencer: 0, saldoVencido: 200000 },
+      error: null,
+    })
+    useConsultaMock.mockReturnValue({
+      rows: [], totals: null, loading: false, page: 0, hasMore: false,
+      buscar, nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+
+    // Primer click → activa vencidos
+    await waitFor(() => {
+      expect(screen.getByText(/V:\s*3/i)).toBeInTheDocument()
+    })
+    buscar.mockClear()
+    fireEvent.click(screen.getByText(/V:\s*3/i))
+    expect(buscar).toHaveBeenCalledWith(
+      expect.objectContaining({ estado_vencimiento: 'vencidos' }), 0,
+    )
+
+    // Segundo click → desactiva solo vencimiento
+    buscar.mockClear()
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/V:\s*3/i))
+      expect(buscar).toHaveBeenCalledWith(
+        expect.objectContaining({ estado_vencimiento: '' }), 0,
+      )
+    })
+  })
+
+  it('no muestra barra de alertas si RPC retorna null', async () => {
+    supabase.rpc.mockResolvedValueOnce({ data: null, error: null })
+    useConsultaMock.mockReturnValue({
+      rows: [], totals: null, loading: false, page: 0, hasMore: false,
+      buscar: vi.fn(), nextPage: vi.fn(), prevPage: vi.fn(), fetchAll: vi.fn(),
+    })
+    render(<ConsultaPage user={{ app_metadata: { role: 'logistico' } }} />)
+
+    // Espera un momento y verifica que NO haya "Vencimientos"
+    await new Promise(r => setTimeout(r, 100))
+    expect(screen.queryByText(/Vencimientos/i)).not.toBeInTheDocument()
   })
 })

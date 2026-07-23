@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useDashboard } from '../hooks/useDashboard'
 
 function mockRpc(dashboardKpisData, anualData = []) {
-  supabase.rpc.mockImplementation((fnName, params) => {
+  supabase.rpc.mockImplementation((fnName) => {
     if (fnName === 'dashboard_kpis') {
       return Promise.resolve({ data: dashboardKpisData, error: null })
     }

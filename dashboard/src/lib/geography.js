@@ -38,6 +38,8 @@ export const CITY_DEPT_FALLBACK = {
   'FLORENCIA': 'Caqueta',         'TUNJA': 'Boyaca',
   'QUIBDO': 'Choco',              'YOPAL': 'Casanare',
   'ARAUCA': 'Arauca',
+  'SANTA FE DE BOGOTA': 'Bogota D.C.',
+  'SANTA MARTA': 'Magdalena',
 }
 
 export function parseCiudad(v) {

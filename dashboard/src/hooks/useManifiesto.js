@@ -42,7 +42,7 @@ export function useManifiesto() {
       p_flete_conductor:      form.flete_conductor ? Number(form.flete_conductor) : null,
       p_anticipo:             form.anticipo        ? Number(form.anticipo)        : null,
       p_placa:                form.placa                   || null,
-      p_tipo_vehiculo:        form.tipo_vehiculo            || null,
+      p_placa_remolque:              form.placa_remolque                || null,
       p_conductor:            form.conductor               || null,
       p_celular:              form.celular                 || null,
       p_cedula_conductor:     form.cedula_conductor        || null,
@@ -93,6 +93,15 @@ export function useManifiesto() {
     if (error) throw error
   }
 
+  const getManifiestosPorFE = async (factura_electronica) => {
+    if (!factura_electronica) return []
+    const { data, error } = await supabase.rpc('get_manifiestos_por_fe', {
+      p_factura_electronica: factura_electronica,
+    })
+    if (error) throw error
+    return data ?? []
+  }
+
   const remove = async (manifiesto_id) => {
     const { error } = await supabase.rpc('borrar_manifiesto', { p_manifiesto: manifiesto_id })
     if (error) throw error
@@ -109,5 +118,5 @@ export function useManifiesto() {
     if (error) throw error
   }
 
-  return { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion }
+  return { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion, getManifiestosPorFE }
 }

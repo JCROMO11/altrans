@@ -13,6 +13,7 @@
 --   - supabase/migrations/20260505_security_hardening.sql
 --
 -- Estructura:
+--   0. ENUMs para columnas categóricas
 --   1. Limpieza
 --   2. Tabla principal manifiestos_flat (con todas las columnas)
 --   3. Índices
@@ -29,6 +30,61 @@
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║ 0. ENUMS PARA COLUMNAS CATEGÓRICAS                                       ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+
+DO $$ BEGIN
+    CREATE TYPE compromiso_pago_enum AS ENUM (
+        'PAGO A 15 DIAS', 'PAGO A 20 DIAS', 'PAGO A 30 DIAS', 'PAGO A 5-8 DIAS',
+        'CONTRAENTREGA', 'PRONTO PAGO', 'PAGO NORMAL', 'URBANO', 'ANULADO',
+        'PAGADO', 'PAGO INMEDIATO', 'PRIORITARIO', 'RNDC', 'OTROS',
+        'CONTINGENCIA 20-25 DH'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE estado_interno_enum AS ENUM (
+        'CUMPLIDO', 'NO SE HA CUMPLIDO', 'ANULADO',
+        'PENDIENTE FACTURA ELECTRONICA', 'NOVEDAD PENDIENTE', 'FACTURA RECIBIDA'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE agencia_enum AS ENUM (
+        'CALI', 'BOGOTA', 'IPIALES', 'BUENAVENTURA', 'ANULADO'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE entidad_financiera_enum AS ENUM (
+        'TRANSF BANCOLOMBIA', 'TRANSF DAVIVIENDA', 'TRANSF BANCO DE BOGOTA',
+        'CHEQUE BANCOLOMBIA', 'CHEQUE DAVIVIENDA', 'CHEQUE BANCO DE BOGOTA',
+        'CHEQUE', 'TRANSF/CHEQUE', 'ANULADO', 'OTRO'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE responsable_enum AS ENUM (
+        'KAROL ARCINIEGAS', 'JOHANA UNIGARRO', 'ELIZABETH SUAREZ',
+        'MILENA GUTIERREZ', 'MARIAE', 'FLOTA PROPIA', 'FP', 'ANULADO'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE mes_enum AS ENUM (
+        'ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
+        'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+
+-- ╔══════════════════════════════════════════════════════════════════════════╗
 -- ║ 1. LIMPIEZA — eliminar objetos previos                                  ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝
 
@@ -41,8 +97,10 @@ DROP FUNCTION IF EXISTS public.consulta_manifiestos                CASCADE;
 DROP FUNCTION IF EXISTS public.consulta_totales                    CASCADE;
 DROP FUNCTION IF EXISTS public.dashboard_kpis                      CASCADE;
 DROP FUNCTION IF EXISTS public.tendencia_anual                     CASCADE;
+DROP FUNCTION IF EXISTS public.consulta_alertas_vencimiento        CASCADE;
 DROP FUNCTION IF EXISTS public.get_pendientes_notificacion         CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_digitador                   CASCADE;
+DROP FUNCTION IF EXISTS public.guardar_digitador_batch             CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_logistico                   CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_estado_interno              CASCADE;
 DROP FUNCTION IF EXISTS public.guardar_tesoreria                   CASCADE;
@@ -50,6 +108,7 @@ DROP FUNCTION IF EXISTS public.guardar_financiero                  CASCADE;
 DROP FUNCTION IF EXISTS public.borrar_manifiesto                   CASCADE;
 DROP FUNCTION IF EXISTS public.get_usuarios                        CASCADE;
 DROP FUNCTION IF EXISTS public.get_catalogos                       CASCADE;
+DROP FUNCTION IF EXISTS public.get_manifiestos_por_fe              CASCADE;
 DROP FUNCTION IF EXISTS public.user_role                           CASCADE;
 DROP VIEW     IF EXISTS public.v_chatbot_manifiestos               CASCADE;
 DROP VIEW     IF EXISTS public.v_manifiestos                       CASCADE;
@@ -94,7 +153,7 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
 
     -- ── Vehículo y conductor ────────────────────────────────────────────────
     placa                       TEXT,
-    tipo_vehiculo               TEXT,
+    placa_remolque TEXT,
     conductor                   TEXT,
     celular                     TEXT
         CHECK (celular IS NULL OR celular ~ '^\d{10}$'),
@@ -118,6 +177,10 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
     ajuste_positivo_flete       NUMERIC(14, 2)  CHECK (ajuste_positivo_flete >= 0),
     ajuste_negativo_flete       NUMERIC(14, 2)  CHECK (ajuste_negativo_flete >= 0),
     consignacion_a_terceros     NUMERIC(14, 2),
+    -- Deducciones de RNDC (ReteICA y FOPAT) que el Excel descuenta del neto.
+    -- La tasa de RETEICA varía por municipio (0.33%–1.0%); R. FOPAT es 0.1% fijo.
+    reteica                     NUMERIC(14, 2)  CHECK (reteica IS NULL OR reteica >= 0),
+    r_fopat                     NUMERIC(14, 2)  CHECK (r_fopat IS NULL OR r_fopat >= 0),
     -- Retención en la fuente: siempre 1% del flete total (regla de gerencia,
     -- sin excepciones a hoy). Columna generada para que el saldo quede auditado
     -- en cada fila sin que el chatbot tenga que inferir la regla.
@@ -128,7 +191,7 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
             END
         ) STORED,
     -- Saldo del conductor = flete + ajuste_positivo - ajuste_negativo
-    --                       - retención (1%) - anticipo.
+    --                       - retención (1%) - reteica - r_fopat - anticipo.
     -- El anticipo se entrega ANTES de salir a ruta (obligatorio), por eso ya
     -- no forma parte del saldo: el saldo es lo que QUEDA por pagar al cumplido,
     -- a ~15 días hábiles. La conciliación del pago (saldo - valor_pagado) se
@@ -141,6 +204,8 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
                       + COALESCE(ajuste_positivo_flete, 0)
                       - COALESCE(ajuste_negativo_flete, 0)
                       - ROUND(flete_conductor * 0.01, 2)
+                      - COALESCE(reteica, 0)
+                      - COALESCE(r_fopat, 0)
                       - COALESCE(anticipo, 0)
             END
         ) STORED,
@@ -166,7 +231,59 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
 
     -- ── Auditoría ───────────────────────────────────────────────────────────
     cargado_en                  TIMESTAMPTZ     NOT NULL DEFAULT now(),
-    actualizado_en              TIMESTAMPTZ     NOT NULL DEFAULT now()
+    actualizado_en              TIMESTAMPTZ     NOT NULL DEFAULT now(),
+    
+    -- ── Reglas de negocio ───────────────────────────────────────────────────
+    CONSTRAINT chk_cumplido_requiere_fe 
+        CHECK (
+            fecha_cumplido IS NULL 
+            OR (factura_electronica IS NOT NULL AND factura_electronica <> '')
+        ),
+
+    -- ── Formato de datos ────────────────────────────────────────────────────
+    CONSTRAINT chk_placa_formato
+        CHECK (placa IS NULL OR placa ~ '^[A-Z0-9]{4,7}$' OR placa IN ('ANULADO', 'CONS ANULADO')),
+    CONSTRAINT chk_cedula_conductor_formato
+        CHECK (cedula_conductor IS NULL OR cedula_conductor ~ '^\d{6,10}$'),
+    CONSTRAINT chk_año_rango
+        CHECK (año IS NULL OR (año >= 2023 AND año <= 2026)),
+    CONSTRAINT chk_semana_formato
+        CHECK (semana IS NULL OR semana ~ '^Semana \d+$'),
+
+    -- ── Valores positivos ───────────────────────────────────────────────────
+    CONSTRAINT chk_valor_remesa_positivo
+        CHECK (valor_remesa IS NULL OR valor_remesa >= 0),
+    CONSTRAINT chk_flete_conductor_positivo
+        CHECK (flete_conductor IS NULL OR flete_conductor >= 0),
+    CONSTRAINT chk_anticipo_positivo
+        CHECK (anticipo IS NULL OR anticipo >= 0),
+    CONSTRAINT chk_valor_pagado_positivo
+        CHECK (valor_pagado IS NULL OR valor_pagado >= 0),
+    CONSTRAINT chk_valor_factura_positivo
+        CHECK (valor_factura IS NULL OR valor_factura >= 0),
+
+    -- ── ENUMs categóricos ───────────────────────────────────────────────────
+    CONSTRAINT chk_compromiso_pago_valido
+        CHECK (compromiso_pago IS NULL OR compromiso_pago::compromiso_pago_enum IS NOT NULL),
+    CONSTRAINT chk_estado_interno_valido
+        CHECK (estado_interno IS NULL OR estado_interno::estado_interno_enum IS NOT NULL),
+    CONSTRAINT chk_agencia_despachadora_valida
+        CHECK (agencia_despachadora IS NULL OR agencia_despachadora::agencia_enum IS NOT NULL),
+    CONSTRAINT chk_entidad_financiera_valida
+        CHECK (entidad_financiera IS NULL OR entidad_financiera::entidad_financiera_enum IS NOT NULL),
+    CONSTRAINT chk_responsable_valido
+        CHECK (responsable IS NULL OR responsable::responsable_enum IS NOT NULL),
+    CONSTRAINT chk_mes_valido
+        CHECK (mes IS NULL OR mes::mes_enum IS NOT NULL),
+    CONSTRAINT chk_nombre_responsable_valido
+        CHECK (nombre_responsable IS NULL OR nombre_responsable IN (
+            'ANGELA G', 'ANGIE', 'ANGIE OVIEDO', 'ANULADO', 'BUENAVENTURA',
+            'DAVID', 'DIANA G.', 'ELIANA', 'HAIR', 'HECTOR', 'HOJASDEVIDA1',
+            'INGRID VANESSA', 'JULIAN', 'KAROL', 'KATTY', 'LILIANA',
+            'LILIANA OBREGON', 'LOGISTICACALI2', 'MARCELA', 'OPERATIVO 1',
+            'OPERATIVO 2', 'OPERATIVO 3', 'OPERATIVO BUENA', 'RNDC',
+            'VANESSA', 'YANETH F', 'YURANY ESTUPINA'
+        ))
 );
 
 
@@ -231,7 +348,7 @@ BEGIN
     );
     FOREACH col IN ARRAY ARRAY[
         'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor',
-        'celular','placa','tipo_vehiculo','propietario','agencia_despachadora',
+        'celular','placa','placa_remolque','propietario','agencia_despachadora',
         'nombre_responsable','valor_remesa','flete_conductor','anticipo','remesas',
         'fecha_cumplido','compromiso_pago','novedades','estado_interno',
         'responsable_estado_interno','novedad_conductor','novedad_empresa',
@@ -706,7 +823,7 @@ SELECT
     m.manifiesto, m.archivo_origen, m.mes, m.año, m.periodo, m.semana,
     m.consecutivo_semanal, m.fecha_despacho, m.origen, m.departamento_origen,
     m.destino, m.departamento_destino, m.cliente, m.remesas, m.valor_remesa,
-    m.flete_conductor, m.anticipo, m.placa, m.tipo_vehiculo, m.conductor,
+    m.flete_conductor, m.anticipo, m.placa, m.placa_remolque, m.conductor,
     m.celular, m.cedula_conductor, m.propietario, m.agencia_despachadora,
     m.nombre_responsable, m.fecha_cumplido, m.compromiso_pago, m.novedades,
     m.novedad_conductor, m.novedad_empresa,
@@ -763,7 +880,7 @@ SELECT
     m.manifiesto, m.fecha_despacho,
     m.origen, m.departamento_origen, m.destino, m.departamento_destino,
     m.cliente,
-    m.placa, m.tipo_vehiculo, m.conductor, m.celular, m.cedula_conductor, m.propietario,
+    m.placa, m.placa_remolque, m.conductor, m.celular, m.cedula_conductor, m.propietario,
     m.flete_conductor, m.saldo, m.valor_pagado, m.fecha_pago,
     m.fecha_cumplido, m.compromiso_pago, m.estado_interno,
     m.novedades, m.novedad_conductor,
@@ -798,21 +915,25 @@ FROM public.manifiestos_flat m;
 
 -- ── consulta_manifiestos ────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.consulta_manifiestos(
-    p_manifiesto        BIGINT   DEFAULT NULL,
-    p_fecha_desde       DATE     DEFAULT NULL,
-    p_fecha_hasta       DATE     DEFAULT NULL,
-    p_conductor         TEXT     DEFAULT NULL,
-    p_cliente           TEXT     DEFAULT NULL,
-    p_origen            TEXT     DEFAULT NULL,
-    p_destino           TEXT     DEFAULT NULL,
-    p_placa             TEXT     DEFAULT NULL,
-    p_agencia           TEXT     DEFAULT NULL,
-    p_compromiso_pago   TEXT     DEFAULT NULL,
-    p_estado_interno    TEXT     DEFAULT NULL,
-    p_mes               TEXT     DEFAULT NULL,
-    p_año               SMALLINT DEFAULT NULL,
-    p_limit             INTEGER  DEFAULT 50,
-    p_offset            INTEGER  DEFAULT 0
+    p_manifiesto          BIGINT   DEFAULT NULL,
+    p_fecha_desde         DATE     DEFAULT NULL,
+    p_fecha_hasta         DATE     DEFAULT NULL,
+    p_conductor           TEXT     DEFAULT NULL,
+    p_cedula_conductor    TEXT     DEFAULT NULL,
+    p_cliente             TEXT     DEFAULT NULL,
+    p_origen              TEXT     DEFAULT NULL,
+    p_destino             TEXT     DEFAULT NULL,
+    p_placa               TEXT     DEFAULT NULL,
+    p_agencia             TEXT     DEFAULT NULL,
+    p_compromiso_pago     TEXT     DEFAULT NULL,
+    p_estado_interno      TEXT     DEFAULT NULL,
+    p_mes                 TEXT     DEFAULT NULL,
+    p_año                 SMALLINT DEFAULT NULL,
+    p_tiene_fe            BOOLEAN  DEFAULT NULL,
+    p_nombre_responsable  TEXT     DEFAULT NULL,
+    p_estado_vencimiento  TEXT     DEFAULT NULL,
+    p_limit               INTEGER  DEFAULT 50,
+    p_offset              INTEGER  DEFAULT 0
 )
 RETURNS SETOF public.v_manifiestos
 LANGUAGE sql STABLE
@@ -823,6 +944,7 @@ AS $$
       AND (p_fecha_desde     IS NULL OR fecha_despacho       >= p_fecha_desde)
       AND (p_fecha_hasta     IS NULL OR fecha_despacho       <= p_fecha_hasta)
       AND (p_conductor       IS NULL OR conductor       ILIKE '%' || p_conductor || '%')
+      AND (p_cedula_conductor IS NULL OR cedula_conductor ILIKE '%' || p_cedula_conductor || '%')
       AND (p_cliente         IS NULL OR cliente         ILIKE '%' || p_cliente   || '%')
       AND (p_origen          IS NULL OR origen          ILIKE '%' || p_origen    || '%')
       AND (p_destino         IS NULL OR destino         ILIKE '%' || p_destino   || '%')
@@ -832,6 +954,11 @@ AS $$
       AND (p_estado_interno  IS NULL OR estado_interno       = p_estado_interno)
       AND (p_mes             IS NULL OR mes                  = p_mes)
       AND (p_año             IS NULL OR año                  = p_año)
+      AND (p_tiene_fe IS NULL OR (factura_electronica IS NOT NULL AND factura_electronica != '') = p_tiene_fe)
+      AND (p_nombre_responsable IS NULL OR nombre_responsable ILIKE '%' || p_nombre_responsable || '%')
+      AND (p_estado_vencimiento IS NULL
+           OR (p_estado_vencimiento = 'vencidos'   AND fecha_estimada_pago < CURRENT_DATE)
+           OR (p_estado_vencimiento = 'por_vencer' AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7))
     ORDER BY fecha_despacho DESC, manifiesto DESC
     LIMIT  p_limit
     OFFSET p_offset;
@@ -840,15 +967,23 @@ $$;
 
 -- ── consulta_totales ────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.consulta_totales(
-    p_fecha_desde       DATE     DEFAULT NULL,
-    p_fecha_hasta       DATE     DEFAULT NULL,
-    p_conductor         TEXT     DEFAULT NULL,
-    p_cliente           TEXT     DEFAULT NULL,
-    p_agencia           TEXT     DEFAULT NULL,
-    p_compromiso_pago   TEXT     DEFAULT NULL,
-    p_estado_interno    TEXT     DEFAULT NULL,
-    p_mes               TEXT     DEFAULT NULL,
-    p_año               SMALLINT DEFAULT NULL
+    p_manifiesto          INTEGER  DEFAULT NULL,
+    p_fecha_desde         DATE     DEFAULT NULL,
+    p_fecha_hasta         DATE     DEFAULT NULL,
+    p_conductor           TEXT     DEFAULT NULL,
+    p_cedula_conductor    TEXT     DEFAULT NULL,
+    p_cliente             TEXT     DEFAULT NULL,
+    p_origen              TEXT     DEFAULT NULL,
+    p_destino             TEXT     DEFAULT NULL,
+    p_placa               TEXT     DEFAULT NULL,
+    p_agencia             TEXT     DEFAULT NULL,
+    p_compromiso_pago     TEXT     DEFAULT NULL,
+    p_estado_interno      TEXT     DEFAULT NULL,
+    p_mes                 TEXT     DEFAULT NULL,
+    p_año                 SMALLINT DEFAULT NULL,
+    p_tiene_fe            BOOLEAN  DEFAULT NULL,
+    p_nombre_responsable  TEXT     DEFAULT NULL,
+    p_estado_vencimiento  TEXT     DEFAULT NULL
 )
 RETURNS TABLE (
     total_manifiestos   BIGINT,
@@ -868,16 +1003,46 @@ AS $$
         COALESCE(SUM(anticipo),             0),
         COALESCE(SUM(valor_pagado),         0),
         COALESCE(SUM(saldo), 0) - COALESCE(SUM(valor_pagado), 0)
-    FROM public.manifiestos_flat
-    WHERE (p_fecha_desde     IS NULL OR fecha_despacho       >= p_fecha_desde)
-      AND (p_fecha_hasta     IS NULL OR fecha_despacho       <= p_fecha_hasta)
-      AND (p_conductor       IS NULL OR conductor       ILIKE '%' || p_conductor || '%')
-      AND (p_cliente         IS NULL OR cliente         ILIKE '%' || p_cliente   || '%')
-      AND (p_agencia         IS NULL OR agencia_despachadora = p_agencia)
-      AND (p_compromiso_pago IS NULL OR compromiso_pago      = p_compromiso_pago)
-      AND (p_estado_interno  IS NULL OR estado_interno       = p_estado_interno)
-      AND (p_mes             IS NULL OR mes                  = p_mes)
-      AND (p_año             IS NULL OR año                  = p_año);
+    FROM public.v_manifiestos
+    WHERE (p_manifiesto         IS NULL OR manifiesto                   = p_manifiesto)
+      AND (p_fecha_desde         IS NULL OR fecha_despacho            >= p_fecha_desde)
+      AND (p_fecha_hasta         IS NULL OR fecha_despacho            <= p_fecha_hasta)
+      AND (p_conductor           IS NULL OR conductor            ILIKE '%' || p_conductor || '%')
+      AND (p_cedula_conductor    IS NULL OR cedula_conductor     ILIKE '%' || p_cedula_conductor || '%')
+      AND (p_cliente             IS NULL OR cliente              ILIKE '%' || p_cliente   || '%')
+      AND (p_origen              IS NULL OR origen               ILIKE '%' || p_origen    || '%')
+      AND (p_destino             IS NULL OR destino              ILIKE '%' || p_destino   || '%')
+      AND (p_placa               IS NULL OR placa                ILIKE '%' || p_placa     || '%')
+      AND (p_agencia             IS NULL OR agencia_despachadora      = p_agencia)
+      AND (p_compromiso_pago     IS NULL OR compromiso_pago           = p_compromiso_pago)
+      AND (p_estado_interno      IS NULL OR estado_interno            = p_estado_interno)
+      AND (p_mes                 IS NULL OR mes                       = p_mes)
+      AND (p_año                 IS NULL OR año                       = p_año)
+      AND (p_tiene_fe            IS NULL OR (factura_electronica IS NOT NULL AND factura_electronica != '') = p_tiene_fe)
+      AND (p_nombre_responsable  IS NULL OR nombre_responsable   ILIKE '%' || p_nombre_responsable || '%')
+      AND (p_estado_vencimiento  IS NULL
+           OR (p_estado_vencimiento = 'vencidos'    AND fecha_estimada_pago < CURRENT_DATE)
+           OR (p_estado_vencimiento = 'por_vencer'  AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7));
+$$;
+
+
+-- ── consulta_alertas_vencimiento ──────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.consulta_alertas_vencimiento(
+    p_nombre_responsable TEXT DEFAULT NULL
+)
+RETURNS JSON
+LANGUAGE sql STABLE
+SET search_path = ''
+AS $$
+    WITH base AS (
+        SELECT * FROM public.v_manifiestos
+        WHERE (p_nombre_responsable IS NULL OR nombre_responsable = p_nombre_responsable)
+    )
+    SELECT json_build_object(
+        'vencidos',     (SELECT COUNT(*)                        FROM base WHERE fecha_estimada_pago < CURRENT_DATE),
+        'porVencer',    (SELECT COUNT(*)                        FROM base WHERE fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7),
+        'saldoVencido', (SELECT COALESCE(SUM(saldo), 0)          FROM base WHERE fecha_estimada_pago < CURRENT_DATE)
+    );
 $$;
 
 
@@ -1015,6 +1180,28 @@ AS $$
     ),
     activos AS (
         SELECT * FROM base WHERE estado_interno IS DISTINCT FROM 'ANULADO'
+    ),
+    con_fecha_estimada AS (
+        SELECT saldo,
+            CASE
+                WHEN fecha_cumplido IS NULL                THEN NULL
+                WHEN fecha_pago     IS NOT NULL            THEN NULL
+                WHEN estado_interno  = 'ANULADO'           THEN NULL
+                WHEN compromiso_pago = 'URBANO'            THEN NULL
+                WHEN compromiso_pago = 'ANULADO'           THEN NULL
+                WHEN compromiso_pago = 'PAGADO'            THEN NULL
+                ELSE fecha_cumplido + (CASE compromiso_pago
+                    WHEN 'PAGO A 15 DIAS'         THEN 21
+                    WHEN 'PAGO A 20 DIAS'         THEN 28
+                    WHEN 'PAGO A 30 DIAS'         THEN 42
+                    WHEN 'PAGO A 5-8 DIAS'        THEN 11
+                    WHEN 'PAGO INMEDIATO'         THEN 0
+                    WHEN 'CONTRAENTREGA'          THEN 0
+                    WHEN 'CONTINGENCIA 20-25 DH'  THEN 35
+                    ELSE 21
+                END)
+            END AS fecha_estimada_pago
+        FROM activos
     )
     SELECT json_build_object(
         'totalManifiestos',   (SELECT COUNT(*)            FROM base),
@@ -1029,6 +1216,9 @@ AS $$
         'sinFactura',         (SELECT COUNT(*)            FROM activos WHERE factura_no IS NULL),
         'conNovedad',         (SELECT COUNT(*)            FROM activos WHERE novedades IS NOT NULL AND TRIM(novedades) != ''),
         'diasPromFacturar',   (SELECT COALESCE(ROUND(AVG(dias_para_facturar))::INT, 0) FROM activos WHERE dias_para_facturar IS NOT NULL),
+        'vencidos',           (SELECT COUNT(*)             FROM con_fecha_estimada WHERE fecha_estimada_pago < CURRENT_DATE),
+        'porVencer',          (SELECT COUNT(*)             FROM con_fecha_estimada WHERE fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7),
+        'saldoVencido',       (SELECT COALESCE(SUM(saldo), 0) FROM con_fecha_estimada WHERE fecha_estimada_pago < CURRENT_DATE),
 
         'topClientes',        (SELECT COALESCE(json_agg(sub ORDER BY sub.count DESC), '[]'::json)
                                FROM (SELECT cliente AS nombre, COUNT(*)::INT AS count
@@ -1123,9 +1313,9 @@ AS $$
         'remolques', (
             SELECT COALESCE(json_agg(nombre ORDER BY nombre), '[]'::json)
             FROM (
-                SELECT DISTINCT tipo_vehiculo AS nombre
+                SELECT DISTINCT placa_remolque AS nombre
                 FROM public.manifiestos_flat
-                WHERE tipo_vehiculo IS NOT NULL AND tipo_vehiculo <> ''
+                WHERE placa_remolque IS NOT NULL AND placa_remolque <> ''
             ) r
         ),
 
@@ -1154,9 +1344,51 @@ AS $$
                 FROM public.manifiestos_flat
                 WHERE compromiso_pago IS NOT NULL AND compromiso_pago <> ''
             ) cp
+        ),
+
+        'facturas_electronicas', (
+            SELECT COALESCE(json_agg(nombre ORDER BY nombre), '[]'::json)
+            FROM (
+                SELECT DISTINCT factura_electronica AS nombre
+                FROM public.manifiestos_flat
+                WHERE factura_electronica IS NOT NULL AND factura_electronica <> ''
+            ) fe
+        ),
+
+        'facturas_no', (
+            SELECT COALESCE(json_agg(nombre ORDER BY nombre), '[]'::json)
+            FROM (
+                SELECT DISTINCT factura_no AS nombre
+                FROM public.manifiestos_flat
+                WHERE factura_no IS NOT NULL AND factura_no <> ''
+            ) fn
         )
 
     )
+$$;
+
+
+-- ── get_manifiestos_por_fe ─────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_manifiestos_por_fe(
+    p_factura_electronica TEXT
+)
+RETURNS JSON
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = ''
+AS $$
+    SELECT COALESCE(json_agg(m ORDER BY m.manifiesto), '[]'::json)
+    FROM (
+        SELECT
+            manifiesto,
+            cliente,
+            fecha_despacho,
+            factura_no,
+            valor_factura,
+            saldo
+        FROM public.manifiestos_flat
+        WHERE factura_electronica = p_factura_electronica
+        ORDER BY manifiesto
+    ) m
 $$;
 
 
@@ -1206,13 +1438,15 @@ CREATE OR REPLACE FUNCTION public.guardar_digitador(
     p_flete_conductor       NUMERIC  DEFAULT NULL,
     p_anticipo              NUMERIC  DEFAULT NULL,
     p_placa                 TEXT     DEFAULT NULL,
-    p_tipo_vehiculo         TEXT     DEFAULT NULL,
+    p_placa_remolque         TEXT     DEFAULT NULL,
     p_conductor             TEXT     DEFAULT NULL,
     p_celular               TEXT     DEFAULT NULL,
     p_cedula_conductor      TEXT     DEFAULT NULL,
     p_propietario           TEXT     DEFAULT NULL,
     p_agencia_despachadora  TEXT     DEFAULT NULL,
-    p_nombre_responsable    TEXT     DEFAULT NULL
+    p_nombre_responsable    TEXT     DEFAULT NULL,
+    p_reteica               NUMERIC  DEFAULT NULL,
+    p_r_fopat               NUMERIC  DEFAULT NULL
 )
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER
@@ -1226,14 +1460,16 @@ BEGIN
         manifiesto, archivo_origen, mes, año, periodo, semana, consecutivo_semanal,
         fecha_despacho, origen, departamento_origen, destino, departamento_destino,
         cliente, remesas, valor_remesa, flete_conductor, anticipo,
-        placa, tipo_vehiculo, conductor, celular, cedula_conductor,
-        propietario, agencia_despachadora, nombre_responsable
+        placa, placa_remolque, conductor, celular, cedula_conductor,
+        propietario, agencia_despachadora, nombre_responsable,
+        reteica, r_fopat
     ) VALUES (
         p_manifiesto, p_archivo_origen, p_mes, p_año, p_periodo, p_semana, p_consecutivo_semanal,
         p_fecha_despacho, p_origen, p_departamento_origen, p_destino, p_departamento_destino,
         p_cliente, p_remesas, p_valor_remesa, p_flete_conductor, p_anticipo,
-        p_placa, p_tipo_vehiculo, p_conductor, p_celular, p_cedula_conductor,
-        p_propietario, p_agencia_despachadora, p_nombre_responsable
+        p_placa, p_placa_remolque, p_conductor, p_celular, p_cedula_conductor,
+        p_propietario, p_agencia_despachadora, p_nombre_responsable,
+        p_reteica, p_r_fopat
     )
     ON CONFLICT (manifiesto) DO UPDATE SET
         archivo_origen        = COALESCE(EXCLUDED.archivo_origen,       public.manifiestos_flat.archivo_origen),
@@ -1253,13 +1489,99 @@ BEGIN
         flete_conductor       = COALESCE(EXCLUDED.flete_conductor,      public.manifiestos_flat.flete_conductor),
         anticipo              = COALESCE(EXCLUDED.anticipo,             public.manifiestos_flat.anticipo),
         placa                 = COALESCE(EXCLUDED.placa,                public.manifiestos_flat.placa),
-        tipo_vehiculo         = COALESCE(EXCLUDED.tipo_vehiculo,        public.manifiestos_flat.tipo_vehiculo),
+        placa_remolque         = COALESCE(EXCLUDED.placa_remolque,      public.manifiestos_flat.placa_remolque),
         conductor             = COALESCE(EXCLUDED.conductor,            public.manifiestos_flat.conductor),
         celular               = COALESCE(EXCLUDED.celular,              public.manifiestos_flat.celular),
         cedula_conductor      = COALESCE(EXCLUDED.cedula_conductor,     public.manifiestos_flat.cedula_conductor),
         propietario           = COALESCE(EXCLUDED.propietario,          public.manifiestos_flat.propietario),
         agencia_despachadora  = COALESCE(EXCLUDED.agencia_despachadora, public.manifiestos_flat.agencia_despachadora),
         nombre_responsable    = COALESCE(EXCLUDED.nombre_responsable,   public.manifiestos_flat.nombre_responsable),
+        reteica               = COALESCE(EXCLUDED.reteica,              public.manifiestos_flat.reteica),
+        r_fopat               = COALESCE(EXCLUDED.r_fopat,              public.manifiestos_flat.r_fopat),
+        actualizado_en        = now();
+END;
+$$;
+
+
+-- ── guardar_digitador_batch (idem pero sin sobreescribir conductor/propietario) ─
+
+CREATE OR REPLACE FUNCTION public.guardar_digitador_batch(
+    p_manifiesto            BIGINT,
+    p_archivo_origen        TEXT     DEFAULT NULL,
+    p_mes                   TEXT     DEFAULT NULL,
+    p_año                   SMALLINT DEFAULT NULL,
+    p_periodo               DATE     DEFAULT NULL,
+    p_semana                TEXT     DEFAULT NULL,
+    p_consecutivo_semanal   INTEGER  DEFAULT NULL,
+    p_fecha_despacho        DATE     DEFAULT NULL,
+    p_origen                TEXT     DEFAULT NULL,
+    p_departamento_origen   TEXT     DEFAULT NULL,
+    p_destino               TEXT     DEFAULT NULL,
+    p_departamento_destino  TEXT     DEFAULT NULL,
+    p_cliente               TEXT     DEFAULT NULL,
+    p_remesas               TEXT     DEFAULT NULL,
+    p_valor_remesa          NUMERIC  DEFAULT NULL,
+    p_flete_conductor       NUMERIC  DEFAULT NULL,
+    p_anticipo              NUMERIC  DEFAULT NULL,
+    p_placa                 TEXT     DEFAULT NULL,
+    p_placa_remolque         TEXT     DEFAULT NULL,
+    p_conductor             TEXT     DEFAULT NULL,
+    p_celular               TEXT     DEFAULT NULL,
+    p_cedula_conductor      TEXT     DEFAULT NULL,
+    p_propietario           TEXT     DEFAULT NULL,
+    p_agencia_despachadora  TEXT     DEFAULT NULL,
+    p_nombre_responsable    TEXT     DEFAULT NULL,
+    p_reteica               NUMERIC  DEFAULT NULL,
+    p_r_fopat               NUMERIC  DEFAULT NULL
+)
+RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    IF public.user_role() NOT IN ('digitador', 'gerencia') THEN
+        RAISE EXCEPTION 'Sin permiso';
+    END IF;
+    INSERT INTO public.manifiestos_flat (
+        manifiesto, archivo_origen, mes, año, periodo, semana, consecutivo_semanal,
+        fecha_despacho, origen, departamento_origen, destino, departamento_destino,
+        cliente, remesas, valor_remesa, flete_conductor, anticipo,
+        placa, placa_remolque, conductor, celular, cedula_conductor,
+        propietario, agencia_despachadora, nombre_responsable,
+        reteica, r_fopat
+    ) VALUES (
+        p_manifiesto, p_archivo_origen, p_mes, p_año, p_periodo, p_semana, p_consecutivo_semanal,
+        p_fecha_despacho, p_origen, p_departamento_origen, p_destino, p_departamento_destino,
+        p_cliente, p_remesas, p_valor_remesa, p_flete_conductor, p_anticipo,
+        p_placa, p_placa_remolque, p_conductor, p_celular, p_cedula_conductor,
+        p_propietario, p_agencia_despachadora, p_nombre_responsable,
+        p_reteica, p_r_fopat
+    )
+    ON CONFLICT (manifiesto) DO UPDATE SET
+        archivo_origen        = COALESCE(EXCLUDED.archivo_origen,       public.manifiestos_flat.archivo_origen),
+        mes                   = COALESCE(EXCLUDED.mes,                  public.manifiestos_flat.mes),
+        año                   = COALESCE(EXCLUDED.año,                  public.manifiestos_flat.año),
+        periodo               = COALESCE(EXCLUDED.periodo,              public.manifiestos_flat.periodo),
+        semana                = COALESCE(EXCLUDED.semana,               public.manifiestos_flat.semana),
+        consecutivo_semanal   = COALESCE(EXCLUDED.consecutivo_semanal,  public.manifiestos_flat.consecutivo_semanal),
+        fecha_despacho        = COALESCE(EXCLUDED.fecha_despacho,       public.manifiestos_flat.fecha_despacho),
+        origen                = COALESCE(EXCLUDED.origen,               public.manifiestos_flat.origen),
+        departamento_origen   = COALESCE(EXCLUDED.departamento_origen,  public.manifiestos_flat.departamento_origen),
+        destino               = COALESCE(EXCLUDED.destino,              public.manifiestos_flat.destino),
+        departamento_destino  = COALESCE(EXCLUDED.departamento_destino, public.manifiestos_flat.departamento_destino),
+        cliente               = COALESCE(EXCLUDED.cliente,              public.manifiestos_flat.cliente),
+        remesas               = COALESCE(EXCLUDED.remesas,              public.manifiestos_flat.remesas),
+        valor_remesa          = COALESCE(EXCLUDED.valor_remesa,         public.manifiestos_flat.valor_remesa),
+        flete_conductor       = COALESCE(EXCLUDED.flete_conductor,      public.manifiestos_flat.flete_conductor),
+        anticipo              = COALESCE(EXCLUDED.anticipo,             public.manifiestos_flat.anticipo),
+        placa                 = COALESCE(EXCLUDED.placa,                public.manifiestos_flat.placa),
+        placa_remolque         = COALESCE(EXCLUDED.placa_remolque,      public.manifiestos_flat.placa_remolque),
+            -- conductor / propietario no se sobreescriben en recarga (inmutables)
+        celular               = COALESCE(EXCLUDED.celular,              public.manifiestos_flat.celular),
+        agencia_despachadora  = COALESCE(EXCLUDED.agencia_despachadora, public.manifiestos_flat.agencia_despachadora),
+        nombre_responsable    = COALESCE(EXCLUDED.nombre_responsable,   public.manifiestos_flat.nombre_responsable),
+        reteica               = COALESCE(EXCLUDED.reteica,              public.manifiestos_flat.reteica),
+        r_fopat               = COALESCE(EXCLUDED.r_fopat,              public.manifiestos_flat.r_fopat),
         actualizado_en        = now();
 END;
 $$;
@@ -1504,16 +1826,19 @@ GRANT ALL    ON public.messages_sent TO postgres;
 REVOKE ALL                    ON public.admin_usuarios      FROM PUBLIC, anon, authenticated;
 
 -- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
-REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT)                                                  FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, INTEGER, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_notify_plazo_vigente()                                                                                                   FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_notify_pago_realizado()                                                                                                   FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.guardar_digitador_batch(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        FROM PUBLIC;
@@ -1522,14 +1847,17 @@ REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                     
 REVOKE EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT)                                                                                FROM PUBLIC;
 
 -- Otorgar a authenticated
-GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, INTEGER, INTEGER) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.consulta_totales(DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT)                                                  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, INTEGER, INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.guardar_digitador_batch(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        TO authenticated;
