@@ -256,9 +256,10 @@ const CAMPOS_OPTS = [
   'celular','placa','placa_remolque','propietario','agencia_despachadora',
   'nombre_responsable','valor_remesa','flete_conductor','anticipo','remesas',
   'fecha_cumplido','compromiso_pago','novedades','estado_interno',
-  'responsable_estado_interno','novedad_conductor','novedad_empresa',
+  'responsable_estado_interno',
   'ajuste_positivo_flete','ajuste_negativo_flete','consignacion_a_terceros',
-  'saldo','fecha_pago','valor_pagado','entidad_financiera',
+  'ajustes_detalle',
+  'saldo','saldo_en_planilla','fecha_pago','valor_pagado','entidad_financiera',
   'responsable','factura_no','fecha_factura','factura_electronica',
   'mes_facturacion','valor_factura',
 ]
@@ -487,6 +488,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
     conductor: null, cliente: null, origen: null, destino: null,
     compromiso_pago: '', estado_interno: '', placa: '', mes: '', año: '',
     cedula_conductor: '', tiene_fe: '', nombre_responsable: '',
+    nombre_responsable_2: '',
     estado_vencimiento: '',
   }
 
@@ -542,11 +544,13 @@ export default function ConsultaPage({ openEnCarga, user }) {
     if (soloMisManifiestos) {
       setSoloMisManifiestos(false)
       set('nombre_responsable', '')
-      buscar({ ...filters, nombre_responsable: '' }, 0)
+      set('nombre_responsable_2', '')
+      buscar({ ...filters, nombre_responsable: '', nombre_responsable_2: '' }, 0)
     } else {
       setSoloMisManifiestos(true)
       set('nombre_responsable', miResponsable)
-      buscar({ ...filters, nombre_responsable: miResponsable }, 0)
+      set('nombre_responsable_2', '')
+      buscar({ ...filters, nombre_responsable: miResponsable, nombre_responsable_2: '' }, 0)
     }
   }
 
@@ -601,12 +605,11 @@ export default function ConsultaPage({ openEnCarga, user }) {
     ['Compromiso Pago',         'compromiso_pago',        'raw'],
     ['Días x Vencer',           'dias_para_facturar',     'raw'],
     ['Novedades',               'novedades',              'raw'],
-    ['Novedad Conductor',       'novedad_conductor',      'raw'],
-    ['Novedad Empresa',         'novedad_empresa',        'raw'],
     ['Reajuste',                'ajuste_positivo_flete',  'money'],
     ['Descuento',               'ajuste_negativo_flete',  'money'],
     ['Consignación Terceros',   'consignacion_a_terceros','money'],
     ['Saldo',                   'saldo',                  'money'],
+    ['Saldo en Planilla',       'saldo_en_planilla',      'money'],
     ['Estado Interno',          'estado_interno',         'raw'],
     ['Resp. Estado Interno',    'responsable_estado_interno','raw'],
     ['Fecha Pago',              'fecha_pago',             'date'],
@@ -812,8 +815,12 @@ export default function ConsultaPage({ openEnCarga, user }) {
                 </div>
               </Field>
             ) : (
+              <>
               <FilterAutocomplete label="Responsable" items={catalogos.responsables}
                 value={filters.nombre_responsable || null} onChange={v => set('nombre_responsable', v ?? '')} />
+              <FilterAutocomplete label="Responsable (O)" items={catalogos.responsables}
+                value={filters.nombre_responsable_2 || null} onChange={v => set('nombre_responsable_2', v ?? '')} />
+              </>
             )}
 
             <FilterSelect label="Compromiso de pago" value={filters.compromiso_pago} onChange={v => set('compromiso_pago', v)} options={catalogos.compromisos_pago} />
@@ -891,7 +898,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
               </div>
             ) : (
               <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-                <table className="text-sm border-collapse" style={{ minWidth: '3620px' }}>
+                <table className="text-sm border-collapse" style={{ minWidth: '3400px' }}>
                   <thead style={{ position: 'sticky', top: 0, zIndex: 15 }}>
                     <tr style={{ background: '#F1F5F9' }}>
                       <Th sticky width="105px">Manifiesto</Th>
@@ -918,13 +925,13 @@ export default function ConsultaPage({ openEnCarga, user }) {
                       <Th width="160px">Compromiso Pago</Th>
                       <Th width="120px">Días x Vencer</Th>
                       <Th width="280px">Novedades</Th>
-                      <Th width="240px">Novedad Conductor</Th>
-                      <Th width="240px">Novedad Empresa</Th>
                       <Th width="100px">Reajuste</Th>
                       <Th width="105px">Descuento</Th>
                       <Th width="170px">Consignación Terceros</Th>
                       <Th width="160px">Estado Interno</Th>
                       <Th width="200px">Responsable Estado Interno</Th>
+                      <Th right width="130px">Saldo</Th>
+                      <Th right width="130px">Saldo en Planilla</Th>
                       <Th width="100px">Fecha Pago</Th>
                       <Th right width="110px">Valor Pagado</Th>
                       <Th width="180px">Entidad Financiera</Th>
@@ -956,7 +963,7 @@ export default function ConsultaPage({ openEnCarga, user }) {
                           <Td muted width="140px">{r.departamento_destino ?? '—'}</Td>
                           <Td width="140px">{r.cliente ?? '—'}</Td>
                           <Td mono width="110px">{money(r.valor_remesa)}</Td>
-                          <Td mono width="110px">{money(r.saldo ?? r.flete_conductor)}</Td>
+                          <Td mono width="110px">{money(r.flete_conductor)}</Td>
                           <Td mono muted width="95px">{money(r.anticipo)}</Td>
                           <Td mono muted width="80px">{r.placa ?? '—'}</Td>
                           <Td muted width="105px">{r.placa_remolque ?? '—'}</Td>
@@ -986,16 +993,6 @@ export default function ConsultaPage({ openEnCarga, user }) {
                               {r.novedades || '—'}
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-xs" style={{ width: '240px', minWidth: '240px', maxWidth: '240px', borderRight: '1px solid #CBD5E1' }}>
-                            <div title={r.novedad_conductor || undefined} style={{ color: MUTED, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                              {r.novedad_conductor || '—'}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-xs" style={{ width: '240px', minWidth: '240px', maxWidth: '240px', borderRight: '1px solid #CBD5E1' }}>
-                            <div title={r.novedad_empresa || undefined} style={{ color: MUTED, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                              {r.novedad_empresa || '—'}
-                            </div>
-                          </td>
                           <Td mono width="100px">{r.ajuste_positivo_flete != null ? money(r.ajuste_positivo_flete) : '—'}</Td>
                           <Td mono width="105px">{r.ajuste_negativo_flete != null ? money(r.ajuste_negativo_flete) : '—'}</Td>
                           <Td mono width="170px">{r.consignacion_a_terceros != null ? money(r.consignacion_a_terceros) : '—'}</Td>
@@ -1003,6 +1000,8 @@ export default function ConsultaPage({ openEnCarga, user }) {
                             <EstadoBadge value={r.estado_interno} colorFn={estadoInternoColor} />
                           </td>
                           <Td muted width="200px">{r.responsable_estado_interno ?? '—'}</Td>
+                          <Td mono right highlight={GREEN} width="130px">{r.saldo != null ? money(r.saldo) : '—'}</Td>
+                          <Td mono right muted width="130px">{r.saldo_en_planilla != null ? money(r.saldo_en_planilla) : '—'}</Td>
                           <Td width="100px">{fmtDate(r.fecha_pago)}</Td>
                           <Td mono highlight={GREEN} width="110px">{money(r.valor_pagado)}</Td>
                           <Td muted width="180px">{r.entidad_financiera ?? '—'}</Td>

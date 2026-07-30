@@ -61,11 +61,10 @@ export function useManifiesto() {
       p_novedades:                  form.novedades                   ?? null,
       p_estado_interno:             form.estado_interno              || null,
       p_responsable_estado_interno: form.responsable_estado_interno  || null,
-      p_novedad_conductor:          form.novedad_conductor           ?? null,
-      p_novedad_empresa:            form.novedad_empresa             ?? null,
       p_ajuste_positivo_flete:      form.ajuste_positivo_flete !== '' && form.ajuste_positivo_flete != null ? Number(form.ajuste_positivo_flete) : null,
       p_ajuste_negativo_flete:      form.ajuste_negativo_flete !== '' && form.ajuste_negativo_flete != null ? Number(form.ajuste_negativo_flete) : null,
       p_consignacion_a_terceros:    form.consignacion_a_terceros !== '' && form.consignacion_a_terceros != null ? Number(form.consignacion_a_terceros) : null,
+      p_ajustes_detalle:            form.ajustes_detalle            ?? null,
     })
     if (error) throw error
   }

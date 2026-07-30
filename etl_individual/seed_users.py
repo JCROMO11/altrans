@@ -23,9 +23,9 @@ Columnas referenciadas: Drive interno "PRODUCCIÓN ALTRANS S.A.S."
   logistico      Cols R–W (cumplimiento operativo):
                    R=fecha_cumplido, T=condicion_pago, U=novedades,
                    V=estado_interno, W=responsable_estado_interno.
-                 + campos adicionales de la app no presentes en el Drive:
-                   novedad_conductor, novedad_empresa, ajustes al flete,
-                   consignacion_a_terceros.
+                  + campos adicionales de la app no presentes en el Drive:
+                    ajustes al flete, ajustes_detalle,
+                    consignacion_a_terceros.
                  NO escribe A–Q. NO puede cargar Excel.
                  RPC: guardar_logistico, guardar_estado_interno.
 

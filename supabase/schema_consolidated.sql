@@ -168,8 +168,6 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
     fecha_cumplido              DATE,
     compromiso_pago             TEXT            DEFAULT 'PAGO A 15 DIAS',
     novedades                   TEXT,
-    novedad_conductor           TEXT,
-    novedad_empresa             TEXT,
     estado_interno              TEXT,
     responsable_estado_interno  TEXT,
 
@@ -177,6 +175,7 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
     ajuste_positivo_flete       NUMERIC(14, 2)  CHECK (ajuste_positivo_flete >= 0),
     ajuste_negativo_flete       NUMERIC(14, 2)  CHECK (ajuste_negativo_flete >= 0),
     consignacion_a_terceros     NUMERIC(14, 2),
+    ajustes_detalle             JSONB,          -- lista de ajustes individuales [{concepto, valor, tipo}]
     -- Deducciones de RNDC (ReteICA y FOPAT) que el Excel descuenta del neto.
     -- La tasa de RETEICA varía por municipio (0.33%–1.0%); R. FOPAT es 0.1% fijo.
     reteica                     NUMERIC(14, 2)  CHECK (reteica IS NULL OR reteica >= 0),
@@ -203,6 +202,16 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
                  THEN flete_conductor
                       + COALESCE(ajuste_positivo_flete, 0)
                       - COALESCE(ajuste_negativo_flete, 0)
+                      - ROUND(flete_conductor * 0.01, 2)
+                      - COALESCE(reteica, 0)
+                      - COALESCE(r_fopat, 0)
+                      - COALESCE(anticipo, 0)
+            END
+        ) STORED,
+    saldo_en_planilla           NUMERIC(14, 2)
+        GENERATED ALWAYS AS (
+            CASE WHEN flete_conductor IS NOT NULL
+                 THEN flete_conductor
                       - ROUND(flete_conductor * 0.01, 2)
                       - COALESCE(reteica, 0)
                       - COALESCE(r_fopat, 0)
@@ -351,9 +360,10 @@ BEGIN
         'celular','placa','placa_remolque','propietario','agencia_despachadora',
         'nombre_responsable','valor_remesa','flete_conductor','anticipo','remesas',
         'fecha_cumplido','compromiso_pago','novedades','estado_interno',
-        'responsable_estado_interno','novedad_conductor','novedad_empresa',
+        'responsable_estado_interno',
         'ajuste_positivo_flete','ajuste_negativo_flete','consignacion_a_terceros',
-        'saldo','fecha_pago','valor_pagado','entidad_financiera',
+        'ajustes_detalle',
+        'saldo','saldo_en_planilla','fecha_pago','valor_pagado','entidad_financiera',
         'responsable','factura_no','fecha_factura','factura_electronica',
         'mes_facturacion','valor_factura'
     ]
@@ -826,9 +836,9 @@ SELECT
     m.flete_conductor, m.anticipo, m.placa, m.placa_remolque, m.conductor,
     m.celular, m.cedula_conductor, m.propietario, m.agencia_despachadora,
     m.nombre_responsable, m.fecha_cumplido, m.compromiso_pago, m.novedades,
-    m.novedad_conductor, m.novedad_empresa,
     m.ajuste_positivo_flete, m.ajuste_negativo_flete, m.consignacion_a_terceros,
-    m.retencion_conductor, m.saldo,
+    m.ajustes_detalle,
+    m.retencion_conductor, m.saldo, m.saldo_en_planilla,
     m.fecha_pago, m.valor_pagado, m.entidad_financiera, m.responsable,
     m.factura_no, m.fecha_factura, m.factura_electronica, m.mes_facturacion,
     CASE WHEN public.user_role() IN ('financiero', 'contadora', 'administrativo', 'gerencia')
@@ -883,7 +893,7 @@ SELECT
     m.placa, m.placa_remolque, m.conductor, m.celular, m.cedula_conductor, m.propietario,
     m.flete_conductor, m.saldo, m.valor_pagado, m.fecha_pago,
     m.fecha_cumplido, m.compromiso_pago, m.estado_interno,
-    m.novedades, m.novedad_conductor,
+    m.novedades,
     m.mes, m.año,
     CASE WHEN m.fecha_cumplido IS NOT NULL
          THEN CURRENT_DATE - m.fecha_cumplido
@@ -931,6 +941,7 @@ CREATE OR REPLACE FUNCTION public.consulta_manifiestos(
     p_año                 SMALLINT DEFAULT NULL,
     p_tiene_fe            BOOLEAN  DEFAULT NULL,
     p_nombre_responsable  TEXT     DEFAULT NULL,
+    p_nombre_responsable_2 TEXT    DEFAULT NULL,
     p_estado_vencimiento  TEXT     DEFAULT NULL,
     p_limit               INTEGER  DEFAULT 50,
     p_offset              INTEGER  DEFAULT 0
@@ -955,7 +966,9 @@ AS $$
       AND (p_mes             IS NULL OR mes                  = p_mes)
       AND (p_año             IS NULL OR año                  = p_año)
       AND (p_tiene_fe IS NULL OR (factura_electronica IS NOT NULL AND factura_electronica != '') = p_tiene_fe)
-      AND (p_nombre_responsable IS NULL OR nombre_responsable ILIKE '%' || p_nombre_responsable || '%')
+      AND (p_nombre_responsable IS NULL AND p_nombre_responsable_2 IS NULL
+           OR (p_nombre_responsable IS NOT NULL AND nombre_responsable ILIKE '%' || p_nombre_responsable || '%')
+           OR (p_nombre_responsable_2 IS NOT NULL AND nombre_responsable ILIKE '%' || p_nombre_responsable_2 || '%'))
       AND (p_estado_vencimiento IS NULL
            OR (p_estado_vencimiento = 'vencidos'   AND fecha_estimada_pago < CURRENT_DATE)
            OR (p_estado_vencimiento = 'por_vencer' AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7))
@@ -983,6 +996,7 @@ CREATE OR REPLACE FUNCTION public.consulta_totales(
     p_año                 SMALLINT DEFAULT NULL,
     p_tiene_fe            BOOLEAN  DEFAULT NULL,
     p_nombre_responsable  TEXT     DEFAULT NULL,
+    p_nombre_responsable_2 TEXT    DEFAULT NULL,
     p_estado_vencimiento  TEXT     DEFAULT NULL
 )
 RETURNS TABLE (
@@ -1019,7 +1033,9 @@ AS $$
       AND (p_mes                 IS NULL OR mes                       = p_mes)
       AND (p_año                 IS NULL OR año                       = p_año)
       AND (p_tiene_fe            IS NULL OR (factura_electronica IS NOT NULL AND factura_electronica != '') = p_tiene_fe)
-      AND (p_nombre_responsable  IS NULL OR nombre_responsable   ILIKE '%' || p_nombre_responsable || '%')
+      AND (p_nombre_responsable  IS NULL AND p_nombre_responsable_2 IS NULL
+           OR (p_nombre_responsable IS NOT NULL AND nombre_responsable   ILIKE '%' || p_nombre_responsable || '%')
+           OR (p_nombre_responsable_2 IS NOT NULL AND nombre_responsable ILIKE '%' || p_nombre_responsable_2 || '%'))
       AND (p_estado_vencimiento  IS NULL
            OR (p_estado_vencimiento = 'vencidos'    AND fecha_estimada_pago < CURRENT_DATE)
            OR (p_estado_vencimiento = 'por_vencer'  AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7));
@@ -1592,7 +1608,7 @@ $$;
 -- cols R-W del Drive: fecha_cumplido, compromiso_pago, novedades,
 -- estado_interno, responsable_estado_interno), gerencia.
 -- Tesorería NO puede tocar campos extra que solo aplican a logístico:
--- novedad_conductor, novedad_empresa, ajustes al flete, consignación a terceros.
+-- ajustes al flete, consignación a terceros, ajustes_detalle.
 -- Esos campos se preservan cuando el caller es tesoreria, ignorando lo que envíe.
 -- Roles financiero/administrativo NO van acá: el Drive los limita a editar solo
 -- estado_interno — usan guardar_estado_interno() abajo.
@@ -1605,11 +1621,10 @@ CREATE OR REPLACE FUNCTION public.guardar_logistico(
     p_novedades                  TEXT    DEFAULT NULL,
     p_estado_interno             TEXT    DEFAULT NULL,
     p_responsable_estado_interno TEXT    DEFAULT NULL,
-    p_novedad_conductor          TEXT    DEFAULT NULL,
-    p_novedad_empresa            TEXT    DEFAULT NULL,
     p_ajuste_positivo_flete      NUMERIC DEFAULT NULL,
     p_ajuste_negativo_flete      NUMERIC DEFAULT NULL,
-    p_consignacion_a_terceros    NUMERIC DEFAULT NULL
+    p_consignacion_a_terceros    NUMERIC DEFAULT NULL,
+    p_ajustes_detalle            JSONB   DEFAULT NULL
 )
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER
@@ -1627,11 +1642,10 @@ BEGIN
         novedades                  = NULLIF(p_novedades,         ''),
         estado_interno             = COALESCE(p_estado_interno,             estado_interno),
         responsable_estado_interno = COALESCE(p_responsable_estado_interno, responsable_estado_interno),
-        novedad_conductor          = CASE WHEN v_es_tesoreria THEN novedad_conductor       ELSE NULLIF(p_novedad_conductor, '') END,
-        novedad_empresa            = CASE WHEN v_es_tesoreria THEN novedad_empresa         ELSE NULLIF(p_novedad_empresa,   '') END,
         ajuste_positivo_flete      = CASE WHEN v_es_tesoreria THEN ajuste_positivo_flete   ELSE p_ajuste_positivo_flete         END,
         ajuste_negativo_flete      = CASE WHEN v_es_tesoreria THEN ajuste_negativo_flete   ELSE p_ajuste_negativo_flete         END,
         consignacion_a_terceros    = CASE WHEN v_es_tesoreria THEN consignacion_a_terceros ELSE p_consignacion_a_terceros       END,
+        ajustes_detalle            = CASE WHEN v_es_tesoreria THEN ajustes_detalle         ELSE p_ajustes_detalle              END,
         actualizado_en             = now()
     WHERE manifiesto = p_manifiesto;
 END;
@@ -1826,8 +1840,8 @@ GRANT ALL    ON public.messages_sent TO postgres;
 REVOKE ALL                    ON public.admin_usuarios      FROM PUBLIC, anon, authenticated;
 
 -- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
-REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, INTEGER, INTEGER) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT, INTEGER, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               FROM PUBLIC;
@@ -1839,7 +1853,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_notify_pago_realizado()                    
 REVOKE EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_digitador_batch(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, JSONB)                              FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                             FROM PUBLIC;
@@ -1847,8 +1861,8 @@ REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                     
 REVOKE EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT)                                                                                FROM PUBLIC;
 
 -- Otorgar a authenticated
-GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, INTEGER, INTEGER) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT, INTEGER, INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    TO authenticated;
 GRANT EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               TO authenticated;
@@ -1858,7 +1872,7 @@ GRANT EXECUTE ON FUNCTION public.get_pendientes_notificacion()                  
 GRANT EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_digitador_batch(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC)                              TO authenticated;
+GRANT EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, JSONB)                              TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        TO authenticated;
 GRANT EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                             TO authenticated;

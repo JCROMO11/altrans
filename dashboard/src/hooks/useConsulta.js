@@ -30,7 +30,8 @@ export function useConsulta() {
     p_tiene_fe:           filters.tiene_fe === 'true'  ? true
                           : filters.tiene_fe === 'false' ? false
                           : null,
-    p_nombre_responsable: filters.nombre_responsable || null,
+    p_nombre_responsable:  filters.nombre_responsable  || null,
+    p_nombre_responsable_2: filters.nombre_responsable_2 || null,
     p_estado_vencimiento: filters.estado_vencimiento  || null,
     p_limit:              PAGE_SIZE + 1,
     p_offset:             pageNum * PAGE_SIZE,
@@ -72,7 +73,8 @@ export function useConsulta() {
           p_mes:                rowParams.p_mes,
           p_año:                rowParams.p_año,
           p_tiene_fe:           rowParams.p_tiene_fe,
-          p_nombre_responsable: rowParams.p_nombre_responsable,
+          p_nombre_responsable:  rowParams.p_nombre_responsable,
+          p_nombre_responsable_2: rowParams.p_nombre_responsable_2,
           p_estado_vencimiento: rowParams.p_estado_vencimiento,
         }
         const totRes = await supabase.rpc('consulta_totales', totParams)

@@ -50,9 +50,9 @@ _QUERY_MANIFIESTOS = """
              THEN CURRENT_DATE - fecha_cumplido
         END AS dias_cumplido,
         compromiso_pago, novedades, estado_interno, responsable_estado_interno,
-        novedad_conductor, novedad_empresa,
         ajuste_positivo_flete, ajuste_negativo_flete, consignacion_a_terceros,
-        retencion_conductor, saldo,
+        ajustes_detalle,
+        retencion_conductor, saldo, saldo_en_planilla,
         fecha_pago, valor_pagado, entidad_financiera, responsable,
         factura_no, fecha_factura, factura_electronica, mes_facturacion,
         valor_factura, dias_para_facturar,

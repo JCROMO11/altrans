@@ -311,9 +311,8 @@ function Toast({ msg, onClose }) {
 const SEGUIMIENTO_INIT = {
   fecha_cumplido: '', compromiso_pago: 'PAGO A 15 DIAS', novedades: '',
   estado_interno: '', responsable_estado_interno: '',
-  novedad_conductor: '', novedad_empresa: '',
   ajuste_positivo_flete: '', ajuste_negativo_flete: '',
-  consignacion_a_terceros: '',
+  consignacion_a_terceros: '', ajustes_detalle: [],
 }
 
 const TESORERIA_INIT = {
@@ -819,8 +818,8 @@ export default function CargaPage({ target, clearTarget, user }) {
   const canEditDespacho      = ['digitador', 'gerencia'].includes(rol)
   // logistico hereda a digitador y tesoreria (per USUARIOS DRIVE: ambos tienen "CUMPLE,")
   const canEditLogistico     = ['logistico', 'digitador', 'tesoreria', 'gerencia'].includes(rol)
-  // tesorería solo edita R-W del Drive en Cumplimiento; campos extra (novedad_conductor,
-  // novedad_empresa, ajustes al flete, consignación) son exclusivos de logístico.
+  // tesorería solo edita R-W del Drive en Cumplimiento; campos extra
+  // (ajustes al flete y consignación) son exclusivos de logístico.
   const canEditCumplimientoExtra = ['logistico', 'digitador', 'gerencia'].includes(rol)
   // financiero solo puede editar estado_interno dentro de cumplimiento, nada más de esa tab
   const canEditEstadoInterno = canEditLogistico || ['financiero', 'administrativo'].includes(rol)
@@ -896,11 +895,10 @@ export default function CargaPage({ target, clearTarget, user }) {
       novedades:                   data.novedades                   ?? '',
       estado_interno:              data.estado_interno              || '',
       responsable_estado_interno:  data.responsable_estado_interno  || '',
-      novedad_conductor:           data.novedad_conductor           ?? '',
-      novedad_empresa:             data.novedad_empresa             ?? '',
       ajuste_positivo_flete:       data.ajuste_positivo_flete       ?? '',
       ajuste_negativo_flete:       data.ajuste_negativo_flete       ?? '',
       consignacion_a_terceros:     data.consignacion_a_terceros     ?? '',
+      ajustes_detalle:             Array.isArray(data.ajustes_detalle) ? data.ajustes_detalle : [],
     })
     setFT({
       fecha_pago:         data.fecha_pago         || '',
@@ -928,11 +926,10 @@ export default function CargaPage({ target, clearTarget, user }) {
       novedades:                   ficha.novedades                   ?? '',
       estado_interno:              ficha.estado_interno              || '',
       responsable_estado_interno:  ficha.responsable_estado_interno  || '',
-      novedad_conductor:           ficha.novedad_conductor           ?? '',
-      novedad_empresa:             ficha.novedad_empresa             ?? '',
       ajuste_positivo_flete:       ficha.ajuste_positivo_flete       ?? '',
       ajuste_negativo_flete:       ficha.ajuste_negativo_flete       ?? '',
       consignacion_a_terceros:     ficha.consignacion_a_terceros     ?? '',
+      ajustes_detalle:             Array.isArray(ficha.ajustes_detalle) ? ficha.ajustes_detalle : [],
     })
     setFT({
       fecha_pago:         ficha.fecha_pago         || '',
@@ -1052,7 +1049,25 @@ export default function CargaPage({ target, clearTarget, user }) {
     }
     setBusy(true)
     try {
-      await updateLogistico(ficha.manifiesto, { ...formSeg, responsable_estado_interno: userName })
+      // Recalcular totales desde los items de ajustes_detalle
+      const det = formSeg.ajustes_detalle || []
+      const totalReajuste = det
+        .filter(a => a.tipo === 'reajuste')
+        .reduce((s, a) => s + (Number(a.valor) || 0), 0)
+      const totalDescuento = det
+        .filter(a => a.tipo === 'descuento')
+        .reduce((s, a) => s + (Number(a.valor) || 0), 0)
+      await updateLogistico(ficha.manifiesto, {
+        ...formSeg,
+        responsable_estado_interno: userName,
+        ajuste_positivo_flete: totalReajuste || '',
+        ajuste_negativo_flete: totalDescuento || '',
+        ajustes_detalle: det.length > 0 ? det.map(a => ({
+          concepto: a.concepto || '',
+          valor: Number(a.valor) || 0,
+          tipo: a.tipo || 'reajuste',
+        })) : null,
+      })
       toast('success', 'Cumplimiento actualizado correctamente.')
       const data = await search(ficha.manifiesto)
       loadFicha(data)
@@ -1297,7 +1312,8 @@ export default function CargaPage({ target, clearTarget, user }) {
                       { l: 'Responsable',     v: ficha.nombre_responsable },
                       { l: 'Valor remesa',        v: ficha.valor_remesa         != null ? `$${Number(ficha.valor_remesa).toLocaleString('es-CO')}` : null },
                       { l: 'Flete conductor',     v: ficha.flete_conductor      != null ? `$${Number(ficha.flete_conductor).toLocaleString('es-CO')}` : null },
-                      { l: 'Saldo',v: ficha.saldo != null ? `$${Number(ficha.saldo).toLocaleString('es-CO')}` : null },
+                      { l: 'Saldo en planilla',    v: ficha.saldo_en_planilla != null ? `$${Number(ficha.saldo_en_planilla).toLocaleString('es-CO')}` : null },
+                      { l: 'Saldo ajustado',v: ficha.saldo != null ? `$${Number(ficha.saldo).toLocaleString('es-CO')}` : null },
                       { l: 'Anticipo',            v: ficha.anticipo             != null ? `$${Number(ficha.anticipo).toLocaleString('es-CO')}` : null },
                       { l: 'Remesas',         v: ficha.remesas || null, col: 2 },
                     ].map(({ l, v, col }) => (
@@ -1316,7 +1332,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                       { l: 'Compromiso pago',   v: ficha.compromiso_pago },
                       { l: 'Fecha cumplido',    v: ficha.fecha_cumplido },
                       { l: 'Estado interno',    v: ficha.estado_interno },
-                      { l: 'Novedades',         v: ficha.novedades, col: 2 },
+                      { l: 'Novedades y observaciones',         v: ficha.novedades, col: 2 },
                     ],
                   },
                   {
@@ -1442,9 +1458,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                     { l: 'Compromiso pago',          v: ficha.compromiso_pago },
                     { l: 'Estado interno',           v: ficha.estado_interno },
                     { l: 'Responsable estado int.',  v: ficha.responsable_estado_interno },
-                    { l: 'Novedades',                v: ficha.novedades, col: 4 },
-                    { l: 'Novedad del conductor',    v: ficha.novedad_conductor, col: 2 },
-                    { l: 'Novedad de la empresa',    v: ficha.novedad_empresa, col: 2 },
+                    { l: 'Novedades y observaciones',  v: ficha.novedades, col: 4 },
                     { l: 'Reajuste',                 v: ficha.ajuste_positivo_flete != null ? `$ ${Number(ficha.ajuste_positivo_flete).toLocaleString('es-CO')}` : null },
                     { l: 'Descuento',                v: ficha.ajuste_negativo_flete != null ? `$ ${Number(ficha.ajuste_negativo_flete).toLocaleString('es-CO')}` : null },
                     { l: 'Consignación a terceros',  v: ficha.consignacion_a_terceros != null ? `$ ${Number(ficha.consignacion_a_terceros).toLocaleString('es-CO')}` : null },
@@ -1471,9 +1485,7 @@ export default function CargaPage({ target, clearTarget, user }) {
                     { l: 'Fecha cumplido',         v: ficha.fecha_cumplido },
                     { l: 'Compromiso pago',         v: ficha.compromiso_pago },
                     { l: 'Responsable estado int.', v: ficha.responsable_estado_interno },
-                    { l: 'Novedades',               v: ficha.novedades, col: 4 },
-                    { l: 'Novedad del conductor',   v: ficha.novedad_conductor, col: 2 },
-                    { l: 'Novedad de la empresa',   v: ficha.novedad_empresa, col: 2 },
+                    { l: 'Novedades y observaciones',  v: ficha.novedades, col: 4 },
                     { l: 'Reajuste',                v: ficha.ajuste_positivo_flete != null ? `$ ${Number(ficha.ajuste_positivo_flete).toLocaleString('es-CO')}` : null },
                     { l: 'Descuento',               v: ficha.ajuste_negativo_flete != null ? `$ ${Number(ficha.ajuste_negativo_flete).toLocaleString('es-CO')}` : null },
                     { l: 'Consignación a terceros', v: ficha.consignacion_a_terceros != null ? `$ ${Number(ficha.consignacion_a_terceros).toLocaleString('es-CO')}` : null },
@@ -1541,40 +1553,124 @@ export default function CargaPage({ target, clearTarget, user }) {
                   </div>
                 </Field>
               </SectionCard>
-              <SectionCard icon={ClipboardList} title="Novedades" cols={1}>
-                <Field label="Novedades generales" col={1}>
+              <SectionCard icon={ClipboardList} title="Novedades y observaciones" cols={1}>
+                <Field label="Novedades y observaciones" col={1}>
                   <textarea rows={3} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
                     placeholder="Observaciones o novedades del viaje..."
                     value={formSeg.novedades} onChange={e => fs('novedades')(e.target.value)} />
                 </Field>
               </SectionCard>
               {canEditCumplimientoExtra ? (
-                <SectionCard icon={ClipboardList} title="Ajuste al flete" cols={2}>
-                  <Field label="Novedad del conductor" col={2}>
-                    <textarea rows={2} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
-                      placeholder="Ej. demora en descargue, costos adicionales reconocidos al conductor..."
-                      value={formSeg.novedad_conductor} onChange={e => fs('novedad_conductor')(e.target.value)} />
-                  </Field>
-                  <Field label="Novedad de la empresa" col={2}>
-                    <textarea rows={2} className={inputCls} style={{ borderColor: BDR, resize: 'vertical' }}
-                      placeholder="Ej. daño de mercancía, incumplimiento del conductor..."
-                      value={formSeg.novedad_empresa} onChange={e => fs('novedad_empresa')(e.target.value)} />
-                  </Field>
-                  <MoneyInput label="Reajuste"
-                    value={formSeg.ajuste_positivo_flete}
-                    onChange={e => fs('ajuste_positivo_flete')(e.target.value)} />
-                  <MoneyInput label="Descuento"
-                    value={formSeg.ajuste_negativo_flete}
-                    onChange={e => fs('ajuste_negativo_flete')(e.target.value)} />
+                <>
+                <SectionCard icon={ClipboardList} title="Ajustes y descuentos" cols={1}>
+                  <div className="flex flex-col gap-2">
+                    {formSeg.ajustes_detalle.map((item, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>Concepto</label>
+                          <input className={inputCls} style={{ borderColor: BDR }}
+                            placeholder="Descripción del ajuste..."
+                            value={item.concepto || ''}
+                            onChange={e => {
+                              const next = [...formSeg.ajustes_detalle]
+                              next[idx] = { ...next[idx], concepto: e.target.value }
+                              fs('ajustes_detalle')(next)
+                            }} />
+                        </div>
+                        <div style={{ width: 120, flexShrink: 0 }}>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: MUTED }}>Tipo</label>
+                          <button type="button"
+                            onClick={() => {
+                              const next = [...formSeg.ajustes_detalle]
+                              next[idx] = { ...next[idx], tipo: item.tipo === 'reajuste' ? 'descuento' : 'reajuste' }
+                              fs('ajustes_detalle')(next)
+                            }}
+                            className="w-full px-3 py-2 text-sm rounded-md border transition-colors"
+                            style={{
+                              borderColor: item.tipo === 'reajuste' ? '#16A34A44' : '#DC262644',
+                              color: item.tipo === 'reajuste' ? '#16A34A' : '#DC2626',
+                              background: item.tipo === 'reajuste' ? '#16A34A0F' : '#DC26260F',
+                            }}>
+                            {item.tipo === 'reajuste' ? 'Reajuste +' : 'Descuento −'}
+                          </button>
+                        </div>
+                        <div style={{ width: 160, flexShrink: 0 }}>
+                          <MoneyInput label="Valor"
+                            value={item.valor}
+                            onChange={e => {
+                              const next = [...formSeg.ajustes_detalle]
+                              next[idx] = { ...next[idx], valor: e.target.value }
+                              fs('ajustes_detalle')(next)
+                            }} />
+                        </div>
+                        <button type="button"
+                          onClick={() => {
+                            const next = formSeg.ajustes_detalle.filter((_, i) => i !== idx)
+                            fs('ajustes_detalle')(next)
+                          }}
+                          className="mt-5 p-2 rounded-lg hover:opacity-80 transition-opacity"
+                          style={{ color: '#DC2626', background: '#FEF2F2', border: '1px solid #FECACA' }}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    <button type="button"
+                      onClick={() => {
+                        const next = [...formSeg.ajustes_detalle, { concepto: '', valor: '', tipo: 'reajuste' }]
+                        fs('ajustes_detalle')(next)
+                      }}
+                      className="flex items-center gap-1.5 self-start px-3 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80 mt-1"
+                      style={{ color: BLUE, background: BLUE + '10', border: `1px solid ${BLUE}33` }}>
+                      <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Agregar ajuste
+                    </button>
+                  </div>
+                </SectionCard>
+                <SectionCard icon={DollarSign} title="Totales y saldo" cols={2}>
                   <MoneyInput label="Consignación a terceros"
                     value={formSeg.consignacion_a_terceros}
                     onChange={e => fs('consignacion_a_terceros')(e.target.value)} />
+                  <div />
+                  {(() => {
+                    const totalReajuste = formSeg.ajustes_detalle
+                      .filter(a => a.tipo === 'reajuste')
+                      .reduce((s, a) => s + (Number(a.valor) || 0), 0)
+                    const totalDescuento = formSeg.ajustes_detalle
+                      .filter(a => a.tipo === 'descuento')
+                      .reduce((s, a) => s + (Number(a.valor) || 0), 0)
+                    return (
+                      <>
+                        <div className="rounded-lg px-3 py-2.5" style={{ background: BG, border: `1px solid ${BDR}` }}>
+                          <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>Total reajustes</p>
+                          <p className="text-sm font-semibold" style={{ color: '#16A34A' }}>
+                            $ {totalReajuste.toLocaleString('es-CO')}
+                          </p>
+                        </div>
+                        <div className="rounded-lg px-3 py-2.5" style={{ background: BG, border: `1px solid ${BDR}` }}>
+                          <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>Total descuentos</p>
+                          <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>
+                            $ {totalDescuento.toLocaleString('es-CO')}
+                          </p>
+                        </div>
+                      </>
+                    )
+                  })()}
+                  <div className="rounded-lg px-3 py-2.5" style={{ background: '#F8FAFC', border: `1px solid ${BDR}` }}>
+                    <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>Saldo en planilla</p>
+                    <p className="text-sm font-bold font-mono" style={{ color: TICK }}>
+                      {ficha.saldo_en_planilla != null ? `$ ${Number(ficha.saldo_en_planilla).toLocaleString('es-CO')}` : '—'}
+                    </p>
+                  </div>
+                  <div className="rounded-lg px-3 py-2.5" style={{ background: '#F8FAFC', border: `1px solid ${BDR}` }}>
+                    <p className="text-[10px] font-bold uppercase tracking-wider mb-0.5" style={{ color: MUTED }}>Saldo ajustado</p>
+                    <p className="text-sm font-bold font-mono" style={{ color: TICK }}>
+                      {ficha.saldo != null ? `$ ${Number(ficha.saldo).toLocaleString('es-CO')}` : '—'}
+                    </p>
+                  </div>
                 </SectionCard>
+                </>
               ) : (
                 <SectionCard icon={ClipboardList} title="Ajuste al flete" cols={2}>
                   {[
-                    { l: 'Novedad del conductor',   v: ficha.novedad_conductor,   col: 2 },
-                    { l: 'Novedad de la empresa',   v: ficha.novedad_empresa,     col: 2 },
                     { l: 'Reajuste',                v: ficha.ajuste_positivo_flete   != null ? `$ ${Number(ficha.ajuste_positivo_flete).toLocaleString('es-CO')}` : null },
                     { l: 'Descuento',               v: ficha.ajuste_negativo_flete   != null ? `$ ${Number(ficha.ajuste_negativo_flete).toLocaleString('es-CO')}` : null },
                     { l: 'Consignación a terceros', v: ficha.consignacion_a_terceros != null ? `$ ${Number(ficha.consignacion_a_terceros).toLocaleString('es-CO')}` : null },

@@ -1,46 +1,58 @@
-===============================================================================
- INFORME DE ESTADO — Módulo Consulta (Altrans)
-===============================================================================
+INFORME TÉCNICO — PROYECTO ALTRANS (Julio 2026)
+Estado general: MVP ~95% | Tests: 101/101 ✅
 
- Fecha: 2026-07-22
+1. MÓDULOS
 
-===============================================================================
- OBSERVACIONES PENDIENTES
-===============================================================================
+  Dashboard (React SPA → Supabase)          ✅ 95%  — 41 cols, 7 roles, RLS, RPCs, export CSV/XLSX
+  Chatbot (FastAPI / ai_agent)               ✅ 97%  — WhatsApp + OpenRouter/Groq, bcrypt auth, rate limiting
+  Notificaciones (FastAPI)                   ✅ 90%  — Brevo SMTP backup + 5 plantillas WhatsApp WABA
+  ETL (Python)                               ✅      — Excel → DB, backup_db.py, seed_users.py, load_flat.py
 
- 1. Coherencia Estado Interno ↔ Factura Electrónica
- ─────────────────────────────────────────────────────────────────────────────
+2. ÚLTIMOS CAMBIOS (Sesión Julio 24)
 
-   Verificación en DB (manifiestos_flat, 13,542 filas):
+  p2  — Eliminados novedad_conductor/empresa (DB + UI)
+        Agregado saldo_en_planilla (GENERATED: flete - retencion - reteica - r_fopat - anticipo)
+        Agregado ajustes_detalle JSONB (múltiples reajustes/descuentos con botón "+")
+        Renombrado "Novedades" → "Novedades y observaciones" en UI
 
-   Estado Interno                      Total   Con FE   Sin FE   % Con FE
-   ─────────────────────────────────────────────────────────────────────
-   (nulo)                              6,584   6,577        7     99.9%
-   CUMPLIDO                            6,221   6,215        6     99.9%
-   NO SE HA CUMPLIDO                     412     214      198     51.9%
-   PENDIENTE FACTURA ELECTRONICA          89      89        0    100.0%
-   NOVEDAD PENDIENTE                      33      33        0    100.0%
-   FACTURA RECIBIDA                       23      23        0    100.0%
-   ANULADO                               180     180        0    100.0%
+  p5  — Agregado filtro "Responsable (O)" con OR lógico (hasta 2 empleados)
+        Nuevo param p_nombre_responsable_2 en consulta_manifiestos + consulta_totales
 
-   Observaciones:
-   - "PENDIENTE FACTURA ELECTRONICA" tiene FE en el 100% de los casos.
-     El nombre del estado es engañoso: los datos están actualizados pero el
-     label no refleja la realidad (el valor real de factura_electronica
-     es el literal "FE", posiblemente un placeholder).
-   - CUMPLIDO tiene 6 filas sin FE (son las limpiadas durante el proceso
-     de migración que tenía fecha_cumplido pero no FE).
-   - (nulo) tiene 7 filas sin FE.
-   - "NO SE HA CUMPLIDO" está 50/50 (no es predictivo).
+  p10-13 — CREADO POR: existe en Lista_Manifiestos (RNDC), NO en PRODUCCIÓN ALTRANS.xlsx
 
-   Conclusión: La cobertura es ~99.9% para CUMPLIDO y (nulo), pero
-   NO es viable eliminar el filtro de FE aún. Pendiente de revisión
-   con gerencia para decidir si se limpian los datos inconsistentes
-   y se unifica la lógica.
+3. SERVICIOS EN PRODUCCIÓN (Railway)
 
- 2. Pendientes técnicos
- ─────────────────────────────────────────────────────────────────────────────
+  Chatbot Altrans       → https://altrans-production.up.railway.app        ✅ Online
+  Notifications Altrans → https://notifications-altrans-production-5b04.up.railway.app  ✅ Online
+  WABA: 2434251620392649 | Phone: +1 555-183-1621 | WA_TOKEN actualizado
 
-   - Ninguno por el momento.
+4. PENDIENTES — NO PRIORIZADOS POR GERENCIA
 
-===============================================================================
+  - p1: Regla retención reajuste   | p3: Trazabilidad   | p6: Validación valor_factura
+  - p9: neto_a_pagar (decidir)     | p10-p13: responsables sin usuario, duplicados, no-persona
+
+5. PRÓXIMAS IMPLEMENTACIONES
+
+  5.1 Prueba de notificaciones automáticas
+    [ ] Llamar POST /admin/auto-notify con header x-admin-token en Railway
+    [ ] Verificar envío de 5 plantillas a conductores con saldos pendientes
+    [ ] Verificar cron diario (6AM / 12PM Colombia) via APScheduler
+    [ ] Verificar control de reenvíos (tabla messages_sent, 7 días por plantilla)
+    [ ] Verificar logs en Supabase + archivo rotativo
+
+  5.2 Prueba del chatbot
+    [ ] Enviar "Hola" al +1 555-183-1621 → confirmar webhook responde
+    [ ] Probar login con cédula (ej: 1023871762) + manifiesto (ej: 22883)
+    [ ] Verificar consultas: saldo, estado, fechas
+    [ ] Verificar rate limiting (5 msg/min) y expiración de sesión (8h)
+    [ ] Verificar fallback a Groq si OpenRouter falla
+
+  5.3 Dashboard a producción
+    [ ] Aplicar schema_consolidated.sql a Supabase (columnas, RPCs, vistas)
+    [ ] Build: npm run build en development/dashboard
+    [ ] Desplegar dist/ en Railway (o donde corresponda)
+    [ ] Verificar carga de manifiesto con múltiples ajustes
+    [ ] Verificar consulta con filtro Responsable (O)
+    [ ] Verificar saldo_en_planilla y saldo ajustado en UI
+    [ ] Verificar exportación CSV/XLSX con nuevas columnas
+    [ ] Ejecutar ETL (load_flat.py, backup_db.py) post-migración
