@@ -4,6 +4,11 @@
 -- Este archivo contiene TODO el schema de producción, listo para ejecutar
 -- en un proyecto Supabase vacío. Reemplaza:
 --   - supabase/schema.sql
+--   - supabase/migrations/002_restricciones_y_enums.sql
+--   - supabase/migrations/003_security_fixes.sql
+--   - supabase/migrations/004_complete_revoke.sql
+--   - supabase/migrations/005_revoke_trigger_functions.sql
+--   - supabase/migrations/006_security_invoker.sql
 --   - supabase/migrations/002_nuevos_campos_y_audit.sql
 --   - supabase/migrations/003_consolidacion_y_seguridad.sql
 --   - supabase/migrations/004_security_warnings.sql
@@ -255,7 +260,7 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
     CONSTRAINT chk_cedula_conductor_formato
         CHECK (cedula_conductor IS NULL OR cedula_conductor ~ '^\d{6,10}$'),
     CONSTRAINT chk_año_rango
-        CHECK (año IS NULL OR (año >= 2023 AND año <= 2026)),
+        CHECK (año IS NULL OR año >= 2023),
     CONSTRAINT chk_semana_formato
         CHECK (semana IS NULL OR semana ~ '^Semana \d+$'),
 
@@ -584,6 +589,36 @@ AS $$
     ORDER BY ts DESC
     LIMIT p_limit;
 $$;
+
+-- Trigger: app_logs es append-only. Se bloquean UPDATE y DELETE para
+-- garantizar la integridad del historial de logs del sistema.
+CREATE OR REPLACE FUNCTION public.fn_app_logs_no_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+    RAISE EXCEPTION 'app_logs es append-only, no se permite UPDATE';
+END;
+$$;
+
+CREATE TRIGGER trg_log_update
+    BEFORE UPDATE ON public.app_logs
+    FOR EACH ROW EXECUTE FUNCTION public.fn_app_logs_no_update();
+
+CREATE OR REPLACE FUNCTION public.fn_app_logs_no_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+    RAISE EXCEPTION 'app_logs es append-only, no se permite DELETE';
+END;
+$$;
+
+CREATE TRIGGER trg_log_delete
+    BEFORE DELETE ON public.app_logs
+    FOR EACH ROW EXECUTE FUNCTION public.fn_app_logs_no_delete();
 
 REVOKE ALL ON public.app_logs FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.app_logs TO postgres;
@@ -1269,8 +1304,7 @@ $$;
 -- ── get_catalogos ───────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.get_catalogos()
 RETURNS JSON
-LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = ''
+LANGUAGE sql STABLE SECURITY INVOKER
 AS $$
     SELECT json_build_object(
 
@@ -1378,6 +1412,14 @@ AS $$
                 FROM public.manifiestos_flat
                 WHERE factura_no IS NOT NULL AND factura_no <> ''
             ) fn
+        ),
+
+        '_meta', json_build_object(
+            'lista_roles', json_build_array(
+                'gerencia', 'digitador', 'logistico', 'financiero',
+                'contadora', 'administrativo', 'tesoreria'
+            ),
+            'permisos_crear', public.user_role() IN ('digitador', 'gerencia')
         )
 
     )
@@ -1389,8 +1431,7 @@ CREATE OR REPLACE FUNCTION public.get_manifiestos_por_fe(
     p_factura_electronica TEXT
 )
 RETURNS JSON
-LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = ''
+LANGUAGE sql STABLE SECURITY INVOKER
 AS $$
     SELECT COALESCE(json_agg(m ORDER BY m.manifiesto), '[]'::json)
     FROM (
@@ -1839,26 +1880,35 @@ GRANT ALL    ON public.messages_sent TO postgres;
 
 REVOKE ALL                    ON public.admin_usuarios      FROM PUBLIC, anon, authenticated;
 
--- Revoke EXECUTE de PUBLIC en TODAS las funciones (defaults son inseguros)
-REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT, INTEGER, INTEGER) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.fn_notify_plazo_vigente()                                                                                                   FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.fn_notify_pago_realizado()                                                                                                   FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_digitador_batch(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, JSONB)                              FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                             FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT)                                                                                FROM PUBLIC;
+-- Revoke EXECUTE de PUBLIC y anon en TODAS las funciones (defaults son inseguros)
+REVOKE EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT, INTEGER, INTEGER) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.consulta_totales(INTEGER, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.dashboard_kpis(TEXT, INTEGER)                                                                                              FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.tendencia_anual(INTEGER)                                                                                                    FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)                                                                                               FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fn_notify_plazo_vigente()                                                                                                   FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_notify_pago_realizado()                                                                                                   FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.guardar_digitador_batch(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.guardar_logistico(BIGINT, DATE, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, JSONB)                              FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.guardar_estado_interno(BIGINT, TEXT, TEXT)                                                                                  FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, TEXT)                                                                        FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                             FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT)                                                                                FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fn_audit_manifiestos()                                                                                                                  FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_audit_manifiestos_delete()                                                                                                           FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_app_logs_no_update()                                                                                                                                    FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_app_logs_no_delete()                                                                                                                                    FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.user_role()                                                                                                                                                  FROM PUBLIC, anon;
+
+-- v_chatbot_manifiestos: SECURITY DEFINER, solo service_role debe verla
+REVOKE ALL ON public.v_chatbot_manifiestos FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.v_chatbot_manifiestos TO service_role;
 
 -- Otorgar a authenticated
 GRANT EXECUTE ON FUNCTION public.consulta_manifiestos(BIGINT, DATE, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, SMALLINT, BOOLEAN, TEXT, TEXT, TEXT, INTEGER, INTEGER) TO authenticated;
@@ -1878,6 +1928,7 @@ GRANT EXECUTE ON FUNCTION public.guardar_tesoreria(BIGINT, DATE, NUMERIC, TEXT, 
 GRANT EXECUTE ON FUNCTION public.guardar_financiero(BIGINT, TEXT, DATE, TEXT, SMALLINT, NUMERIC)                             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.borrar_manifiesto(BIGINT)                                                                                                   TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_logs(TEXT, TIMESTAMPTZ, TIMESTAMPTZ, INT)                                                                                TO authenticated;
+GRANT EXECUTE ON FUNCTION public.user_role()                                                                                                                   TO authenticated;
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
