@@ -81,6 +81,50 @@ def send_whatsapp(phone: str, message: str) -> None:
         "type": "text",
         "text": {"body": message},
     }
+    _post_message(url, payload, token, phone, len(message))
+
+
+def send_whatsapp_template(phone: str, template_name: str, params: list[str],
+                           language: str = "es") -> None:
+    """Envía un mensaje de plantilla aprobado de WhatsApp con reintentos.
+
+    Los mensajes de plantilla funcionan fuera de la ventana de 24 horas de
+    servicio al cliente, por lo que son los que debe usar el sistema de
+    notificaciones automáticas.
+
+    Args:
+        phone: Número en formato internacional sin '+' (ej: '573001234567').
+        template_name: Nombre de la plantilla en la WABA (ej: 'altrans_pago_realizado').
+        params: Valores de los parámetros posicionales {{1}}, {{2}}, ... en orden.
+        language: Código de idioma de la plantilla (default 'es').
+    """
+    phone_number_id = os.environ["WA_PHONE_NUMBER_ID"]
+    token = os.environ["WA_TOKEN"]
+
+    components = None
+    if params:
+        components = [{
+            "type": "body",
+            "parameters": [{"type": "text", "text": str(p)} for p in params],
+        }]
+
+    url = f"{_BASE_URL}/{phone_number_id}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "to":   phone,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": language},
+        },
+    }
+    if components:
+        payload["template"]["components"] = components
+
+    _post_message(url, payload, token, phone, sum(len(str(p)) for p in params) + len(template_name))
+
+
+def _post_message(url: str, payload: dict, token: str, phone: str, chars: int) -> None:
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type":  "application/json",
@@ -97,7 +141,7 @@ def send_whatsapp(phone: str, message: str) -> None:
                         r.raise_for_status()
                     raise api_err
                 r.raise_for_status()
-            logger.info("whatsapp_sent", extra={"to": phone, "chars": len(message), "attempt": attempt})
+            logger.info("whatsapp_sent", extra={"to": phone, "chars": chars, "attempt": attempt})
             return
         except Exception as exc:
             last_exc = exc

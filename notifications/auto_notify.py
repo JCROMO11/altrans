@@ -16,7 +16,7 @@ from datetime import datetime
 import httpx
 from dotenv import load_dotenv
 
-from whatsapp_notify import send_whatsapp
+from whatsapp_notify import send_whatsapp_template
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -51,58 +51,39 @@ def _is_novedad_noise(novedades: str | None) -> bool:
     return False
 
 
-def _build_template(template_name: str, manifiesto: int, fecha_estimada: str | None = None, monto: str | None = None, fecha_pago: str | None = None) -> str:
-    """Construye el texto del mensaje para la plantilla indicada."""
-    templates = {
-        "saldo_falta_factura": (
-            "Buen día, estimado transportador.\n\n"
-            f"Le informo que el manifiesto {manifiesto} no se ha pagado porque "
-            "no se ha legalizado mediante la factura electrónica que debe enviar "
-            "el propietario, quien está obligado a hacerlo según el RUT. "
-            "Por favor enviarla lo antes posible a facturaelectronica@altrans.com.co.\n\n"
-            "En caso de haberla enviado correctamente, por favor reenviarla "
-            "a la persona que contrató su servicio.\n\n"
-            "Mensaje automático de ALTRANS. Puede contener errores."
-        ),
-        "saldo_falta_documentacion": (
-            "Buen día, estimado transportador.\n\n"
-            f"Le informo que el manifiesto {manifiesto} no se ha pagado porque "
-            "no se ha cumplido formalmente con la documentación original firmada "
-            "que nos permite evidenciar que el transporte concluyó satisfactoriamente. "
-            "Por favor regularizar esta situación según las instrucciones "
-            "de quien contrató su servicio.\n\n"
-            "En caso de haber enviado los documentos por una empresa de mensajería, "
-            "rastree y envíe la guía a la persona que contrató su servicio.\n\n"
-            "Mensaje automático de ALTRANS. Puede contener errores."
-        ),
-        "saldo_novedad_pendiente": (
-            "Buen día, estimado transportador.\n\n"
-            f"Le informo que el saldo del manifiesto {manifiesto} no se ha pagado "
-            "debido a una novedad sin resolver, que puede ser averías, faltantes "
-            "o situaciones similares. Por favor comunicarse con la persona que "
-            "contrató su servicio o adelantar las instrucciones dadas por ella.\n\n"
-            "Mensaje automático de ALTRANS. Puede contener errores."
-        ),
-        "saldo_plazo_vigente": (
-            "Buen día, estimado transportador.\n\n"
-            f"Le informo que el saldo del manifiesto {manifiesto} aún no se ha "
-            "pagado porque no se ha completado el plazo pactado para realizarlo. "
-            "Nuestro acuerdo fue pagarlo dentro de los 15 días hábiles siguientes "
-            "al completado formal del transporte.\n\n"
-            f"Le pedimos amablemente una espera hasta aproximadamente el {fecha_estimada or 'N/D'}.\n\n"
-            "Mensaje automático de ALTRANS. Puede contener errores."
-        ),
-        "pago_realizado": (
-            "Buen día, estimado transportador.\n\n"
-            f"Le informamos que el saldo del manifiesto {manifiesto} ha sido "
-            f"pagado exitosamente el día {fecha_pago or 'N/D'} mediante "
-            "transferencia bancaria. "
-            "Por favor revise sus extractos bancarios.\n\n"
-            "Gracias por su servicio.\n\n"
-            "Mensaje automático de ALTRANS. Puede contener errores."
-        ),
+# Nombre real de cada plantilla en la WABA (creadas en scripts/crear_plantillas_altrans.py)
+_TEMPLATE_NAMES = {
+    "saldo_falta_factura":       "altrans_saldo_falta_factura",
+    "saldo_falta_documentacion": "altrans_saldo_falta_documentacion",
+    "saldo_novedad_pendiente":   "altrans_saldo_novedad_pendiente",
+    "saldo_plazo_vigente":       "altrans_saldo_plazo_vigente",
+    "pago_realizado":            "altrans_pago_realizado",
+}
+
+# Parámetros posicionales {{1}}, {{2}}... que recibe cada plantilla.
+# - saldo_* solo usan manifiesto.
+# - saldo_plazo_vigente usa manifiesto + fecha estimada.
+# - pago_realizado usa manifiesto + fecha de pago.
+_TEMPLATE_PARAMS = {
+    "saldo_falta_factura":       ["manifiesto"],
+    "saldo_falta_documentacion": ["manifiesto"],
+    "saldo_novedad_pendiente":   ["manifiesto"],
+    "saldo_plazo_vigente":       ["manifiesto", "fecha_estimada"],
+    "pago_realizado":            ["manifiesto", "fecha_pago"],
+}
+
+
+def _template_params(template_name: str, manifiesto: int,
+                     fecha_estimada: str | None = None,
+                     fecha_pago: str | None = None) -> list[str]:
+    """Construye los valores posicionales de la plantilla en orden {{1}}, {{2}}..."""
+    valores = {
+        "manifiesto":     str(manifiesto),
+        "fecha_estimada": fecha_estimada or "N/D",
+        "fecha_pago":     fecha_pago or "N/D",
     }
-    return templates.get(template_name, "Mensaje no disponible.")
+    campos = _TEMPLATE_PARAMS.get(template_name, ["manifiesto"])
+    return [valores[campo] for campo in campos]
 
 
 def _log_sent(manifiesto: int, template_name: str, phone: str, status: str, error: str | None = None, ms_id: int | None = None) -> None:
@@ -209,7 +190,6 @@ def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[d
             "manifiesto": m,
             "phone": row["phone"],
             "template_name": "pago_realizado",
-            "monto": str(info["valor_pagado"]),
             "fecha_pago": info.get("fecha_pago"),
         })
     return result
@@ -294,7 +274,6 @@ def run_auto_notify(manifestos: list[int] | None = None) -> dict:
         phone = _format_phone(raw_phone)
         template = item.get("template_name")
         fecha_est = item.get("fecha_estimada")
-        monto = item.get("monto")
         ms_id = item.get("ms_id")
         fecha_pago_raw = item.get("fecha_pago")
 
@@ -314,9 +293,16 @@ def run_auto_notify(manifestos: list[int] | None = None) -> dict:
         fecha_str = _fmt(fecha_est)
         fecha_pago_str = _fmt(fecha_pago_raw)
 
-        message = _build_template(template, manifiesto, fecha_str, monto, fecha_pago_str)
+        template_name_real = _TEMPLATE_NAMES.get(template)
+        if not template_name_real:
+            logger.debug("auto_notify_skipped",
+                         extra={"manifiesto": manifiesto, "reason": f"sin plantilla WABA para {template}"})
+            processed += 1
+            continue
+
+        params = _template_params(template, manifiesto, fecha_str, fecha_pago_str)
         try:
-            send_whatsapp(phone, message)
+            send_whatsapp_template(phone, template_name_real, params)
             _log_sent(manifiesto, template, phone, "sent", ms_id=ms_id)
             sent += 1
             consecutive_errors = 0
