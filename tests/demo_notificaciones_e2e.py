@@ -222,6 +222,26 @@ def call_auto_notify(manifestos: list[int] | None = None) -> dict:
         return {"raw": r.text, "status": r.status_code}
 
 
+def call_auto_notify_cycle(manifestos: list[int] | None = None,
+                           interval_minutes: int = 5) -> dict:
+    """Dispara el ciclo plantilla a plantilla (/admin/auto-notify-cycle).
+
+    Reproduce el espaciado del scheduler de producción (5 min entre
+    plantillas) pero disparable manualmente.
+    """
+    payload = {"manifestos": manifestos, "interval_minutes": interval_minutes}
+    r = httpx.post(
+        f"{NOTIF_URL}/admin/auto-notify-cycle",
+        headers=NOTIF_HEADERS,
+        json=payload,
+        timeout=60,
+    )
+    try:
+        return r.json()
+    except Exception:
+        return {"raw": r.text, "status": r.status_code}
+
+
 def step(label: str) -> None:
     print(f"\n{'='*62}")
     print(f"  {label}")
@@ -328,6 +348,24 @@ EXPECTED_RPC = {
 # y los errores consecutivos cortarían el ciclo antes de las plantillas).
 TEST_MANIFESTOS = sorted([*EXPECTED.keys(), 5020, 5021, 5022, 5040])
 
+# Orden de plantillas del ciclo (igual que TEMPLATE_ORDER en producción:
+# pago_realizado primero, luego los saldos). Usado por --cycle.
+CYCLE_ORDER = [
+    "pago_realizado",
+    "saldo_falta_factura",
+    "saldo_falta_documentacion",
+    "saldo_novedad_pendiente",
+    "saldo_plazo_vigente",
+]
+
+# Manifiestos que el ciclo debe dejar en status "sent" (la verificación
+# espera plantilla por plantilla con polling en vez de un sleep fijo).
+CYCLE_EXPECTED_SENT = {
+    **EXPECTED,
+    5020: "pago_realizado",
+    5021: "pago_realizado",
+}
+
 
 def verify_rpc() -> None:
     step("PHASE 2 — Verificar categorización del RPC")
@@ -423,6 +461,73 @@ def verify_messages_sent(first_run: bool = True) -> bool:
     return all_ok
 
 
+def verify_cycle(interval_minutes: int = 5, timeout_minutes: int = 30) -> bool:
+    """Verifica el modo --cycle: espera con polling a que cada plantilla llegue
+    a status "sent", en vez de dormir un tiempo fijo.
+
+    El ciclo en producción espacia ~5 min entre plantillas, así que esto
+    vigila messages_sent hasta que todos los CYCLE_EXPECTED_SENT estén
+    enviados (o hasta timeout_minutes).
+    """
+    step(f"PHASE 4 — Ciclo: esperar envíos plantilla a plantilla "
+         f"(intervalo {interval_minutes} min, timeout {timeout_minutes} min)")
+    pending = dict(CYCLE_EXPECTED_SENT)
+    deadline = time.time() + timeout_minutes * 60
+    poll_every = 20
+    last_report = {}
+
+    all_ok = True
+    while pending and time.time() < deadline:
+        for manif in list(pending.keys()):
+            expected = pending[manif]
+            rows = get_msgs(manif)
+            if any(r[4] == "sent" and r[2] == expected for r in rows):
+                print(f"  {PASS} manif {manif}: {expected} → sent")
+                del pending[manif]
+                continue
+            # Si hay error registrado, se reporta (no bloquea el resto)
+            errs = [r for r in rows if r[4] == "error"]
+            if errs:
+                print(f"  {FAIL} manif {manif}: {expected} → error: {errs[0][5]}")
+                del pending[manif]
+                all_ok = False
+
+        if pending:
+            now = time.time()
+            report_key = int(now // 60)
+            if report_key != last_report.get("k"):
+                last_report = {"k": report_key}
+                print(f"  ⏳ Pendientes: {sorted(pending.keys())} "
+                      f"({datetime.now(TZ_COLOMBIA):%H:%M:%S})")
+            time.sleep(poll_every)
+
+    if pending:
+        all_ok = False
+        print(f"  {FAIL} Timeout sin completar: {pending}")
+
+    # Chequeos adicionales equivalentes al modo directo
+    # 5022: pago_realizado sin valor_pagado → NO debe enviarse
+    rows22 = get_msgs(5022)
+    pago22 = [r for r in rows22 if r[2] == "pago_realizado" and r[4] == "sent"]
+    if pago22:
+        print(f"  {FAIL} manif 5022: pago_realizado no debería haberse enviado (sin valor_pagado)")
+        all_ok = False
+    else:
+        print(f"  {PASS} manif 5022: pago_realizado correctamente saltado (sin valor_pagado)")
+
+    # 5040: ya notificado → no debe reaparecer hoy
+    rows40 = get_msgs(5040)
+    new40 = [r for r in rows40 if r[6] and r[6].date() == datetime.now(TZ_COLOMBIA).date()]
+    if new40:
+        print(f"  {FAIL} manif 5040: se reenvió a pesar de dedup: {new40}")
+        all_ok = False
+    else:
+        print(f"  {PASS} manif 5040: dedup funciona (sin reenvío hoy)")
+
+    print(f"\n  Ciclo: {'TODO OK' if all_ok else 'HUBO FALLOS'}")
+    return all_ok
+
+
 def verify_dedup() -> None:
     step("PHASE 5 — Deduplicación: 2da llamada no debe crear duplicados")
     before = {m: len(get_msgs(m)) for m in EXPECTED}
@@ -512,24 +617,29 @@ def verify_formatting() -> None:
 # MAIN FLOW
 # ═══════════════════════════════════════════════════════════════════════════
 
-def run_e2e() -> None:
+def run_e2e(cycle: bool = False, interval_minutes: int = 5) -> None:
     print(f"\n🔔 E2E Notificaciones — {datetime.now(TZ_COLOMBIA):%Y-%m-%d %H:%M} Colombia")
     print(f"   Celular destino: {CELULAR} ({PHONE})")
     print(f"   Servicio: {NOTIF_URL}")
+    print(f"   Modo: {'CÍCLICO (plantilla a plantilla)' if cycle else 'directo'}")
 
     step("PHASE 1 — Setup: insertar datos de prueba")
     setup_data()
 
     verify_rpc()
 
-    step("PHASE 3 — Ejecutar auto-notify")
-    result = call_auto_notify(TEST_MANIFESTOS)
-    print(f"  → {json.dumps(result)}")
-    time.sleep(15)
-
-    verify_messages_sent()
-
-    verify_dedup()
+    if cycle:
+        step("PHASE 3 — Ejecutar auto-notify-cycle")
+        result = call_auto_notify_cycle(TEST_MANIFESTOS, interval_minutes)
+        print(f"  → {json.dumps(result)}")
+        verify_cycle(interval_minutes=interval_minutes)
+    else:
+        step("PHASE 3 — Ejecutar auto-notify")
+        result = call_auto_notify(TEST_MANIFESTOS)
+        print(f"  → {json.dumps(result)}")
+        time.sleep(15)
+        verify_messages_sent()
+        verify_dedup()
 
     verify_formatting()
 
@@ -544,6 +654,11 @@ def main() -> None:
                         help="Ejecutar la ronda completa ahora")
     parser.add_argument("--schedule", metavar="HH:MM",
                         help="Ejecutar a esa hora (Colombia, UTC-5)")
+    parser.add_argument("--cycle", action="store_true",
+                        help="Usar auto-notify-cycle (plantilla a plantilla, "
+                             "con intervalos de --interval min)")
+    parser.add_argument("--interval", type=int, default=5, metavar="MIN",
+                        help="Minutos entre plantillas en modo --cycle (default 5)")
     parser.add_argument("--cleanup", action="store_true",
                         help="Borrar datos de prueba y salir")
     parser.add_argument("--dry-run", action="store_true",
@@ -572,26 +687,34 @@ def main() -> None:
             print(f"{WARN} Hora {args.schedule} ya pasó; programando para mañana a esa hora")
             target += timedelta(days=1)
         seconds = (target - now).total_seconds()
+        modo = "ciclo (plantilla a plantilla)" if args.cycle else "directo"
         print(f"\n⏰ Programado para {target:%Y-%m-%d %H:%M} Colombia "
-              f"({seconds/60:.1f} min desde ahora)")
+              f"({seconds/60:.1f} min desde ahora) — modo {modo}")
         print("   Insertando data de prueba ahora…")
         clear_range()
         setup_data()
         print(f"   Durmiendo {seconds/60:.1f} min hasta {target:%H:%M}…")
         time.sleep(seconds)
         print(f"\n🔔 Desperté a {datetime.now(TZ_COLOMBIA):%H:%M:%S} — ejecutando auto-notify")
-        step("PHASE 3 — Ejecutar auto-notify")
-        result = call_auto_notify(TEST_MANIFESTOS)
-        print(f"  → {json.dumps(result)}")
-        time.sleep(15)
-        verify_messages_sent()
+        if args.cycle:
+            step("PHASE 3 — Ejecutar auto-notify-cycle")
+            result = call_auto_notify_cycle(TEST_MANIFESTOS, args.interval)
+            print(f"  → {json.dumps(result)}")
+            verify_cycle(interval_minutes=args.interval)
+            verify_formatting()
+        else:
+            step("PHASE 3 — Ejecutar auto-notify")
+            result = call_auto_notify(TEST_MANIFESTOS)
+            print(f"  → {json.dumps(result)}")
+            time.sleep(15)
+            verify_messages_sent()
         print(f"\n{'='*62}")
         print("  🎯 E2E programado completado — revisa WhatsApp")
         print(f"{'='*62}")
         return
 
     # default: --now
-    run_e2e()
+    run_e2e(cycle=args.cycle, interval_minutes=args.interval)
 
 
 if __name__ == "__main__":
