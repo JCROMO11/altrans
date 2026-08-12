@@ -94,9 +94,9 @@ def _build_template(template_name: str, manifiesto: int, fecha_estimada: str | N
         ),
         "pago_realizado": (
             "Buen día, estimado transportador.\n\n"
-            f"Le informamos que el saldo del manifiesto {manifiesto} por un monto "
-            f"de ${monto or 'N/D'} ha sido pagado exitosamente "
-            f"el día {fecha_pago or 'N/D'} mediante transferencia bancaria. "
+            f"Le informamos que el saldo del manifiesto {manifiesto} ha sido "
+            f"pagado exitosamente el día {fecha_pago or 'N/D'} mediante "
+            "transferencia bancaria. "
             "Por favor revise sus extractos bancarios.\n\n"
             "Gracias por su servicio.\n\n"
             "Mensaje automático de ALTRANS. Puede contener errores."
