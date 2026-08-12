@@ -6,7 +6,7 @@
         test-excel-pre test-excel-post test-excel-generar \
         serve ngrok probar-todo clean install-dashboard-deps \
         deploy-chatbot deploy-notifications deploy-all \
-        demo demo-stop
+        demo demo-stop update-wa-token wa-token-status
 
 SHELL   := /bin/bash
 PY      := python3
@@ -64,6 +64,8 @@ help:
 	@echo "  Demo"
 	@echo "    demo WA_TOKEN=<tok>  - Actualiza token, levanta uvicorn + ngrok"
 	@echo "    demo-stop            - Mata uvicorn + ngrok"
+	@echo "    update-wa-token WA_TOKEN=<tok> - Valida token Meta y lo actualiza en .env + Railway (2 servicios)"
+	@echo "    wa-token-status      - Muestra vigencia y permisos del token actual"
 	@echo ""
 	@echo "  Deploy Railway"
 	@echo "    deploy-chatbot       - Deploy manual del chatbot a Railway"
@@ -273,6 +275,23 @@ demo:
 #      make demo-notify [PHONE=573145285119]
 
 NOTIFY_PHONE ?= 573145285119
+
+# ── Token de WhatsApp (Meta) ──────────────────────────────────────────────────
+# Los tokens de usuario de Meta expiran (~24h). Este target valida el token,
+# lo guarda en .env y lo propaga a los dos servicios de Railway.
+# Uso: make update-wa-token WA_TOKEN=<token_de_meta>
+#      make wa-token-status
+
+NOTIF_SERVICE_ID ?= 4e6e65ea-78e9-436a-a93c-bff56c5ad9c9
+CHATBOT_SERVICE_ID ?= 875452a1-f7fd-4400-8015-39f2e55a058f
+
+update-wa-token:
+	@test -n "$(WA_TOKEN)" || (echo "ERROR: Usa make update-wa-token WA_TOKEN=<token_de_meta>"; exit 1)
+	@python3 scripts/update_wa_token.py --token '$(WA_TOKEN)' \
+	    --services "$(NOTIF_SERVICE_ID):notifications,$(CHATBOT_SERVICE_ID):chatbot"
+
+wa-token-status:
+	@python3 scripts/update_wa_token.py --status
 
 notify-wa:
 	@test -n "$(MSG)" || (echo "ERROR: make notify-wa MSG='texto' [PHONE=57...]"; exit 1)
