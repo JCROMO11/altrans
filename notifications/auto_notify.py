@@ -10,6 +10,7 @@ Requiere: SUPABASE_URL, SUPABASE_SERVICE_KEY,
 """
 import logging
 import os
+import re
 from datetime import datetime
 
 import httpx
@@ -22,6 +23,13 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_ERRORS = 10
+_PROGRESS_LOG_EVERY = 50
+
+_SPANISH_MONTHS = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+}
 
 # Tokens que NO son novedades reales — son clasificación de vehículo o servicio.
 # Coincide con el guardrail del RPC get_pendientes_notificacion.
@@ -135,40 +143,63 @@ def _log_sent(manifiesto: int, template_name: str, phone: str, status: str, erro
 
 
 def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[dict]:
-    """Obtiene registros pending de pago_realizado con el valor pagado."""
+    """Obtiene TODOS los registros pending de pago_realizado con el valor pagado.
+
+    Pagina automáticamente para evitar truncar con límites fijos.
+    """
+    _PAGE_SIZE = 500
     url_ms = f"{os.environ['SUPABASE_URL']}/rest/v1/messages_sent"
     url_mf = f"{os.environ['SUPABASE_URL']}/rest/v1/manifiestos_flat"
 
-    # Traer pending de pago_realizado
-    r = client.get(
-        url_ms,
-        headers={**headers, "Range": "0-99"},
-        params={
-            "select": "id,manifiesto,phone",
-            "template_name": "eq.pago_realizado",
-            "status": "eq.pending",
-            "order": "sent_at.asc",
-        },
-    )
-    r.raise_for_status()
-    rows = r.json()
-    if not rows:
+    all_rows: list[dict] = []
+    start = 0
+    while True:
+        r = client.get(
+            url_ms,
+            headers={
+                **headers,
+                "Range": f"{start}-{start + _PAGE_SIZE - 1}",
+            },
+            params={
+                "select": "id,manifiesto,phone",
+                "template_name": "eq.pago_realizado",
+                "status": "eq.pending",
+                "order": "sent_at.asc",
+            },
+        )
+        r.raise_for_status()
+        chunk = r.json()
+        if not chunk:
+            break
+        all_rows.extend(chunk)
+        if len(chunk) < _PAGE_SIZE:
+            break
+        start += _PAGE_SIZE
+
+    if not all_rows:
         return []
 
-    manifiestos = [str(r["manifiesto"]) for r in rows]
-    r2 = client.get(
-        url_mf,
-        headers=headers,
-        params={
-            "select": "manifiesto,celular,valor_pagado,fecha_pago",
-            "manifiesto": f"in.({','.join(manifiestos)})",
-        },
-    )
-    r2.raise_for_status()
-    lookup = {m["manifiesto"]: m for m in r2.json()}
+    manifiestos = [str(r["manifiesto"]) for r in all_rows]
+    lookup: dict = {}
+
+    # Fetch manifiestos_flat in chunks of 100 (Supabase REST in() filter limit)
+    _MF_CHUNK = 100
+    for i in range(0, len(manifiestos), _MF_CHUNK):
+        chunk = manifiestos[i:i + _MF_CHUNK]
+        r2 = client.get(
+            url_mf,
+            headers=headers,
+            params={
+                "select": "manifiesto,celular,valor_pagado,fecha_pago",
+                "manifiesto": f"in.({','.join(chunk)})",
+            },
+        )
+        r2.raise_for_status()
+        for m in r2.json():
+            lookup[m["manifiesto"]] = m
 
     result = []
-    for row in rows:
+    for row in all_rows:
         m = row["manifiesto"]
         info = lookup.get(m)
         if not info or not info.get("valor_pagado"):
@@ -213,26 +244,45 @@ def run_auto_notify() -> dict:
         logger.error("get_pendientes_failed", extra={"error": str(exc)})
         return {"status": "error", "error": str(exc)}
 
-    all_items: list[dict] = list(pendientes) + pagados
+    # Procesar primero los pago_realizado (urgentes: confirmar pago al conductor)
+    # y luego los saldos pendientes. Así un bloqueo por errores consecutivos en
+    # los saldos no deja los pagos sin notificar.
+    all_items: list[dict] = list(pagados) + list(pendientes)
     if not all_items:
         logger.info("auto_notify_no_pendientes")
         return {"status": "ok", "sent": 0, "total": 0}
 
     sent = 0
     errors = 0
+    consecutive_errors = 0
 
     def _fmt(d: str | None) -> str | None:
         if not d:
             return None
         try:
-            return datetime.strptime(d, "%Y-%m-%d").strftime("%d de %B de %Y").lower()
+            dt = datetime.strptime(d, "%Y-%m-%d")
+            mes = _SPANISH_MONTHS.get(dt.month, str(dt.month))
+            return f"{dt.day} de {mes} de {dt.year}"
         except ValueError:
             return d
+
+    def _format_phone(raw: str) -> str:
+        cleaned = re.sub(r"[\+\-\s\(\)]", "", raw)
+        if len(cleaned) == 10 and cleaned.isdigit():
+            return f"57{cleaned}"
+        if len(cleaned) == 12 and cleaned.startswith("57") and cleaned.isdigit():
+            return cleaned
+        if len(cleaned) > 10 and cleaned.isdigit():
+            return cleaned
+        return raw
+
+    total = len(all_items)
+    processed = 0
 
     for item in all_items:
         manifiesto = item.get("manifiesto")
         raw_phone = item.get("phone") or item.get("celular") or ""
-        phone = f"57{raw_phone}" if (raw_phone and not raw_phone.startswith("57") and len(raw_phone) == 10) else raw_phone
+        phone = _format_phone(raw_phone)
         template = item.get("template_name")
         fecha_est = item.get("fecha_estimada")
         monto = item.get("monto")
@@ -240,10 +290,16 @@ def run_auto_notify() -> dict:
         fecha_pago_raw = item.get("fecha_pago")
 
         if not phone or not template:
+            processed += 1
+            logger.debug("auto_notify_skipped",
+                         extra={"manifiesto": manifiesto, "reason": "missing phone or template"})
             continue
 
         # Defense in depth: saltar saldo_novedad_pendiente si novedades es ruido
         if template == 'saldo_novedad_pendiente' and _is_novedad_noise(item.get('novedades')):
+            processed += 1
+            logger.debug("auto_notify_skipped",
+                         extra={"manifiesto": manifiesto, "reason": "novedad noise"})
             continue
 
         fecha_str = _fmt(fecha_est)
@@ -254,15 +310,24 @@ def run_auto_notify() -> dict:
             send_whatsapp(phone, message)
             _log_sent(manifiesto, template, phone, "sent", ms_id=ms_id)
             sent += 1
+            consecutive_errors = 0
         except Exception as exc:
             logger.warning("auto_notify_send_failed",
                            extra={"manifiesto": manifiesto, "phone": phone, "error": str(exc)})
             _log_sent(manifiesto, template, phone, "error", str(exc), ms_id=ms_id)
             errors += 1
-            if errors >= _MAX_CONSECUTIVE_ERRORS:
-                logger.error("auto_notify_too_many_errors", extra={"errors": errors})
+            consecutive_errors += 1
+            if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+                logger.error("auto_notify_too_many_consecutive_errors",
+                             extra={"consecutive_errors": consecutive_errors, "manifiesto": manifiesto})
                 break
 
+        processed += 1
+        if processed % _PROGRESS_LOG_EVERY == 0:
+            logger.info("auto_notify_progress",
+                        extra={"processed": processed, "sent": sent, "errors": errors, "total": total})
+
+    skipped = total - processed
     logger.info("auto_notify_done",
-                extra={"sent": sent, "errors": errors, "total": len(all_items)})
-    return {"status": "ok", "sent": sent, "errors": errors, "total": len(all_items)}
+                extra={"sent": sent, "errors": errors, "skipped": skipped, "total": total})
+    return {"status": "ok", "sent": sent, "errors": errors, "total": total}
