@@ -2,10 +2,11 @@
 Servicio de notificaciones Altrans — segundo servicio Railway.
 
 Endpoints:
-  GET  /health            → liveness check
-  POST /admin/backup      → dispara backup manual (requiere X-Admin-Token)
-  POST /admin/notify/wa   → envía mensaje WA manual a lista de números
-  POST /admin/auto-notify → dispara ronda de notificaciones automáticas
+  GET  /health                 → liveness check
+  POST /admin/backup           → dispara backup manual (requiere X-Admin-Token)
+  POST /admin/notify/wa        → envía mensaje WA manual a lista de números
+  POST /admin/auto-notify      → dispara ronda de notificaciones automáticas
+  POST /admin/auto-notify-cycle → dispara ciclo completo (plantilla a plantilla, N min)
 """
 import logging
 import os
@@ -21,7 +22,7 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from auto_notify import run_auto_notify
+from auto_notify import run_auto_notify, run_auto_notify_cycle
 from backup_email import run_backup_and_email
 from whatsapp_notify import send_whatsapp_bulk
 from logging_config import setup_logging
@@ -52,6 +53,13 @@ class WaNotifyRequest(BaseModel):
 
 class AutoNotifyRequest(BaseModel):
     manifestos: list[int] | None = None
+    templates: list[str] | None = None
+
+
+class AutoNotifyCycleRequest(BaseModel):
+    manifestos: list[int] | None = None
+    templates: list[str] | None = None
+    interval_minutes: int = 5
 
 
 # ── Auth helper ───────────────────────────────────────────────────────────────
@@ -118,10 +126,30 @@ def admin_auto_notify(request: Request, background_tasks: BackgroundTasks,
     """Dispara la ronda de notificaciones automáticas.
 
     Opcionalmente limita el procesamiento a un subconjunto de manifiestos
-    (body: {"manifestos": [6101, 6102, ...]}) para pruebas aisladas.
+    (body: {"manifestos": [6101, 6102, ...]}) y/o de plantillas
+    (body: {"templates": ["pago_realizado", ...]}) para pruebas aisladas.
     """
     _check_admin_token(request)
     manifestos = body.manifestos if body else None
-    background_tasks.add_task(run_auto_notify, manifestos)
+    templates = body.templates if body else None
+    background_tasks.add_task(run_auto_notify, manifestos, templates)
     return {"status": "scheduled", "detail": "Notificaciones automáticas en curso.",
-            "manifestos": manifestos}
+            "manifestos": manifestos, "templates": templates}
+
+
+@app.post("/admin/auto-notify-cycle")
+def admin_auto_notify_cycle(request: Request, background_tasks: BackgroundTasks,
+                            body: AutoNotifyCycleRequest | None = None):
+    """Dispara un ciclo completo: una plantilla a la vez, con intervalo de minutos.
+
+    Equivale al espaciado del scheduler (5 min entre plantillas) pero disparable
+    manualmente para pruebas "como en producción" sin esperar la hora programada.
+    """
+    _check_admin_token(request)
+    manifestos = body.manifestos if body else None
+    templates = body.templates if body else None
+    interval = body.interval_minutes if body else 5
+    background_tasks.add_task(run_auto_notify_cycle, manifestos, templates, interval)
+    return {"status": "scheduled", "detail": "Ciclo de notificaciones en curso.",
+            "manifestos": manifestos, "templates": templates,
+            "interval_minutes": interval}

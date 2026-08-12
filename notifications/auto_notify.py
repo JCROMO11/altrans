@@ -5,25 +5,50 @@ Lee de la RPC get_pendientes_notificacion los 4 templates de saldo no pagado,
 más mensajes pending de pago_realizado desde messages_sent, y envía la
 plantilla correspondiente. Registra envíos en messages_sent para evitar reenvíos.
 
+Agrupa los mensajes por plantilla y envía cada lote en paralelo (una plantilla
+a la vez). El orden y el espaciado entre plantillas lo controla el scheduler
+(5 minutos entre lotes) o run_auto_notify_cycle (disparo manual).
+
+Modo de envío:
+  - WA_SEND_MODE=template (default): usa send_whatsapp_template (plantillas
+    aprobadas de Meta). Es el modo de producción.
+  - WA_SEND_MODE=text: usa send_whatsapp con el contenido de la plantilla
+    renderizado como texto libre (para pruebas antes de la aprobación de Meta).
+
 Requiere: SUPABASE_URL, SUPABASE_SERVICE_KEY,
           WA_TOKEN, WA_PHONE_NUMBER_ID.
 """
 import logging
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import httpx
 from dotenv import load_dotenv
 
-from whatsapp_notify import send_whatsapp_template
+from message_texts import render_text
+from whatsapp_notify import send_whatsapp, send_whatsapp_template
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_ERRORS = 10
-_PROGRESS_LOG_EVERY = 50
+_MAX_CONCURRENT_SENDS = 5
+
+_SEND_MODE = os.environ.get("WA_SEND_MODE", "template").strip().lower()
+
+# Orden de envío entre plantillas: pago_realizado primero (urgente: confirmar
+# el pago al conductor), luego los saldos pendientes.
+TEMPLATE_ORDER = [
+    "pago_realizado",
+    "saldo_falta_factura",
+    "saldo_falta_documentacion",
+    "saldo_novedad_pendiente",
+    "saldo_plazo_vigente",
+]
 
 _SPANISH_MONTHS = {
     1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
@@ -195,15 +220,66 @@ def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[d
     return result
 
 
-def run_auto_notify(manifestos: list[int] | None = None) -> dict:
-    """Ejecuta la ronda de notificaciones automáticas.
+def _fmt(d: str | None) -> str | None:
+    if not d:
+        return None
+    try:
+        dt = datetime.strptime(d, "%Y-%m-%d")
+        mes = _SPANISH_MONTHS.get(dt.month, str(dt.month))
+        return f"{dt.day} de {mes} de {dt.year}"
+    except ValueError:
+        return d
+
+
+def _format_phone(raw: str) -> str:
+    cleaned = re.sub(r"[\+\-\s\(\)]", "", raw)
+    if len(cleaned) == 10 and cleaned.isdigit():
+        return f"57{cleaned}"
+    if len(cleaned) == 12 and cleaned.startswith("57") and cleaned.isdigit():
+        return cleaned
+    if len(cleaned) > 10 and cleaned.isdigit():
+        return cleaned
+    return raw
+
+
+def _send_message(template: str, phone: str, template_name_real: str, params: list[str]) -> None:
+    """Envía el mensaje por plantilla aprobada o texto libre según WA_SEND_MODE."""
+    if _SEND_MODE == "text":
+        send_whatsapp(phone, render_text(template, *params))
+    else:
+        send_whatsapp_template(phone, template_name_real, params)
+
+
+def _send_one(item: dict) -> bool:
+    """Envía un único mensaje y registra el resultado. Devuelve True si salió bien."""
+    manifiesto = item["manifiesto"]
+    phone = item["phone"]
+    template = item["template"]
+    ms_id = item.get("ms_id")
+    try:
+        _send_message(template, phone, item["template_name_real"], item["params"])
+        _log_sent(manifiesto, template, phone, "sent", ms_id=ms_id)
+        return True
+    except Exception as exc:
+        logger.warning("auto_notify_send_failed",
+                       extra={"manifiesto": manifiesto, "phone": phone, "error": str(exc)})
+        _log_sent(manifiesto, template, phone, "error", str(exc), ms_id=ms_id)
+        return False
+
+
+def run_auto_notify(manifestos: list[int] | None = None,
+                    templates: list[str] | None = None) -> dict:
+    """Ejecuta una ronda de notificaciones automáticas.
 
     Consulta get_pendientes_notificacion para los 4 templates de saldo,
     más messages_sent para pago_realizado, y envía WhatsApp a conductores.
+    Los mensajes se agrupan por plantilla y cada lote se envía en paralelo.
 
     Args:
         manifestos: Si se pasa, limita el procesamiento solo a esos manifiestos
                     (útil para pruebas aisladas sin barrer datos reales).
+        templates: Si se pasa, limita el procesamiento solo a esas plantillas
+                   (el scheduler usa una plantilla por job para espaciarlas).
     """
     wa_token = os.environ.get("WA_TOKEN", "")
     wa_phone_id = os.environ.get("WA_PHONE_NUMBER_ID", "")
@@ -233,96 +309,121 @@ def run_auto_notify(manifestos: list[int] | None = None) -> dict:
         pendientes = [p for p in pendientes if p.get("manifiesto") in allowed]
         pagados = [p for p in pagados if p.get("manifiesto") in allowed]
 
-    # Procesar primero los pago_realizado (urgentes: confirmar pago al conductor)
-    # y luego los saldos pendientes. Así un bloqueo por errores consecutivos en
-    # los saldos no deja los pagos sin notificar.
+    # Procesar primero los pago_realizado (urgentes) y luego los saldos.
     all_items: list[dict] = list(pagados) + list(pendientes)
+    if templates is not None:
+        allowed_t = set(templates)
+        all_items = [i for i in all_items if i.get("template_name") in allowed_t]
+
     if not all_items:
         logger.info("auto_notify_no_pendientes")
-        return {"status": "ok", "sent": 0, "total": 0}
+        return {"status": "ok", "sent": 0, "errors": 0, "skipped": 0, "total": 0}
 
-    sent = 0
-    errors = 0
-    consecutive_errors = 0
-
-    def _fmt(d: str | None) -> str | None:
-        if not d:
-            return None
-        try:
-            dt = datetime.strptime(d, "%Y-%m-%d")
-            mes = _SPANISH_MONTHS.get(dt.month, str(dt.month))
-            return f"{dt.day} de {mes} de {dt.year}"
-        except ValueError:
-            return d
-
-    def _format_phone(raw: str) -> str:
-        cleaned = re.sub(r"[\+\-\s\(\)]", "", raw)
-        if len(cleaned) == 10 and cleaned.isdigit():
-            return f"57{cleaned}"
-        if len(cleaned) == 12 and cleaned.startswith("57") and cleaned.isdigit():
-            return cleaned
-        if len(cleaned) > 10 and cleaned.isdigit():
-            return cleaned
-        return raw
-
-    total = len(all_items)
-    processed = 0
-
+    # Normaliza cada item en un registro listo para enviar (o lo descarta).
+    sendable: list[dict] = []
+    skipped = 0
     for item in all_items:
         manifiesto = item.get("manifiesto")
         raw_phone = item.get("phone") or item.get("celular") or ""
         phone = _format_phone(raw_phone)
         template = item.get("template_name")
-        fecha_est = item.get("fecha_estimada")
-        ms_id = item.get("ms_id")
-        fecha_pago_raw = item.get("fecha_pago")
 
         if not phone or not template:
-            processed += 1
+            skipped += 1
             logger.debug("auto_notify_skipped",
                          extra={"manifiesto": manifiesto, "reason": "missing phone or template"})
             continue
 
         # Defense in depth: saltar saldo_novedad_pendiente si novedades es ruido
         if template == 'saldo_novedad_pendiente' and _is_novedad_noise(item.get('novedades')):
-            processed += 1
+            skipped += 1
             logger.debug("auto_notify_skipped",
                          extra={"manifiesto": manifiesto, "reason": "novedad noise"})
             continue
 
-        fecha_str = _fmt(fecha_est)
-        fecha_pago_str = _fmt(fecha_pago_raw)
-
         template_name_real = _TEMPLATE_NAMES.get(template)
         if not template_name_real:
+            skipped += 1
             logger.debug("auto_notify_skipped",
                          extra={"manifiesto": manifiesto, "reason": f"sin plantilla WABA para {template}"})
-            processed += 1
             continue
 
+        fecha_str = _fmt(item.get("fecha_estimada"))
+        fecha_pago_str = _fmt(item.get("fecha_pago"))
         params = _template_params(template, manifiesto, fecha_str, fecha_pago_str)
-        try:
-            send_whatsapp_template(phone, template_name_real, params)
-            _log_sent(manifiesto, template, phone, "sent", ms_id=ms_id)
-            sent += 1
+        sendable.append({
+            "manifiesto": manifiesto,
+            "phone": phone,
+            "template": template,
+            "template_name_real": template_name_real,
+            "params": params,
+            "ms_id": item.get("ms_id"),
+        })
+
+    total = len(all_items)
+
+    # Agrupa por plantilla respetando TEMPLATE_ORDER.
+    groups: dict[str, list[dict]] = {}
+    for s in sendable:
+        groups.setdefault(s["template"], []).append(s)
+    ordered_templates = [t for t in TEMPLATE_ORDER if t in groups]
+
+    sent = 0
+    errors = 0
+    consecutive_errors = 0
+
+    for template in ordered_templates:
+        batch = groups[template]
+        if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
+            logger.error("auto_notify_too_many_consecutive_errors",
+                         extra={"consecutive_errors": consecutive_errors,
+                                "template": template, "remaining": len(batch)})
+            break
+
+        logger.info("auto_notify_batch_start",
+                    extra={"template": template, "count": len(batch), "mode": _SEND_MODE})
+
+        if len(batch) == 1:
+            results = [_send_one(batch[0])]
+        else:
+            workers = min(_MAX_CONCURRENT_SENDS, len(batch))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = {ex.submit(_send_one, item): item for item in batch}
+                results = [fut.result() for fut in as_completed(futures)]
+
+        batch_sent = sum(1 for ok in results if ok)
+        batch_errors = len(results) - batch_sent
+        sent += batch_sent
+        errors += batch_errors
+        if batch_errors:
+            consecutive_errors += batch_errors
+        else:
             consecutive_errors = 0
-        except Exception as exc:
-            logger.warning("auto_notify_send_failed",
-                           extra={"manifiesto": manifiesto, "phone": phone, "error": str(exc)})
-            _log_sent(manifiesto, template, phone, "error", str(exc), ms_id=ms_id)
-            errors += 1
-            consecutive_errors += 1
-            if consecutive_errors >= _MAX_CONSECUTIVE_ERRORS:
-                logger.error("auto_notify_too_many_consecutive_errors",
-                             extra={"consecutive_errors": consecutive_errors, "manifiesto": manifiesto})
-                break
 
-        processed += 1
-        if processed % _PROGRESS_LOG_EVERY == 0:
-            logger.info("auto_notify_progress",
-                        extra={"processed": processed, "sent": sent, "errors": errors, "total": total})
+        logger.info("auto_notify_batch_done",
+                    extra={"template": template, "sent": batch_sent, "errors": batch_errors})
 
-    skipped = total - processed
     logger.info("auto_notify_done",
                 extra={"sent": sent, "errors": errors, "skipped": skipped, "total": total})
-    return {"status": "ok", "sent": sent, "errors": errors, "total": total}
+    return {"status": "ok", "sent": sent, "errors": errors, "skipped": skipped, "total": total}
+
+
+def run_auto_notify_cycle(manifestos: list[int] | None = None,
+                          templates: list[str] | None = None,
+                          interval_minutes: int = 5) -> dict:
+    """Ejecuta un ciclo completo: una plantilla a la vez, esperando el intervalo.
+
+    Reutiliza run_auto_notify con un filtro de una sola plantilla por iteración
+    y duerme `interval_minutes` entre lotes. Es el equivalente al espaciado del
+    scheduler pero disparable de forma manual (POST /admin/auto-notify-cycle).
+    """
+    target_templates = list(templates or TEMPLATE_ORDER)
+    results = []
+    for i, template in enumerate(target_templates):
+        result = run_auto_notify(manifestos=manifestos, templates=[template])
+        results.append({"template": template, **result})
+        if i < len(target_templates) - 1:
+            logger.info("auto_notify_cycle_wait",
+                        extra={"template": template, "minutes": interval_minutes})
+            time.sleep(interval_minutes * 60)
+    return {"status": "ok", "cycle": results}

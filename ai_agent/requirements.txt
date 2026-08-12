@@ -1,15 +1,15 @@
 # Producción — usadas por main.py / webhook / agent en runtime
-fastapi
-uvicorn[standard]
-httpx
-python-dotenv
-pyjwt
-bcrypt
-loguru
+fastapi==0.136.0
+uvicorn[standard]==0.45.0
+httpx==0.28.1
+python-dotenv==1.2.2
+pyjwt==2.12.1
+bcrypt==5.0.0
+loguru==0.7.3
 
 # LLM clients de producción
-openai     # DeepSeek (OpenAI-compatible) — agente principal
-groq       # Moderación anti-jailbreak (llama-3.1-8b-instant)
+openai==2.53.0     # DeepSeek (OpenAI-compatible) — agente principal
+groq==1.2.0        # Moderación anti-jailbreak (llama-3.1-8b-instant)
 
 # anthropic y google-genai solo para scripts/test_agent.py --modelos (A/B local).
 # No instalar en producción — instala manualmente si necesitas correr A/B testing.

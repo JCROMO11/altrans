@@ -8,6 +8,7 @@ Inserta manifiestos de prueba apuntando a un celular de destino y cubre los
 
 Uso (CLI):
   python -m tests.setup_datos_prueba --rango 6001              # inserta los 5 escenarios (6001-6005)
+  python -m tests.setup_datos_prueba --full 7001               # inserta 20 manifiestos (4 por plantilla)
   python -m tests.setup_datos_prueba --cleanup --rango 6001    # borra el rango (manifiestos, messages_sent, audit_log)
   python -m tests.setup_datos_prueba --manifiesto 6001 --solo saldo_falta_factura
 
@@ -46,6 +47,17 @@ SCENARIO_ORDER = [
     "saldo_plazo_vigente",
     "pago_realizado",
 ]
+
+# Orden de producción (pago_realizado primero, luego saldos) usado por --full.
+FULL_TEMPLATE_ORDER = [
+    "pago_realizado",
+    "saldo_falta_factura",
+    "saldo_falta_documentacion",
+    "saldo_novedad_pendiente",
+    "saldo_plazo_vigente",
+]
+
+FULL_PER_TEMPLATE = 4  # 4 manifiestos por plantilla → 20 manifiestos en total
 
 
 def _set_claims(cur, role="gerencia"):
@@ -141,6 +153,36 @@ def insert_scenario(manifiesto: int, escenario: str, celular: str | None = None)
         raise ValueError(f"Escenario desconocido: {escenario}")
 
 
+def insert_full(base: int, celular: str | None = None) -> dict[int, str]:
+    """Inserta 20 manifiestos (4 por plantilla) y devuelve el mapeo manifiesto → plantilla.
+
+    Distribución (base..base+19) en orden de producción:
+      base+0..3   pago_realizado
+      base+4..7   saldo_falta_factura
+      base+8..11  saldo_falta_documentacion
+      base+12..15 saldo_novedad_pendiente
+      base+16..19 saldo_plazo_vigente
+    """
+    cel = celular or CELULAR
+    mapping: dict[int, str] = {}
+    idx = 0
+    for template in FULL_TEMPLATE_ORDER:
+        for _ in range(FULL_PER_TEMPLATE):
+            manif = base + idx
+            insert_scenario(manif, template, cel)
+            mapping[manif] = template
+            idx += 1
+    return mapping
+
+
+def print_mapping(mapping: dict[int, str]) -> None:
+    """Imprime una tabla legible manifiesto → plantilla."""
+    print(f"\n{'Manifiesto':<14}{'Plantilla'}")
+    print("-" * 40)
+    for manif in sorted(mapping):
+        print(f"{manif:<14}{mapping[manif]}")
+
+
 def clear_manifiesto(manifiesto: int) -> None:
     conn = _conn()
     conn.autocommit = False
@@ -189,6 +231,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Setup de datos ficticios de notificaciones")
     parser.add_argument("--rango", type=int, metavar="NNNN",
                         help="Manifiesto base: inserta los 5 escenarios en NNNN..NNNN+4")
+    parser.add_argument("--full", type=int, metavar="NNNN",
+                        help="Manifiesto base: inserta 20 manifiestos (4 por plantilla) en NNNN..NNNN+19")
     parser.add_argument("--manifiesto", type=int, metavar="N", help="Manifiesto único (con --solo)")
     parser.add_argument("--solo", choices=SCENARIO_ORDER, help="Insertar un único escenario")
     parser.add_argument("--cleanup", action="store_true", help="Borrar el rango/manifiesto y salir")
@@ -199,11 +243,14 @@ def main() -> None:
         if args.manifiesto:
             clear_manifiesto(args.manifiesto)
             print(f"✅ Limpiado manifiesto {args.manifiesto}")
+        elif args.full:
+            clear_range(args.full, args.full + len(FULL_TEMPLATE_ORDER) * FULL_PER_TEMPLATE - 1)
+            print(f"✅ Limpiado rango {args.full}-{args.full + 19}")
         elif args.rango:
             clear_range(args.rango, args.rango + 4)
             print(f"✅ Limpiado rango {args.rango}-{args.rango + 4}")
         else:
-            print("❌ Indica --rango o --manifiesto con --cleanup")
+            print("❌ Indica --full, --rango o --manifiesto con --cleanup")
         return
 
     if args.solo:
@@ -212,6 +259,13 @@ def main() -> None:
             return
         insert_scenario(args.manifiesto, args.solo, args.celular)
         print(f"✅ Insertado manifiesto {args.manifiesto} → {args.solo}")
+        return
+
+    if args.full:
+        mapping = insert_full(args.full, args.celular)
+        for manif in sorted(mapping):
+            print(f"✅ Insertado manifiesto {manif} → {mapping[manif]}")
+        print_mapping(mapping)
         return
 
     if args.rango:
