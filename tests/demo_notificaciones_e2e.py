@@ -208,11 +208,12 @@ def rpc_pendientes() -> list:
     return r.json()
 
 
-def call_auto_notify() -> dict:
+def call_auto_notify(manifestos: list[int] | None = None) -> dict:
+    payload = {"manifestos": manifestos} if manifestos else None
     r = httpx.post(
         f"{NOTIF_URL}/admin/auto-notify",
         headers=NOTIF_HEADERS,
-        json=None,
+        json=payload,
         timeout=60,
     )
     try:
@@ -321,6 +322,12 @@ EXPECTED_RPC = {
     **EXPECTED,
 }
 
+# Manifiestos de prueba usados por el E2E. Se pasan como filtro a
+# /admin/auto-notify para NO barrer los ~1000 manifiestos reales de
+# producción (el WABA de prueba rechaza números reales con error 131030
+# y los errores consecutivos cortarían el ciclo antes de las plantillas).
+TEST_MANIFESTOS = sorted([*EXPECTED.keys(), 5020, 5021, 5022, 5040])
+
 
 def verify_rpc() -> None:
     step("PHASE 2 — Verificar categorización del RPC")
@@ -419,9 +426,9 @@ def verify_messages_sent(first_run: bool = True) -> bool:
 def verify_dedup() -> None:
     step("PHASE 5 — Deduplicación: 2da llamada no debe crear duplicados")
     before = {m: len(get_msgs(m)) for m in EXPECTED}
-    result = call_auto_notify()
+    result = call_auto_notify(TEST_MANIFESTOS)
     print(f"  2da llamada → {json.dumps(result)}")
-    time.sleep(3)
+    time.sleep(5)
     after = {m: len(get_msgs(m)) for m in EXPECTED}
     dups = {m: (before[m], after[m]) for m in EXPECTED if after[m] > before[m]}
     if dups:
@@ -516,9 +523,9 @@ def run_e2e() -> None:
     verify_rpc()
 
     step("PHASE 3 — Ejecutar auto-notify")
-    result = call_auto_notify()
+    result = call_auto_notify(TEST_MANIFESTOS)
     print(f"  → {json.dumps(result)}")
-    time.sleep(5)
+    time.sleep(15)
 
     verify_messages_sent()
 
@@ -574,9 +581,9 @@ def main() -> None:
         time.sleep(seconds)
         print(f"\n🔔 Desperté a {datetime.now(TZ_COLOMBIA):%H:%M:%S} — ejecutando auto-notify")
         step("PHASE 3 — Ejecutar auto-notify")
-        result = call_auto_notify()
+        result = call_auto_notify(TEST_MANIFESTOS)
         print(f"  → {json.dumps(result)}")
-        time.sleep(5)
+        time.sleep(15)
         verify_messages_sent()
         print(f"\n{'='*62}")
         print("  🎯 E2E programado completado — revisa WhatsApp")
