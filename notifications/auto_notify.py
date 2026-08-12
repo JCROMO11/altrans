@@ -215,11 +215,15 @@ def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[d
     return result
 
 
-def run_auto_notify() -> dict:
+def run_auto_notify(manifestos: list[int] | None = None) -> dict:
     """Ejecuta la ronda de notificaciones automáticas.
 
     Consulta get_pendientes_notificacion para los 4 templates de saldo,
     más messages_sent para pago_realizado, y envía WhatsApp a conductores.
+
+    Args:
+        manifestos: Si se pasa, limita el procesamiento solo a esos manifiestos
+                    (útil para pruebas aisladas sin barrer datos reales).
     """
     wa_token = os.environ.get("WA_TOKEN", "")
     wa_phone_id = os.environ.get("WA_PHONE_NUMBER_ID", "")
@@ -243,6 +247,11 @@ def run_auto_notify() -> dict:
     except Exception as exc:
         logger.error("get_pendientes_failed", extra={"error": str(exc)})
         return {"status": "error", "error": str(exc)}
+
+    if manifestos is not None:
+        allowed = set(manifestos)
+        pendientes = [p for p in pendientes if p.get("manifiesto") in allowed]
+        pagados = [p for p in pagados if p.get("manifiesto") in allowed]
 
     # Procesar primero los pago_realizado (urgentes: confirmar pago al conductor)
     # y luego los saldos pendientes. Así un bloqueo por errores consecutivos en

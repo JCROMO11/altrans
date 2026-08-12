@@ -50,8 +50,9 @@ TZ_COLOMBIA = timezone(timedelta(hours=-5))
 NOTIF_HEADERS = {"x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json"}
 
 
-def call_auto_notify() -> dict:
-    r = httpx.post(f"{NOTIF_URL}/admin/auto-notify", headers=NOTIF_HEADERS, timeout=60)
+def call_auto_notify(manifestos: list[int] | None = None) -> dict:
+    payload = {"manifestos": manifestos} if manifestos else None
+    r = httpx.post(f"{NOTIF_URL}/admin/auto-notify", headers=NOTIF_HEADERS, json=payload, timeout=60)
     try:
         return r.json()
     except Exception:
@@ -97,7 +98,7 @@ def run(base: int, start: str, interval_min: int) -> None:
         insert_scenario(manif, esc, CELULAR)
         print(f"   ✅ Manifiesto {manif} insertado ({esc})")
 
-        result = call_auto_notify()
+        result = call_auto_notify([manif])
         print(f"   → auto-notify: {json.dumps(result)}")
         time.sleep(6)
 

@@ -50,6 +50,10 @@ class WaNotifyRequest(BaseModel):
     message: str
 
 
+class AutoNotifyRequest(BaseModel):
+    manifestos: list[int] | None = None
+
+
 # ── Auth helper ───────────────────────────────────────────────────────────────
 
 def _check_admin_token(request: Request) -> None:
@@ -109,8 +113,15 @@ def admin_notify_wa(request: Request, body: WaNotifyRequest, background_tasks: B
 
 
 @app.post("/admin/auto-notify")
-def admin_auto_notify(request: Request, background_tasks: BackgroundTasks):
-    """Dispara la ronda de notificaciones automáticas."""
+def admin_auto_notify(request: Request, background_tasks: BackgroundTasks,
+                      body: AutoNotifyRequest | None = None):
+    """Dispara la ronda de notificaciones automáticas.
+
+    Opcionalmente limita el procesamiento a un subconjunto de manifiestos
+    (body: {"manifestos": [6101, 6102, ...]}) para pruebas aisladas.
+    """
     _check_admin_token(request)
-    background_tasks.add_task(run_auto_notify)
-    return {"status": "scheduled", "detail": "Notificaciones automáticas en curso."}
+    manifestos = body.manifestos if body else None
+    background_tasks.add_task(run_auto_notify, manifestos)
+    return {"status": "scheduled", "detail": "Notificaciones automáticas en curso.",
+            "manifestos": manifestos}
