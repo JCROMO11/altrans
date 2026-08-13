@@ -2,7 +2,7 @@
 Scheduler de tareas periódicas con APScheduler.
 
 Jobs configurados:
-  - backup: miércoles y domingos 6 AM Colombia (backup a email)
+  - backup: lunes a viernes 10 PM Colombia (backup a email + bucket Supabase)
   - auto_notify: una tanda diaria (6 AM Colombia), con las 5 plantillas
     espaciadas 5 minutos (pago_realizado primero, luego saldos). Si algo falla
     o queda pendiente, se reintenta manualmente con POST /admin/auto-notify-cycle.
@@ -59,12 +59,12 @@ def start() -> BackgroundScheduler:
     global _scheduler
     _scheduler = BackgroundScheduler(timezone="UTC")
 
-    # Backup: miércoles y domingos 11:00 UTC = 6:00 AM Colombia
+    # Backup: lunes a viernes 22:00 Colombia = 03:00 UTC del día siguiente
     _scheduler.add_job(
         _job_backup,
-        CronTrigger(day_of_week="wed,sun", hour=11, minute=0),
-        id="backup_2x_semanal",
-        name="Backup → Email (mié/dom 6AM)",
+        CronTrigger(day_of_week="mon-fri", hour=22, minute=0, timezone="America/Bogota"),
+        id="backup_entre_semana",
+        name="Backup → Email+Bucket (lun-vie 10PM)",
         replace_existing=True,
     )
 
