@@ -291,10 +291,10 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
         CHECK (mes IS NULL OR mes::mes_enum IS NOT NULL),
     CONSTRAINT chk_nombre_responsable_valido
         CHECK (nombre_responsable IS NULL OR nombre_responsable IN (
-            'ANGELA G', 'ANGIE', 'ANGIE OVIEDO', 'ANULADO', 'BUENAVENTURA',
+            'ALEJANDRA PISTA', 'ANGELA G', 'ANGIE', 'ANGIE OVIEDO', 'ANULADO', 'BUENAVENTURA',
             'DAVID', 'DIANA G.', 'ELIANA', 'HAIR', 'HECTOR', 'HOJASDEVIDA1',
             'INGRID VANESSA', 'JULIAN', 'KAROL', 'KATTY', 'LILIANA',
-            'LILIANA OBREGON', 'LOGISTICACALI2', 'MARCELA', 'OPERATIVO 1',
+            'LILIANA OBREGON', 'LINA LASSO', 'LOGISTICACALI2', 'MARCELA', 'OPERATIVO 1',
             'OPERATIVO 2', 'OPERATIVO 3', 'OPERATIVO BUENA', 'RNDC',
             'VANESSA', 'YANETH F', 'YURANY ESTUPINA'
         ))
@@ -1543,7 +1543,7 @@ END;
 $$;
 
 
--- ── guardar_digitador_batch (idem pero sin sobreescribir conductor/propietario) ─
+-- ── guardar_digitador_batch (idem pero sin sobreescribir conductor/propietario/placa/remolque) ─
 
 CREATE OR REPLACE FUNCTION public.guardar_digitador_batch(
     p_manifiesto            BIGINT,
@@ -1614,9 +1614,7 @@ BEGIN
         valor_remesa          = COALESCE(EXCLUDED.valor_remesa,         public.manifiestos_flat.valor_remesa),
         flete_conductor       = COALESCE(EXCLUDED.flete_conductor,      public.manifiestos_flat.flete_conductor),
         anticipo              = COALESCE(EXCLUDED.anticipo,             public.manifiestos_flat.anticipo),
-        placa                 = COALESCE(EXCLUDED.placa,                public.manifiestos_flat.placa),
-        placa_remolque         = COALESCE(EXCLUDED.placa_remolque,      public.manifiestos_flat.placa_remolque),
-            -- conductor / propietario no se sobreescriben en recarga (inmutables)
+            -- placa / placa_remolque / conductor / cedula_conductor / propietario no se sobreescriben en recarga (inmutables)
         celular               = COALESCE(EXCLUDED.celular,              public.manifiestos_flat.celular),
         agencia_despachadora  = COALESCE(EXCLUDED.agencia_despachadora, public.manifiestos_flat.agencia_despachadora),
         nombre_responsable    = COALESCE(EXCLUDED.nombre_responsable,   public.manifiestos_flat.nombre_responsable),

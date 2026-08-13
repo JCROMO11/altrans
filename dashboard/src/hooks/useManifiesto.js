@@ -49,6 +49,8 @@ export function useManifiesto() {
       p_propietario:          form.propietario             || null,
       p_agencia_despachadora: form.agencia_despachadora    || null,
       p_nombre_responsable:   form.nombre_responsable      || null,
+      p_reteica:              form.reteica !== '' && form.reteica != null ? Number(form.reteica) : null,
+      p_r_fopat:              form.r_fopat !== '' && form.r_fopat != null ? Number(form.r_fopat) : null,
     })
     if (error) throw error
   }

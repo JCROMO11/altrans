@@ -1,7 +1,7 @@
 // Helpers puros para normalizar/comparar valores entre Excel/DB.
 // Extraídos de CargaPage para poder testearse en aislado.
 
-export const NUMERIC_FIELDS = new Set(['valor_remesa', 'flete_conductor', 'anticipo'])
+export const NUMERIC_FIELDS = new Set(['valor_remesa', 'flete_conductor', 'anticipo', 'reteica', 'r_fopat'])
 
 // Normaliza un valor para compararlo con el equivalente en DB.
 // Los NUMERIC(14,2) llegan desde PostgREST como "500000.00" mientras que el

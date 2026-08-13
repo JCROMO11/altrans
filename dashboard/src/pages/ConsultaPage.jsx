@@ -38,9 +38,12 @@ const MESES_OPTS = [
   'ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
   'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE',
 ]
-const AÑOS_OPTS = ['2023','2024','2025','2026','2027','2028','2029','2030',
-  '2031','2032','2033','2034','2035','2036','2037','2038','2039','2040',
-  '2041','2042','2043','2044','2045']
+const AÑOS_OPTS = (() => {
+  const current = new Date().getFullYear()
+  const years = []
+  for (let y = 2023; y <= current + 1; y++) years.push(String(y))
+  return years
+})()
 const ESTADO_INTERNO_OPTS = ['CUMPLIDO','NO SE HA CUMPLIDO','PENDIENTE FACTURA ELECTRONICA',
   'FACTURA RECIBIDA','NOVEDAD PENDIENTE','ANULADO']
 
@@ -592,6 +595,8 @@ export default function ConsultaPage({ openEnCarga, user }) {
     ['Valor Remesa',            'valor_remesa',           'money'],
     ['Flete Neto',              'flete_conductor',        'money'],
     ['Anticipo',                'anticipo',               'money'],
+    ['ReteICA',                 'reteica',                'money'],
+    ['R. FOPAT',                'r_fopat',                'money'],
     ['Placa',                   'placa',                  'raw'],
     ['Remolque',                'placa_remolque',          'raw'],
     ['Conductor',               'conductor',              'raw'],
@@ -704,11 +709,11 @@ export default function ConsultaPage({ openEnCarga, user }) {
         : <>
 
       {/* Main flex row: sidebar + content */}
-      <div className="flex gap-4 flex-1 min-h-0 items-stretch">
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0 items-stretch">
 
         {/* Filter sidebar */}
         <form onSubmit={handleSearch}
-          className="w-72 shrink-0 rounded-2xl p-3"
+          className="lg:w-72 w-full shrink-0 rounded-2xl p-3 lg:overflow-y-auto"
           style={{ background: '#F8FAFC', border: `1px solid ${BDR}` }}>
           {/* Vencimientos dentro del sidebar */}
           {alertas && (
@@ -912,6 +917,8 @@ export default function ConsultaPage({ openEnCarga, user }) {
                       <Th right width="110px">Valor Remesa</Th>
                       <Th right width="110px">Flete Neto</Th>
                       <Th right width="95px">Anticipo</Th>
+                      <Th right width="95px">ReteICA</Th>
+                      <Th right width="95px">R. FOPAT</Th>
                       <Th width="80px">Placa</Th>
                       <Th width="105px">Remolque</Th>
                       <Th width="240px">Conductor</Th>
@@ -965,6 +972,8 @@ export default function ConsultaPage({ openEnCarga, user }) {
                           <Td mono width="110px">{money(r.valor_remesa)}</Td>
                           <Td mono width="110px">{money(r.flete_conductor)}</Td>
                           <Td mono muted width="95px">{money(r.anticipo)}</Td>
+                          <Td mono muted width="95px">{r.reteica != null ? money(r.reteica) : '—'}</Td>
+                          <Td mono muted width="95px">{r.r_fopat != null ? money(r.r_fopat) : '—'}</Td>
                           <Td mono muted width="80px">{r.placa ?? '—'}</Td>
                           <Td muted width="105px">{r.placa_remolque ?? '—'}</Td>
                           <Td width="240px">{r.conductor ?? '—'}</Td>

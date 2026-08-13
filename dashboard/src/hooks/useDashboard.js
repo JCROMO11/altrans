@@ -6,18 +6,24 @@ const MESES_ORDER = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','A
 export function useDashboard(mes, año) {
   const [data, setData]       = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState(null)
+  const [nonce, setNonce]     = useState(0)
 
   useEffect(() => {
     let cancelled = false
 
     async function fetchData() {
       setLoading(true)
+      setError(null)
       try {
         const [kpiRes, anualRes] = await Promise.all([
           supabase.rpc('dashboard_kpis', { p_mes: mes, p_año: año }),
           supabase.rpc('tendencia_anual', { p_año: año ?? null }),
         ])
         if (cancelled) return
+
+        if (kpiRes.error) throw kpiRes.error
+        if (anualRes.error) throw anualRes.error
 
         const kpis       = kpiRes.data ?? {}
         const anualData  = anualRes.data ?? []
@@ -32,7 +38,7 @@ export function useDashboard(mes, año) {
         if (cancelled) return
         setData(kpis)
       } catch (err) {
-        if (!cancelled) console.error('useDashboard:', err)
+        if (!cancelled) setError(err)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -40,7 +46,7 @@ export function useDashboard(mes, año) {
 
     fetchData()
     return () => { cancelled = true }
-  }, [mes, año])
+  }, [mes, año, nonce])
 
-  return { data, loading }
+  return { data, loading, error, retry: () => setNonce(n => n + 1) }
 }

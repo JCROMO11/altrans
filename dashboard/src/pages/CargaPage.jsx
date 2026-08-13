@@ -7,6 +7,7 @@ import { Search, ArrowLeft, Save, CheckCircle, AlertCircle,
 import { supabase } from '../lib/supabase'
 import { useCatalogos } from '../hooks/useCatalogos'
 import { useManifiesto } from '../hooks/useManifiesto'
+import { useToast } from '../components/Toast'
 import { normalizeVal } from '../lib/normalize'
 import { buildPayload } from '../lib/excel-upload'
 
@@ -292,21 +293,6 @@ function SectionCard({ icon: Icon, title, children, cols = 3 }) { // eslint-disa
   )
 }
 
-function Toast({ msg, onClose }) {
-  useEffect(() => {
-    const t = setTimeout(onClose, 4000)
-    return () => clearTimeout(t)
-  }, [onClose])
-  const ok = msg.type === 'success'
-  return (
-    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl text-sm font-medium"
-      style={{ background: ok ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${ok ? '#86EFAC' : '#FECACA'}`, color: ok ? '#166534' : '#DC2626' }}>
-      {ok ? <CheckCircle size={15} /> : <AlertCircle size={15} />}
-      {msg.text}
-    </div>
-  )
-}
-
 // ── Form initial state ───────────────────────────────────────────────────────
 const SEGUIMIENTO_INIT = {
   fecha_cumplido: '', compromiso_pago: 'PAGO A 15 DIAS', novedades: '',
@@ -327,17 +313,17 @@ const FACT_INIT = {
 // ── Excel Upload Panel ───────────────────────────────────────────────────────
 // Campos comparables entre payload y DB para detectar cambios
 const DB_FIELDS = [
-  'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor','celular',
-  'placa','placa_remolque','propietario','agencia_despachadora','nombre_responsable',
+  'fecha_despacho','origen','destino','cliente','celular',
+  'agencia_despachadora','nombre_responsable',
   'valor_remesa','flete_conductor','anticipo','remesas',
+  'reteica','r_fopat',
 ]
 const FIELD_LABELS = {
   fecha_despacho:'Fecha despacho', origen:'Origen', destino:'Destino',
-  cliente:'Cliente', conductor:'Conductor', cedula_conductor:'Cédula', celular:'Celular',
-  placa:'Placa', placa_remolque:'Remolque', propietario:'Propietario',
+  cliente:'Cliente', celular:'Celular',
   agencia_despachadora:'Agencia Despachadora', nombre_responsable:'Responsable',
   valor_remesa:'Valor remesa', flete_conductor:'Flete', anticipo:'Anticipo',
-  remesas:'Remesas',
+  remesas:'Remesas', reteica:'ReteICA', r_fopat:'R. FOPAT',
 }
 const UPLOAD_BATCH = 20
 
@@ -840,12 +826,12 @@ export default function CargaPage({ target, clearTarget, user }) {
   const [confirmDel, setConfirmDel]     = useState(false)
   const [deleteText, setDeleteText]     = useState('')
   const [busy,      setBusy]      = useState(false)
-  const [msg,       setMsg]       = useState(null)
   const [manifiestosFE, setManifiestosFE] = useState(null)
   const [loadingFE, setLoadingFE] = useState(false)
 
   const { catalogos } = useCatalogos()
   const { search, update, remove, updateLogistico, updateEstadoInterno, updateTesoreria, updateFacturacion, getManifiestosPorFE } = useManifiesto()
+  const { success, error } = useToast()
 
   // ── Catalog options ─────────────────────────────────────────────────────────
   const optConductores  = catalogos.conductores.map(c => ({ id: c.nombre, label: c.nombre, sub: c.cedula }))
@@ -881,6 +867,8 @@ export default function CargaPage({ target, clearTarget, user }) {
     flete_conductor:      data.flete_conductor      ?? '',
     anticipo:             data.anticipo             ?? '',
     remesas:              data.remesas              || '',
+    reteica:              data.reteica              ?? '',
+    r_fopat:              data.r_fopat              ?? '',
   })
 
   const loadFicha = (data) => {
@@ -915,7 +903,7 @@ export default function CargaPage({ target, clearTarget, user }) {
     })
   }
 
-  const toast = (type, text) => setMsg({ type, text })
+  const toast = (type, text) => (type === 'success' ? success(text) : error(text))
 
   const revertAll = () => {
     if (!ficha) return
@@ -1315,6 +1303,8 @@ export default function CargaPage({ target, clearTarget, user }) {
                       { l: 'Saldo en planilla',    v: ficha.saldo_en_planilla != null ? `$${Number(ficha.saldo_en_planilla).toLocaleString('es-CO')}` : null },
                       { l: 'Saldo ajustado',v: ficha.saldo != null ? `$${Number(ficha.saldo).toLocaleString('es-CO')}` : null },
                       { l: 'Anticipo',            v: ficha.anticipo             != null ? `$${Number(ficha.anticipo).toLocaleString('es-CO')}` : null },
+                      { l: 'ReteICA',             v: ficha.reteica              != null ? `$${Number(ficha.reteica).toLocaleString('es-CO')}` : null },
+                      { l: 'R. FOPAT',            v: ficha.r_fopat              != null ? `$${Number(ficha.r_fopat).toLocaleString('es-CO')}` : null },
                       { l: 'Remesas',         v: ficha.remesas || null, col: 2 },
                     ].map(({ l, v, col }) => (
                       <div key={l} className="rounded-lg px-3 py-2.5"
@@ -1419,6 +1409,10 @@ export default function CargaPage({ target, clearTarget, user }) {
                   value={formEdit.flete_conductor} onChange={e => fe('flete_conductor')(e.target.value)} />
                 <MoneyInput label="Anticipo"
                   value={formEdit.anticipo} onChange={e => fe('anticipo')(e.target.value)} />
+                <MoneyInput label="ReteICA"
+                  value={formEdit.reteica} onChange={e => fe('reteica')(e.target.value)} />
+                <MoneyInput label="R. FOPAT"
+                  value={formEdit.r_fopat} onChange={e => fe('r_fopat')(e.target.value)} />
               </SectionCard>
               <SectionCard icon={ClipboardList} title="Remesas" cols={1}>
                 <Field label="Códigos de remesa (separados por ;)" col={1}>
@@ -1562,7 +1556,7 @@ export default function CargaPage({ target, clearTarget, user }) {
               </SectionCard>
               {canEditCumplimientoExtra ? (
                 <>
-                <SectionCard icon={ClipboardList} title="Ajustes y descuentos" cols={1}>
+                <SectionCard icon={ClipboardList} title="Reajustes y Descuentos" cols={1}>
                   <div className="flex flex-col gap-2">
                     {formSeg.ajustes_detalle.map((item, idx) => (
                       <div key={idx} className="flex items-start gap-2">
@@ -1837,8 +1831,6 @@ export default function CargaPage({ target, clearTarget, user }) {
           )}
         </div>
       )}
-
-      {msg && <Toast msg={msg} onClose={() => setMsg(null)} />}
     </div>
   )
 }

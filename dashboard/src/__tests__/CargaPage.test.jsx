@@ -32,7 +32,7 @@ vi.mock('../components/Toast', async () => {
   const React = await import('react')
   return {
     ToastProvider: ({ children }) => React.createElement('div', null, children),
-    useToast: () => ({ show: vi.fn() }),
+    useToast: () => ({ show: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() }),
   }
 })
 

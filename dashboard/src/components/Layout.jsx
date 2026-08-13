@@ -1,4 +1,4 @@
-import { LayoutDashboard, Upload, Search, PanelLeftClose, PanelLeftOpen, Truck, LogOut } from 'lucide-react'
+import { LayoutDashboard, Upload, Search, PanelLeftClose, PanelLeftOpen, Truck, LogOut, Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -62,115 +62,149 @@ function RolBadge({ rol, size = 'md' }) {
 
 export default function Layout({ children, page, setPage, user }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   const nombreCompleto = user?.user_metadata?.nombre || user?.app_metadata?.nombre || user?.email?.split('@')[0] || 'Usuario'
   const nombre = abreviarNombre(nombreCompleto)
   const rol    = user?.app_metadata?.role || ''
 
+  const navigate = (id) => { setPage(id); setMobileOpen(false) }
+
+  const sidebarInner = (
+    <>
+      {/* Logo */}
+      <div className={`flex items-center border-b h-14 shrink-0 ${collapsed ? 'justify-center px-0' : 'gap-2 px-4'}`}>
+        <div
+          className="flex items-center justify-center w-7 h-7 rounded-md text-primary-foreground shrink-0"
+          style={{
+            background: 'var(--gradient-brand)',
+            boxShadow: '0 2px 8px 0 rgba(30,111,191,0.25)',
+          }}
+        >
+          <Truck size={14} strokeWidth={2.5} />
+        </div>
+        {!collapsed && (
+          <div className="leading-none">
+            <p className="text-sm font-bold tracking-tight">Altrans</p>
+            <p className="text-[10px] text-muted-foreground">S.A.S</p>
+          </div>
+        )}
+      </div>
+
+      {/* Nav */}
+      <nav className="flex flex-col gap-0.5 p-2 flex-1">
+        {!collapsed && (
+          <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-3 pt-2 pb-1">
+            Módulos
+          </p>
+        )}
+        {navItems.map(({ icon: Icon, label, id }) => { // eslint-disable-line no-unused-vars
+          const active = page === id
+          return (
+            <button
+              key={id}
+              onClick={() => navigate(id)}
+              title={collapsed ? label : undefined}
+              style={active ? {
+                background: 'var(--gradient-brand)',
+                color: '#FFFFFF',
+                boxShadow: '0 2px 8px 0 rgba(30,111,191,0.25)',
+              } : undefined}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                ${collapsed ? 'justify-center' : ''}
+                ${active
+                  ? ''
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                }`}
+            >
+              <Icon size={16} strokeWidth={active ? 2.5 : 2} />
+              {!collapsed && <span>{label}</span>}
+              {!collapsed && active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white/70" />}
+            </button>
+          )
+        })}
+      </nav>
+
+      {/* Footer sidebar */}
+      <div className={`border-t p-3 flex ${collapsed ? 'justify-center' : 'items-center justify-between'}`}>
+        {!collapsed && (
+          <div className="min-w-0 flex flex-col gap-1">
+            <p className="text-[11px] font-medium text-foreground truncate" title={nombreCompleto}>{nombre}</p>
+            <RolBadge rol={rol} size="sm" />
+          </div>
+        )}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="hidden md:block p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          title={collapsed ? 'Expandir' : 'Colapsar'}
+        >
+          {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+        </button>
+        <button
+          onClick={() => setMobileOpen(false)}
+          className="md:hidden p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          title="Cerrar menú"
+        >
+          <X size={15} />
+        </button>
+      </div>
+    </>
+  )
+
   return (
     <div className="flex h-screen bg-background">
 
-      {/* Sidebar */}
+      {/* Sidebar desktop */}
       <aside
-        className={`flex flex-col border-r transition-all duration-300 ease-in-out ${collapsed ? 'w-15' : 'w-56'}`}
+        className={`hidden md:flex flex-col border-r transition-all duration-300 ease-in-out ${collapsed ? 'w-15' : 'w-56'}`}
         style={{ background: 'var(--gradient-sidebar)' }}
       >
-
-        {/* Logo */}
-        <div className={`flex items-center border-b h-14 shrink-0 ${collapsed ? 'justify-center px-0' : 'gap-2 px-4'}`}>
-          <div
-            className="flex items-center justify-center w-7 h-7 rounded-md text-primary-foreground shrink-0"
-            style={{
-              background: 'var(--gradient-brand)',
-              boxShadow: '0 2px 8px 0 rgba(30,111,191,0.25)',
-            }}
-          >
-            <Truck size={14} strokeWidth={2.5} />
-          </div>
-          {!collapsed && (
-            <div className="leading-none">
-              <p className="text-sm font-bold tracking-tight">Altrans</p>
-              <p className="text-[10px] text-muted-foreground">S.A.S</p>
-            </div>
-          )}
-        </div>
-
-        {/* Nav */}
-        <nav className="flex flex-col gap-0.5 p-2 flex-1">
-          {!collapsed && (
-            <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-3 pt-2 pb-1">
-              Módulos
-            </p>
-          )}
-          {navItems.map(({ icon: Icon, label, id }) => { // eslint-disable-line no-unused-vars
-            const active = page === id
-            return (
-              <button
-                key={id}
-                onClick={() => setPage(id)}
-                title={collapsed ? label : undefined}
-                style={active ? {
-                  background: 'var(--gradient-brand)',
-                  color: '#FFFFFF',
-                  boxShadow: '0 2px 8px 0 rgba(30,111,191,0.25)',
-                } : undefined}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                  ${collapsed ? 'justify-center' : ''}
-                  ${active
-                    ? ''
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                  }`}
-              >
-                <Icon size={16} strokeWidth={active ? 2.5 : 2} />
-                {!collapsed && <span>{label}</span>}
-                {!collapsed && active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-white/70" />}
-              </button>
-            )
-          })}
-        </nav>
-
-        {/* Footer sidebar */}
-        <div className={`border-t p-3 flex ${collapsed ? 'justify-center' : 'items-center justify-between'}`}>
-          {!collapsed && (
-            <div className="min-w-0 flex flex-col gap-1">
-              <p className="text-[11px] font-medium text-foreground truncate" title={nombreCompleto}>{nombre}</p>
-              <RolBadge rol={rol} size="sm" />
-            </div>
-          )}
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
-            title={collapsed ? 'Expandir' : 'Colapsar'}
-          >
-            {collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
-          </button>
-        </div>
-
+        {sidebarInner}
       </aside>
+
+      {/* Sidebar móvil (drawer) */}
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
+          <aside
+            className="absolute left-0 top-0 h-full w-64 flex flex-col shadow-2xl"
+            style={{ background: 'var(--gradient-sidebar)' }}
+          >
+            {sidebarInner}
+          </aside>
+        </div>
+      )}
 
       {/* Main */}
       <div className="flex flex-col flex-1 min-w-0">
 
         {/* Header */}
         <header
-          className="flex items-center justify-between border-b px-6 h-14 shrink-0"
+          className="flex items-center justify-between border-b px-4 sm:px-6 h-14 shrink-0"
           style={{
             background: 'var(--gradient-sidebar)',
             boxShadow: 'var(--shadow-soft)',
           }}
         >
-          <div className="flex items-center gap-2">
-            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--gradient-brand)' }} />
-            <h1 className="text-sm font-semibold">{pageTitle[page]}</h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setMobileOpen(true)}
+              className="md:hidden p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+              title="Abrir menú"
+            >
+              <Menu size={16} />
+            </button>
+            <div className="w-1 h-5 rounded-full shrink-0" style={{ background: 'var(--gradient-brand)' }} />
+            <h1 className="text-sm font-semibold truncate">{pageTitle[page]}</h1>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden sm:flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-500" />
               <span className="text-xs text-muted-foreground">Conectado</span>
             </div>
-            <div className="w-px h-4 bg-border" />
+            <div className="hidden sm:block w-px h-4 bg-border" />
             <div className="flex items-center gap-2">
-              <p className="text-xs font-medium leading-none" title={nombreCompleto}>{nombre}</p>
+              <p className="text-xs font-medium leading-none truncate max-w-[120px] sm:max-w-none" title={nombreCompleto}>{nombre}</p>
               <RolBadge rol={rol} size="md" />
             </div>
             <button
@@ -184,7 +218,7 @@ export default function Layout({ children, page, setPage, user }) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 px-6 py-3 flex flex-col overflow-y-scroll">
+        <main className="flex-1 px-4 sm:px-6 py-3 flex flex-col overflow-y-scroll">
           {children}
         </main>
 

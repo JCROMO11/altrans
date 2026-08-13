@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { supabase } from './lib/supabase'
 import Layout from './components/Layout'
 import LoginGate from './components/LoginGate'
 import ErrorBoundary from './components/ErrorBoundary'
 import { ToastProvider } from './components/Toast'
 import DashboardPage from './pages/DashboardPage'
-import CargaPage from './pages/CargaPage'
-import ConsultaPage from './pages/ConsultaPage'
+
+const CargaPage     = lazy(() => import('./pages/CargaPage'))
+const ConsultaPage  = lazy(() => import('./pages/ConsultaPage'))
 
 const INACTIVITY_MS = 8 * 60 * 60 * 1000 // 8 horas
 
@@ -65,14 +66,29 @@ function App() {
     <Layout page={page} setPage={setPage} user={session.user}>
       {page === 'dashboard' && <DashboardPage user={session.user} />}
       {page === 'carga'     && (
-        <CargaPage
-          target={targetManifiesto}
-          clearTarget={() => setTargetManifiesto(null)}
-          user={session.user}
-        />
+        <Suspense fallback={<PageLoader />}>
+          <CargaPage
+            target={targetManifiesto}
+            clearTarget={() => setTargetManifiesto(null)}
+            user={session.user}
+          />
+        </Suspense>
       )}
-      {page === 'consulta'  && <ConsultaPage openEnCarga={openEnCarga} user={session.user} />}
+      {page === 'consulta'  && (
+        <Suspense fallback={<PageLoader />}>
+          <ConsultaPage openEnCarga={openEnCarga} user={session.user} />
+        </Suspense>
+      )}
     </Layout>
+  )
+}
+
+function PageLoader() {
+  return (
+    <div className="flex-1 flex items-center justify-center py-20">
+      <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+        style={{ borderColor: 'var(--primary)' }} />
+    </div>
   )
 }
 

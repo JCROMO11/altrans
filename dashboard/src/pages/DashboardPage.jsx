@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Lock } from 'lucide-react'
+import { Lock, RefreshCw } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -32,6 +32,7 @@ const TICK_XXS = { fontSize: 9,  fill: TICK }
 
 const fmtCOP = v => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v)
 const fmtK   = v => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}K` : String(v)
+const fmtNum = v => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(v)
 
 const fmtKpi = v => {
   if (typeof v !== 'number' || !isFinite(v)) return fmtCOP(0)
@@ -116,7 +117,7 @@ export default function DashboardPage({ user }) {
 
   const mes = mesIdx !== null ? MESES[mesIdx] : null
 
-  const { data, loading } = useDashboard(mes, año)
+  const { data, loading, error, retry } = useDashboard(mes, año)
 
   const periodoLabel = [mes ?? 'Todos los meses', año ? String(año) : 'Todos los años'].join(' · ')
 
@@ -160,10 +161,10 @@ export default function DashboardPage({ user }) {
   ]
 
   const operativos = [
-    { label: 'Manifiestos',         value: data?.totalManifiestos,  textColor: TICK,  borderColor: BLUE  },
-    { label: 'Anulados',            value: data?.anulados,           textColor: ALERT, borderColor: ALERT },
-    { label: 'Conductores activos', value: data?.conductoresActivos, textColor: TICK,  borderColor: BLUE  },
-    { label: 'Rutas activas',       value: data?.rutasActivas,       textColor: TICK,  borderColor: BLUE  },
+    { label: 'Manifiestos',         value: fmtNum(data?.totalManifiestos  ?? 0),  textColor: TICK,  borderColor: BLUE  },
+    { label: 'Anulados',            value: fmtNum(data?.anulados           ?? 0),  textColor: ALERT, borderColor: ALERT },
+    { label: 'Conductores activos', value: fmtNum(data?.conductoresActivos ?? 0),  textColor: TICK,  borderColor: BLUE  },
+    { label: 'Rutas activas',       value: fmtNum(data?.rutasActivas       ?? 0),  textColor: TICK,  borderColor: BLUE  },
   ]
 
   return (
@@ -173,7 +174,7 @@ export default function DashboardPage({ user }) {
       <div className="flex flex-col gap-3 pb-1">
         <p className="text-base font-semibold" style={{ color: TICK }}>{periodoLabel}</p>
 
-        <div className="flex gap-1.5 items-center">
+        <div className="flex gap-1.5 items-center flex-wrap">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest w-8">Año</span>
           <FilterPill label="Todos" active={año === null} onClick={() => setAño(null)} />
           {AÑOS.map(a => <FilterPill key={a} label={String(a)} active={año === a} onClick={() => setAño(a)} />)}
@@ -188,7 +189,23 @@ export default function DashboardPage({ user }) {
         </div>
       </div>
 
-      {/* Row 1: KPIs financieros */}
+      {error && !loading && (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl px-6 py-14"
+          style={{ background: '#FFFFFF', border: `1px solid #FECACA` }}>
+          <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>No se pudieron cargar los datos</p>
+          <p className="text-xs text-center max-w-md" style={{ color: '#6B7280' }}>
+            {error?.message || 'Ocurrió un error inesperado al consultar el servidor.'}
+          </p>
+          <button onClick={retry}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            style={{ background: 'var(--gradient-brand)' }}>
+            <RefreshCw size={14} /> Reintentar
+          </button>
+        </div>
+      )}
+
+      {!error && (
+      <>
       <SectionLabel>Financiero</SectionLabel>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {financieros.map(k => <KpiCard key={k.label} loading={loading} {...k} />)}
@@ -219,7 +236,7 @@ export default function DashboardPage({ user }) {
 
       {/* Row 4: Línea tendencia */}
       <SectionLabel>Tendencia anual</SectionLabel>
-      <ChartCard title={`Facturado vs Ganancia bruta${año ? ` — ${año}` : ''}`}>
+      <ChartCard title={`Facturado vs Fletes${año ? ` — ${año}` : ''}`}>
         {loading ? <ChartSkeleton /> : (
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={data?.lineChart ?? []} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
@@ -227,8 +244,8 @@ export default function DashboardPage({ user }) {
               <XAxis dataKey="mes" tick={TICK_SM} tickLine={false} axisLine={false} />
               <YAxis tickFormatter={fmtK} tick={TICK_SM} width={70} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={TOOLTIP_STYLE}
-                formatter={(v, name) => [fmtCOP(v), name === 'facturado' ? 'Facturado' : 'Ganancia bruta']} />
-              <Legend formatter={v => v === 'facturado' ? 'Facturado' : 'Ganancia bruta'} />
+                formatter={(v, name) => [fmtCOP(v), name === 'facturado' ? 'Facturado' : 'Fletes']} />
+              <Legend formatter={v => v === 'facturado' ? 'Facturado' : 'Fletes'} />
               <Line type="monotone" dataKey="facturado" stroke={BLUE} strokeWidth={2.5} dot={false} />
               <Line type="monotone" dataKey="ganancia"  stroke={GOLD} strokeWidth={2.5} dot={false} strokeDasharray="5 3" />
             </LineChart>
@@ -311,7 +328,8 @@ export default function DashboardPage({ user }) {
             <ResponsiveContainer width="100%" height={240}>
               <BarChart data={data?.chartAgencias ?? []} margin={{ top: 8, right: 16, bottom: 4 }}>
                 <CartesianGrid stroke={GRID} strokeDasharray="3 3" opacity={0.6} vertical={false} />
-                <XAxis dataKey="nombre" tick={TICK_SM} axisLine={false} tickLine={false} />
+                <XAxis dataKey="nombre" tick={TICK_XXS} axisLine={false} tickLine={false}
+                  interval={0} angle={-25} textAnchor="end" height={48} />
                 <YAxis tick={TICK_SM} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Bar dataKey="count" name="Manifiestos" fill={BLUE} radius={[6, 6, 0, 0]} />
@@ -368,6 +386,9 @@ export default function DashboardPage({ user }) {
         </ChartCard>
 
       </div>
+
+      </>
+      )}
 
     </div>
   )
