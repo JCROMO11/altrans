@@ -60,13 +60,22 @@ Notas sobre metadata en Supabase:
 Idempotente: si el usuario ya existe lo actualiza; si no, lo crea.
 
 Uso:
-    python -m etl_individual.seed_users               # crea/actualiza todos
-    python -m etl_individual.seed_users --listar      # lista usuarios actuales
-    python -m etl_individual.seed_users --dry-run     # muestra qué haría sin ejecutar
-    python -m etl_individual.seed_users --solo 1085336031  # solo una cédula
+    python -m etl_individual.seed_users                   # crea/actualiza todos
+    python -m etl_individual.seed_users --generar-pw      # genera password único por usuario
+    python -m etl_individual.seed_users --listar          # lista usuarios actuales
+    python -m etl_individual.seed_users --dry-run         # muestra qué haría sin ejecutar
+    python -m etl_individual.seed_users --solo 1085336031 # solo una cédula
+
+Password por usuario (--generar-pw):
+    Genera una contraseña única y legible por cada usuario: prefijo "Alt26"
+    seguido de 4 pares letra-dígito (p. ej. Alt26D7T3H8V9, ~30 bits de entropía).
+    Las aplica por la Admin API y guarda el mapeo en docs/credenciales_piloto.txt
+    (gitignored) para reenviar a gerencia. Es idempotente: si una cédula ya tiene
+    password no se sobrescribe a menos que se use --forzar-pw.
 """
 import argparse
 import os
+import random
 import sys
 from pathlib import Path
 
@@ -144,6 +153,59 @@ def _email(cedula: str) -> str:
     return f"{cedula}@altrans.internal"
 
 
+# ── Generación de contraseñas (por usuario) ───────────────────────────────────
+# Prefijo común "Alt26" + 4 pares letra-dígito. El prefijo es igual para todos
+# (no aporta entropía), los 8 caracteres aleatorios dan ~30 bits.
+# Alfabeto sin caracteres ambiguos (sin I/O/L, sin 0/1) para que sea fácil de
+# teclear y dictar por WhatsApp.
+
+_PW_PREFIX = "Alt26"
+_PW_LETTERS = "ABCDEFGHJKMNPQRSTUVWXYZ"
+_PW_DIGITS = "23456789"
+_CRED_FILE = Path(__file__).resolve().parent.parent / "docs" / "credenciales_piloto.txt"
+
+
+def _generar_password(rng: random.Random) -> str:
+    code = "".join(rng.choice(_PW_LETTERS) + rng.choice(_PW_DIGITS) for _ in range(4))
+    return _PW_PREFIX + code
+
+
+def _generar_passwords_unicas(usuarios: list[dict], rng: random.Random) -> dict[str, str]:
+    """Cédula → password, todos únicos."""
+    usados: set[str] = set()
+    mapa: dict[str, str] = {}
+    for u in usuarios:
+        pw = _generar_password(rng)
+        while pw in usados:
+            pw = _generar_password(rng)
+        usados.add(pw)
+        mapa[u["cedula"]] = pw
+    return mapa
+
+
+def _escribir_credenciales(mapa: dict[str, str], usuarios: list[dict]) -> Path:
+    """Escribe el mapeo Empleado → PW en docs/credenciales_piloto.txt (gitignored)."""
+    _CRED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lineas = [
+        "CREDENCIALES PRUEBA PILOTO — ALTRANS",
+        "=====================================",
+        "Login: cédula | Contraseña: indicada abajo",
+        "Contraseña inicial obligatoria a cambiar en producción.",
+        "",
+        f"  {'EMPLEADO':<30s} | {'ROL':<11s} | {'USUARIO (cédula)':<17s} | CONTRASEÑA",
+        "  " + "-" * 94,
+    ]
+    por_cedula = {u["cedula"]: u for u in usuarios}
+    for cedula, pw in mapa.items():
+        u = por_cedula[cedula]
+        lineas.append(
+            f"  {u['nombre'][:30]:<30s} | {u['rol']:<11s} | {cedula:<17s} | {pw}"
+        )
+    _CRED_FILE.write_text("\n".join(lineas) + "\n", encoding="utf-8")
+    return _CRED_FILE
+
+
+
 def _list_users() -> list[dict]:
     r = requests.get(ADMIN_API, headers=HEADERS, params={"per_page": 1000}, timeout=15)
     r.raise_for_status()
@@ -180,6 +242,12 @@ def _update(user_id: str, u: dict) -> None:
         raise RuntimeError(f"Actualizar {user_id}: {r.status_code} {r.text}")
 
 
+def _update_password(user_id: str, password: str) -> None:
+    r = requests.put(f"{ADMIN_API}/{user_id}", headers=HEADERS, json={"password": password}, timeout=15)
+    if not r.ok:
+        raise RuntimeError(f"Password {user_id}: {r.status_code} {r.text}")
+
+
 def seed(usuarios: list[dict], password: str, dry_run: bool = False) -> None:
     existentes = _list_users()
     print(f"Usuarios actuales en Supabase: {len(existentes)}\n")
@@ -208,6 +276,47 @@ def seed(usuarios: list[dict], password: str, dry_run: bool = False) -> None:
         print("Login: cédula como usuario, contraseña arriba.")
 
 
+def seed_passwords(usuarios: list[dict], dry_run: bool = False, forzar: bool = False) -> None:
+    """Genera password único por usuario.
+
+    Sin --forzar-pw: solo crea los usuarios que no existen (con su pw generado);
+    los existentes quedan intactos. Con --forzar-pw: sobrescribe el password
+    de todos y reescribe el archivo de credenciales.
+    """
+    existentes = _list_users()
+    por_email = {_email(u["cedula"]): u for u in usuarios}
+    rng = random.Random()
+
+    mapa = _generar_passwords_unicas(usuarios, rng)
+    print(f"Usuarios actuales en Supabase: {len(existentes)}\n")
+    aplicados: list[dict] = []
+    for email, u in por_email.items():
+        existente = _find_by_email(email, existentes)
+        pw = mapa[u["cedula"]]
+        if existente and not forzar:
+            print(f"  · {u['rol']:12s} {u['cedula']:12s}  {u['nombre']} — ya existe, sin cambios")
+            continue
+        if existente:
+            if not dry_run:
+                _update_password(existente["id"], pw)
+            tag = "[DRY]" if dry_run else "✓"
+            print(f"  {tag} {u['rol']:12s} {u['cedula']:12s}  {pw}  (sobrescrito)")
+        else:
+            if not dry_run:
+                _create(u, pw)
+            tag = "[DRY]" if dry_run else "✚"
+            print(f"  {tag} {u['rol']:12s} {u['cedula']:12s}  {pw}  (creado)")
+        aplicados.append(u)
+
+    if not dry_run and aplicados:
+        archivo = _escribir_credenciales(mapa, usuarios)
+        print(f"\n✅ Passwords aplicados y guardados en {archivo} (gitignored)")
+    elif dry_run:
+        print("\n[DRY] No se aplicó nada.")
+    else:
+        print("\nNada que aplicar.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Seed de usuarios de producción en Supabase Auth (login por cédula)")
@@ -217,6 +326,10 @@ def main() -> int:
                         help=f"Password inicial (default: {DEFAULT_PASSWORD})")
     parser.add_argument("--listar",   action="store_true",
                         help="Solo listar usuarios actuales y su rol")
+    parser.add_argument("--generar-pw", action="store_true",
+                        help="Genera password único por usuario y lo aplica (guarda en docs/)")
+    parser.add_argument("--forzar-pw", action="store_true",
+                        help="Con --generar-pw: sobrescribe passwords existentes (default: no)")
     parser.add_argument("--dry-run",  action="store_true",
                         help="Mostrar qué haría sin ejecutar nada")
     args = parser.parse_args()
@@ -248,6 +361,10 @@ def main() -> int:
     target = [u for u in USUARIOS if u["cedula"] == args.solo] if args.solo else USUARIOS
     if args.solo and not target:
         sys.exit(f"ERROR: cédula {args.solo!r} no encontrada en USUARIOS")
+
+    if args.generar_pw:
+        seed_passwords(target, dry_run=args.dry_run, forzar=args.forzar_pw)
+        return 0
 
     seed(target, args.password, dry_run=args.dry_run)
     return 0
