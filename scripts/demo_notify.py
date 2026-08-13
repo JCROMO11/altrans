@@ -6,7 +6,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 phone = os.environ.get('PHONE', sys.argv[1] if len(sys.argv) > 1 else '573145285119')
 tok   = os.environ['WA_TOKEN']
 pnid  = os.environ['WA_PHONE_NUMBER_ID']
-url   = f"https://graph.facebook.com/v20.0/{pnid}/messages"
+url   = f"https://graph.facebook.com/v23.0/{pnid}/messages"
 headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
 
 def wa(msg):

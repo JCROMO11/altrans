@@ -15,7 +15,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = "https://graph.facebook.com/v20.0"
+_BASE_URL = "https://graph.facebook.com/v23.0"
 _MAX_RETRIES = 3
 _RETRY_BACKOFF = 2.0  # segundos base, exponencial: 2, 4, 8
 _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}

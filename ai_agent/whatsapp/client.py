@@ -10,7 +10,7 @@ _HEADERS = {
 }
 
 _CLIENT = httpx.AsyncClient(
-    base_url=f"https://graph.facebook.com/v20.0/{_PHONE_NUMBER_ID}",
+    base_url=f"https://graph.facebook.com/v23.0/{_PHONE_NUMBER_ID}",
     headers=_HEADERS,
     timeout=10.0,
     limits=httpx.Limits(

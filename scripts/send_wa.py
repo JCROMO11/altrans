@@ -10,7 +10,7 @@ if not phone or not msg:
     sys.exit(1)
 
 r = httpx.post(
-    f"https://graph.facebook.com/v20.0/{os.environ['WA_PHONE_NUMBER_ID']}/messages",
+    f"https://graph.facebook.com/v23.0/{os.environ['WA_PHONE_NUMBER_ID']}/messages",
     headers={"Authorization": f"Bearer {os.environ['WA_TOKEN']}", "Content-Type": "application/json"},
     json={"messaging_product": "whatsapp", "to": phone, "type": "text", "text": {"body": msg}},
     timeout=10)
