@@ -33,6 +33,10 @@ _PK = {
     "chatbot_sesiones":  "wa_from",
     "processed_messages": "message_id",
     "jailbreak_log":     "id",
+    "messages_sent":     "id",
+    "system_prompts":    "id",
+    "app_logs":          "id",
+    "admin_usuarios":    "wa_from",
 }
 
 # Campos numéricos a verificar en manifiestos_flat (suma CSV == suma DB)

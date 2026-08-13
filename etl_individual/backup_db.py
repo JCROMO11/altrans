@@ -35,6 +35,10 @@ TABLES = [
     "chatbot_sesiones",
     "processed_messages",
     "jailbreak_log",
+    "messages_sent",
+    "system_prompts",
+    "app_logs",
+    "admin_usuarios",
 ]
 
 # Columnas estructuradas para manifiestos_flat (incluye dias_cumplido calculado)

@@ -30,6 +30,10 @@ _TABLES = [
     "chatbot_sesiones",
     "processed_messages",
     "jailbreak_log",
+    "messages_sent",
+    "system_prompts",
+    "app_logs",
+    "admin_usuarios",
 ]
 
 _TABLE_LABELS = {
@@ -38,6 +42,10 @@ _TABLE_LABELS = {
     "chatbot_sesiones":   "Sesiones del chatbot WhatsApp",
     "processed_messages": "Mensajes de WhatsApp procesados",
     "jailbreak_log":      "Intentos de ataque bloqueados",
+    "messages_sent":      "Notificaciones enviadas (messages_sent)",
+    "system_prompts":     "Prompts del chatbot (system_prompts)",
+    "app_logs":           "Logs de la aplicacion (app_logs)",
+    "admin_usuarios":     "Usuarios admin (admin_usuarios)",
 }
 
 _PAGE_SIZE = 1000
