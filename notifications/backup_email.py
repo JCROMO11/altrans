@@ -1,10 +1,15 @@
 """
-Backup de todas las tablas -> ZIP -> Email via SMTP (Brevo).
+Backup de todas las tablas -> ZIP -> Email via Brevo.
+
+Prefiere el envío por API HTTP de Brevo (BREVO_API_KEY) porque Railway bloquea
+el SMTP saliente en planes no-Pro. Si no hay API key, cae a SMTP (BREVO_SMTP_LOGIN
+y BREVO_SMTP_PASSWORD) para entornos locales.
 
 Accede a Supabase via REST (httpx) - sin dependencias pesadas (psycopg2/pandas).
-Requiere: BREVO_SMTP_LOGIN, BREVO_SMTP_PASSWORD, BACKUP_EMAIL_FROM, BACKUP_EMAIL_TO,
-          SUPABASE_URL, SUPABASE_SERVICE_KEY.
+Requiere: BACKUP_EMAIL_FROM, BACKUP_EMAIL_TO, SUPABASE_URL, SUPABASE_SERVICE_KEY
+          y BREVO_API_KEY (o credenciales SMTP).
 """
+import base64
 import csv
 import io
 import logging
@@ -144,19 +149,16 @@ def _build_zip() -> tuple[bytes, dict[str, int]]:
     return buf.getvalue(), counts
 
 
-def _send_email_smtp(
-    zip_bytes: bytes,
-    counts: dict[str, int],
-    recipients: list[str],
-    consistency: dict[str, dict] | None = None,
-) -> None:
-    smtp_login = os.environ["BREVO_SMTP_LOGIN"]
-    smtp_password = os.environ["BREVO_SMTP_PASSWORD"]
-    from_email = os.environ.get("BACKUP_EMAIL_FROM", "jromoguijarro@gmail.com")
+_BREVO_API = "https://api.brevo.com/v3/smtp/email"
+_BREVO_ATTACHMENT_LIMIT = 8 * 1024 * 1024
 
+
+def _email_content(zip_bytes: bytes, counts: dict[str, int], recipients: list[str],
+                   consistency: dict[str, dict] | None) -> tuple[str, str, str]:
+    """Retorna (subject, body_text, fname) comunes a SMTP y a la API de Brevo."""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    label_of = _TABLE_LABELS
-    lines = [f"  . {label_of.get(t, t)}: {n:,} filas" if n >= 0 else f"  . {label_of.get(t, t)}: ERROR (revisar logs)"
+    lines = [f"  . {_TABLE_LABELS.get(t, t)}: {n:,} filas" if n >= 0
+             else f"  . {_TABLE_LABELS.get(t, t)}: ERROR (revisar logs)"
              for t, n in counts.items()]
 
     consistency_block = ""
@@ -164,9 +166,8 @@ def _send_email_smtp(
         all_ok = all(v["ok"] for v in consistency.values())
         status_icon = "OK" if all_ok else "MISMATCH"
         check_lines = []
-        label_of = _TABLE_LABELS
         for t, v in consistency.items():
-            label = label_of.get(t, t)
+            label = _TABLE_LABELS.get(t, t)
             if v["ok"]:
                 check_lines.append(f"  OK {label}: {v['backup']:,} filas (coincide con DB)")
             else:
@@ -184,13 +185,27 @@ def _send_email_smtp(
         f"\n\nTamano del ZIP: {len(zip_bytes) // 1024} KB"
         + consistency_block
     )
-
     fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+    subject = f"Copia de seguridad Altrans - {ts}"
+    return subject, body, fname
+
+
+def _send_email_smtp(
+    zip_bytes: bytes,
+    counts: dict[str, int],
+    recipients: list[str],
+    consistency: dict[str, dict] | None = None,
+) -> None:
+    smtp_login = os.environ["BREVO_SMTP_LOGIN"]
+    smtp_password = os.environ["BREVO_SMTP_PASSWORD"]
+    from_email = os.environ.get("BACKUP_EMAIL_FROM", "jromoguijarro@gmail.com")
+
+    subject, body, fname = _email_content(zip_bytes, counts, recipients, consistency)
 
     msg = MIMEMultipart()
     msg["From"] = from_email
     msg["To"] = ", ".join(recipients)
-    msg["Subject"] = f"Copia de seguridad Altrans - {ts}"
+    msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
 
     part = MIMEApplication(zip_bytes, _subtype="zip")
@@ -203,9 +218,53 @@ def _send_email_smtp(
         server.send_message(msg)
 
     logger.info("email_sent", extra={
-        "recipients": recipients,
-        "zip_kb": len(zip_bytes) // 1024,
+        "recipients": recipients, "zip_kb": len(zip_bytes) // 1024, "via": "smtp",
     })
+
+
+def _send_email_api(
+    zip_bytes: bytes,
+    counts: dict[str, int],
+    recipients: list[str],
+    consistency: dict[str, dict] | None = None,
+) -> None:
+    api_key = os.environ.get("BREVO_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("BREVO_API_KEY no configurado (requerido para envío por API HTTP)")
+    if len(zip_bytes) > _BREVO_ATTACHMENT_LIMIT:
+        raise RuntimeError(
+            f"ZIP demasiado grande para la API de Brevo: {len(zip_bytes) // 1024 // 1024} MB "
+            f"(límite 8 MB)"
+        )
+    from_email = os.environ.get("BACKUP_EMAIL_FROM", "jromoguijarro@gmail.com")
+
+    subject, body, fname = _email_content(zip_bytes, counts, recipients, consistency)
+
+    payload = {
+        "sender":   {"email": from_email, "name": "Altrans Backups"},
+        "to":       [{"email": r} for r in recipients],
+        "subject":  subject,
+        "textContent": body,
+        "attachment": [{"name": fname, "content": base64.b64encode(zip_bytes).decode("ascii")}],
+    }
+    r = httpx.post(_BREVO_API, headers={"api-key": api_key}, json=payload, timeout=180)
+    r.raise_for_status()
+    logger.info("email_sent", extra={
+        "recipients": recipients, "zip_kb": len(zip_bytes) // 1024, "via": "brevo-api",
+    })
+
+
+def _send_email(
+    zip_bytes: bytes,
+    counts: dict[str, int],
+    recipients: list[str],
+    consistency: dict[str, dict] | None = None,
+) -> None:
+    """Envía el ZIP por API HTTP de Brevo si hay key; si no, por SMTP."""
+    if os.environ.get("BREVO_API_KEY", ""):
+        _send_email_api(zip_bytes, counts, recipients, consistency)
+    else:
+        _send_email_smtp(zip_bytes, counts, recipients, consistency)
 
 
 def run_backup_and_email(recipients: list[str] | None = None) -> dict:
@@ -234,7 +293,7 @@ def run_backup_and_email(recipients: list[str] | None = None) -> dict:
     if not all_ok:
         logger.warning("backup_consistency_mismatch", extra={"consistency": consistency})
 
-    _send_email_smtp(zip_bytes, counts, recipients, consistency)
+    _send_email(zip_bytes, counts, recipients, consistency)
 
     logger.info("backup_complete", extra={
         "counts": counts, "zip_kb": len(zip_bytes) // 1024,
