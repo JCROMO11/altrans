@@ -417,31 +417,10 @@ CREATE TRIGGER trg_audit_manifiestos_delete
     FOR EACH ROW EXECUTE FUNCTION public.fn_audit_manifiestos_delete();
 
 
--- ── Trigger: auto-notificar saldo_plazo_vigente al marcar fecha_cumplido ─────
-CREATE OR REPLACE FUNCTION public.fn_notify_plazo_vigente()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = ''
-AS $$
-BEGIN
-    IF NEW.fecha_cumplido IS NOT NULL
-       AND (OLD.fecha_cumplido IS NULL OR OLD.fecha_cumplido IS DISTINCT FROM NEW.fecha_cumplido)
-       AND NEW.fecha_pago IS NULL
-       AND NEW.estado_interno IS DISTINCT FROM 'ANULADO'
-       AND NEW.celular ~ '^\d{10}$'
-    THEN
-        INSERT INTO public.messages_sent (manifiesto, template_name, phone, status)
-        VALUES (NEW.manifiesto, 'saldo_plazo_vigente', NEW.celular, 'pending')
-        ON CONFLICT DO NOTHING;
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER trg_notify_plazo_vigente
-    AFTER UPDATE OF fecha_cumplido ON public.manifiestos_flat
-    FOR EACH ROW EXECUTE FUNCTION public.fn_notify_plazo_vigente();
+-- saldo_plazo_vigente NO tiene trigger propio: se calcula en vivo vía
+-- get_pendientes_notificacion (única fuente de verdad para los templates de
+-- saldo). Un trigger anterior insertaba filas pending huérfanas que nadie
+-- consumía; se eliminó para no ensuciar messages_sent.
 
 
 -- ── Trigger: notificar pago_realizado al marcar fecha_pago ─────────────────
@@ -1124,6 +1103,8 @@ $$;
 -- Guardrail de novedades: valores cortos ≤3 chars (".", "ok", "si") o ruido
 -- de clasificación ("TURBO", "URBANO", "TIPO VEHICULO", etc.) se ignoran
 -- y caen a la siguiente categoría en orden de prioridad.
+-- NOTA: este RPC es la ÚNICA fuente de verdad del guardrail de novedades.
+-- El servicio de notificaciones NO debe reimplementarlo en Python.
 CREATE OR REPLACE FUNCTION public.get_pendientes_notificacion()
 RETURNS TABLE (
     manifiesto      BIGINT,
@@ -1891,7 +1872,6 @@ REVOKE EXECUTE ON FUNCTION public.consulta_alertas_vencimiento(TEXT)            
 REVOKE EXECUTE ON FUNCTION public.get_catalogos()                                                                                                             FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.get_manifiestos_por_fe(TEXT)                                                                                                FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.get_pendientes_notificacion()                                                                                               FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION public.fn_notify_plazo_vigente()                                                                                                   FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.fn_notify_pago_realizado()                                                                                                   FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.get_usuarios()                                                                                                              FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.guardar_digitador(BIGINT, TEXT, TEXT, SMALLINT, DATE, TEXT, INTEGER, DATE, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC, NUMERIC, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, NUMERIC) FROM PUBLIC, anon;

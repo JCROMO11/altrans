@@ -56,26 +56,6 @@ _SPANISH_MONTHS = {
     9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
 }
 
-# Tokens que NO son novedades reales — son clasificación de vehículo o servicio.
-# Coincide con el guardrail del RPC get_pendientes_notificacion.
-_NOVEDAD_NOISE = ("TIPO VEHICULO", "TIPO VEHÍCULO", "TURBO", "URBANO", "URBANOS")
-
-
-def _is_novedad_noise(novedades: str | None) -> bool:
-    """True si novedades solo contiene ruido (clasificación, no problema real).
-
-    Coincide con la lógica del RPC get_pendientes_notificacion (es_novedad_real).
-    """
-    if not novedades or not novedades.strip():
-        return True
-    nov = novedades.strip()
-    if len(nov) <= 3:
-        return True
-    if len(nov) < 60 and any(t in nov.upper() for t in _NOVEDAD_NOISE):
-        return True
-    return False
-
-
 # Nombre real de cada plantilla en la WABA (creadas en scripts/crear_plantillas_altrans.py)
 _TEMPLATE_NAMES = {
     "saldo_falta_factura":       "altrans_saldo_falta_factura",
@@ -209,6 +189,8 @@ def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[d
         m = row["manifiesto"]
         info = lookup.get(m)
         if not info or not info.get("valor_pagado"):
+            _log_sent(m, "pago_realizado", row["phone"], "skipped",
+                      "sin valor_pagado en manifiestos_flat", ms_id=row["id"])
             continue
         result.append({
             "ms_id": row["id"],
@@ -334,13 +316,8 @@ def run_auto_notify(manifestos: list[int] | None = None,
                          extra={"manifiesto": manifiesto, "reason": "missing phone or template"})
             continue
 
-        # Defense in depth: saltar saldo_novedad_pendiente si novedades es ruido
-        if template == 'saldo_novedad_pendiente' and _is_novedad_noise(item.get('novedades')):
-            skipped += 1
-            logger.debug("auto_notify_skipped",
-                         extra={"manifiesto": manifiesto, "reason": "novedad noise"})
-            continue
-
+        # El guardrail de novedades (es_novedad_real) vive SOLO en el RPC
+        # get_pendientes_notificacion: si llegó aquí, ya pasó el filtro.
         template_name_real = _TEMPLATE_NAMES.get(template)
         if not template_name_real:
             skipped += 1
