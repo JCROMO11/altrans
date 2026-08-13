@@ -1,9 +1,12 @@
 """
-Backup de todas las tablas -> ZIP -> Email via Brevo.
+Backup de todas las tablas -> ZIP -> Email via Brevo + bucket de Supabase Storage.
 
 Prefiere el envío por API HTTP de Brevo (BREVO_API_KEY) porque Railway bloquea
 el SMTP saliente en planes no-Pro. Si no hay API key, cae a SMTP (BREVO_SMTP_LOGIN
 y BREVO_SMTP_PASSWORD) para entornos locales.
+
+El ZIP tambien se sube a Supabase Storage (bucket "altrans-backups", privado),
+conservando solo los ultimos 7 backups.
 
 Accede a Supabase via REST (httpx) - sin dependencias pesadas (psycopg2/pandas).
 Requiere: BACKUP_EMAIL_FROM, BACKUP_EMAIL_TO, SUPABASE_URL, SUPABASE_SERVICE_KEY
@@ -56,6 +59,10 @@ _TABLE_LABELS = {
 _PAGE_SIZE = 1000
 _MAX_RETRIES = 3
 _RETRY_DELAY = 30
+
+_STORAGE_BUCKET = "altrans-backups"
+_STORAGE_PREFIX = "backups"
+_STORAGE_KEEP = 7
 
 
 def _supabase_headers() -> dict:
@@ -267,6 +274,66 @@ def _send_email(
         _send_email_smtp(zip_bytes, counts, recipients, consistency)
 
 
+def _storage_headers() -> dict:
+    key = os.environ["SUPABASE_SERVICE_KEY"]
+    return {
+        "apikey":        key,
+        "Authorization": f"Bearer {key}",
+    }
+
+
+def _ensure_storage_bucket(client: httpx.Client) -> None:
+    r = client.get(f"/bucket/{_STORAGE_BUCKET}", headers=_storage_headers())
+    if r.status_code == 200:
+        return
+    r = client.post(
+        "/bucket",
+        headers=_storage_headers(),
+        json={"name": _STORAGE_BUCKET, "public": False},
+    )
+    r.raise_for_status()
+    logger.info("storage_bucket_created", extra={"bucket": _STORAGE_BUCKET})
+
+
+def _upload_to_storage(client: httpx.Client, zip_bytes: bytes, fname: str) -> None:
+    path = f"{_STORAGE_PREFIX}/{fname}"
+    r = client.post(
+        f"/object/{_STORAGE_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": "application/octet-stream"},
+        content=zip_bytes,
+    )
+    r.raise_for_status()
+    logger.info("storage_uploaded", extra={"path": path, "zip_kb": len(zip_bytes) // 1024})
+
+
+def _prune_storage(client: httpx.Client) -> None:
+    r = client.post(
+        f"/object/list/{_STORAGE_BUCKET}",
+        headers=_storage_headers(),
+        json={"prefix": _STORAGE_PREFIX, "limit": 200, "offset": 0},
+    )
+    r.raise_for_status()
+    names = sorted(o["name"] for o in r.json() if o.get("name", "").endswith(".zip"))
+    to_delete = names[:-_STORAGE_KEEP] if len(names) > _STORAGE_KEEP else []
+    if not to_delete:
+        return
+    paths = [f"{_STORAGE_PREFIX}/{name}" for name in to_delete]
+    r = client.delete(
+        f"/object/{_STORAGE_BUCKET}",
+        headers=_storage_headers(),
+        json={"prefixes": paths},
+    )
+    r.raise_for_status()
+    logger.info("storage_pruned", extra={"deleted": paths, "remaining": names[-_STORAGE_KEEP:]})
+
+
+def _upload_to_storage_and_prune(zip_bytes: bytes, fname: str) -> None:
+    with httpx.Client(timeout=60, base_url=f"{os.environ['SUPABASE_URL']}/storage/v1") as client:
+        _ensure_storage_bucket(client)
+        _upload_to_storage(client, zip_bytes, fname)
+        _prune_storage(client)
+
+
 def run_backup_and_email(recipients: list[str] | None = None) -> dict:
     """Ejecuta el backup completo, verifica consistencia y envia email."""
     if recipients is None:
@@ -294,6 +361,9 @@ def run_backup_and_email(recipients: list[str] | None = None) -> dict:
         logger.warning("backup_consistency_mismatch", extra={"consistency": consistency})
 
     _send_email(zip_bytes, counts, recipients, consistency)
+
+    fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+    _upload_to_storage_and_prune(zip_bytes, fname)
 
     logger.info("backup_complete", extra={
         "counts": counts, "zip_kb": len(zip_bytes) // 1024,
