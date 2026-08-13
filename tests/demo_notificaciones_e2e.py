@@ -450,7 +450,7 @@ def verify_messages_sent(first_run: bool = True) -> bool:
 
     # 5040: ya notificado → no debe reaparecer
     rows40 = seen.get(5040) or []
-    new40 = [r for r in rows40 if r[6] and r[6].date() == datetime.now(TZ_COLOMBIA).date()]
+    new40 = [r for r in rows40 if r[6] and r[6].astimezone(TZ_COLOMBIA).date() == datetime.now(TZ_COLOMBIA).date()]
     if new40:
         print(f"  {FAIL} manif 5040: se reenvió a pesar de dedup: {new40}")
         all_ok = False
@@ -517,7 +517,7 @@ def verify_cycle(interval_minutes: int = 5, timeout_minutes: int = 30) -> bool:
 
     # 5040: ya notificado → no debe reaparecer hoy
     rows40 = get_msgs(5040)
-    new40 = [r for r in rows40 if r[6] and r[6].date() == datetime.now(TZ_COLOMBIA).date()]
+    new40 = [r for r in rows40 if r[6] and r[6].astimezone(TZ_COLOMBIA).date() == datetime.now(TZ_COLOMBIA).date()]
     if new40:
         print(f"  {FAIL} manif 5040: se reenvió a pesar de dedup: {new40}")
         all_ok = False
