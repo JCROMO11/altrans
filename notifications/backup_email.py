@@ -186,7 +186,7 @@ def _email_content(zip_bytes: bytes, counts: dict[str, int], recipients: list[st
         + consistency_block
     )
     fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
-    subject = f"Copia de seguridad Altrans - {ts}"
+    subject = f"Backup Altrans: {ts}"
     return subject, body, fname
 
 
