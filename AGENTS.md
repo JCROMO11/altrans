@@ -1,4 +1,4 @@
-# Workflow — Sesión 24 Julio 2026
+# Workflow — Sesión 19 Agosto 2026
 
 ## Estado Actual
 
@@ -23,6 +23,12 @@
 4. Usuario consulta saldos, manifiestos, etc.
 - Límite: 4 consultas por sesión, sesión expira en 8h
 - Tasa: 5 msg/min, rate limiter con cola
+
+### LLM — Proveedores y fallback
+- Cadena: **DeepSeek directo** (`deepseek-chat`, primario) → **OpenRouter** (`deepseek/deepseek-v4-flash`, alt) → **Groq** (`openai/gpt-oss-20b`, última línea, free tier)
+- DeepSeek es la fuente principal; Groq sirvió de respaldo mientras faltaba `DEEPSEEK_API_KEY` en Railway (ya se agregó)
+- **PREGUNTAR EN LA EMPRESA**: ¿la empresa recargará créditos en los 3 servicios? Recomendación: recargar DeepSeek ($5, es la primaria), **no** recargar OpenRouter (agrega markup sobre el mismo modelo DeepSeek → doble gasto; dejar solo como respaldo ante caída de DeepSeek con crédito mínimo), mantener Groq gratis como última línea
+- ⚠️ OpenRouter actualmente con 402 (créditos agotados); Groq es el respaldo efectivo hoy
 
 ### Notificaciones — Envío manual funciona ✅
 - 4 plantillas: `saldo_falta_factura`, `saldo_falta_documentacion`, `saldo_novedad_pendiente`, `saldo_plazo_vigente`
