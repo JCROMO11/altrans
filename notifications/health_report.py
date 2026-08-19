@@ -14,6 +14,11 @@ Revisa en un solo lugar el estado de todos los módulos de ALTRANS:
     - Última actualización de manifiestos_flat (ETL/dashboard)
     - Backup del día anterior (log scheduler_backup_done en app_logs)
 
+  Servicios IA (cadena LLM del chatbot)
+    - DeepSeek (primario): key + balance vía /user/balance
+    - OpenRouter (alt): key + uso/límite vía /auth/key
+    - Groq (última línea, free): key vía /models
+
   Actividad del chatbot / notificaciones
     - Auto-notify de hoy (messages_sent: enviados y con error)
     - Sesiones activas y bloqueadas
@@ -191,6 +196,92 @@ def _check_errores_app(client: httpx.Client) -> tuple[str, str]:
         return _FAIL, str(exc)[:80]
 
 
+# ── Servicios IA (API keys de la cadena LLM) ─────────────────────────────────
+
+def _check_deepseek() -> tuple[str, str]:
+    """Key primaria de DeepSeek vía balance (GET /user/balance, no gasta tokens)."""
+    key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not key:
+        return _WARN, "no configurada (la cadena salta a OpenRouter)"
+    try:
+        r = httpx.get(
+            "https://api.deepseek.com/user/balance",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return _FAIL, f"HTTP {r.status_code} {r.text[:60]!r}"
+        data = r.json()
+        if not data.get("is_available"):
+            return _FAIL, "cuenta no disponible (sin saldo)"
+        total = ", ".join(
+            f"{bi.get('total_balance')} {bi.get('currency', '')}" for bi in data.get("balance_infos", [])
+        ) or "?"
+        return _OK, f"key OK, balance {total}"
+    except Exception as exc:
+        return _FAIL, str(exc)[:80]
+
+
+def _check_openrouter() -> tuple[str, str]:
+    """Key de OpenRouter: verifica /auth/key y una llamada mínima (max_tokens=1).
+
+    /auth/key responde 200 aunque el saldo esté agotado (402 en chat completions),
+    así que se comprueba una llamada real de 1 token para detectar créditos.
+    """
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not key:
+        return _WARN, "no configurada (la cadena salta a Groq)"
+    try:
+        r = httpx.get(
+            "https://openrouter.ai/api/v1/auth/key",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return _FAIL, f"auth HTTP {r.status_code} {r.text[:60]!r}"
+        data = r.json().get("data", {})
+        usage = data.get("usage")
+        limit = data.get("limit")
+        resp = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}"},
+            json={
+                "model": "deepseek/deepseek-v4-flash",
+                "messages": [{"role": "user", "content": "di ok"}],
+                "max_tokens": 1,
+            },
+            timeout=_TIMEOUT,
+        )
+        if resp.status_code == 402:
+            return _FAIL, "créditos agotados (402, agregar saldo en OpenRouter)"
+        if resp.status_code != 200:
+            return _FAIL, f"chat HTTP {resp.status_code} {resp.text[:60]!r}"
+        detalle = f"uso {usage:,.0f}" if isinstance(usage, (int, float)) else "key OK"
+        if isinstance(limit, (int, float)) and limit > 0:
+            detalle += f"/{limit:,.0f}"
+        return _OK, detalle
+    except Exception as exc:
+        return _FAIL, str(exc)[:80]
+
+
+def _check_groq() -> tuple[str, str]:
+    """Key de Groq (última línea, free) vía GET /models."""
+    key = os.environ.get("GROQ_API_KEY", "").strip()
+    if not key:
+        return _WARN, "no configurada (última línea sin respaldo)"
+    try:
+        r = httpx.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=_TIMEOUT,
+        )
+        if r.status_code != 200:
+            return _FAIL, f"HTTP {r.status_code} {r.text[:60]!r}"
+        return _OK, "key OK"
+    except Exception as exc:
+        return _FAIL, str(exc)[:80]
+
+
 def _check_datos(client: httpx.Client) -> tuple[str, str]:
     """Filas + frescura de manifiestos_flat."""
     try:
@@ -245,6 +336,13 @@ def run_morning_check() -> dict:
     # ── Infraestructura / datos ──
     est, det = _check_wa_token()
     checks.append((est, "WA_TOKEN", det))
+
+    # ── Servicios IA (cadena LLM del chatbot) ──
+    for nombre, fn in (("DeepSeek", _check_deepseek),
+                       ("OpenRouter", _check_openrouter),
+                       ("Groq", _check_groq)):
+        est, det = fn()
+        checks.append((est, f"IA {nombre}", det))
 
     try:
         with httpx.Client(timeout=_TIMEOUT) as client:
