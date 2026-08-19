@@ -52,3 +52,9 @@
 #### 3. Modificaciones de gerencia (pendientes)
 - User tiene "respuestas de gerencia" con cambios a implementar
 - Revisar requerimientos y modificar código del chatbot/notificaciones
+
+#### 4. WA_APP_SECRET (HMAC del webhook) — pendiente de producción real
+- `WA_APP_SECRET` (App Secret de la app de Meta "Altrans Chatbot") está **vacío/ausente**: la validación `X-Hub-Signature-256` del webhook se omite (`hmac_skipped_no_secret` en main.py)
+- Configurarlo **después** de la verificación del negocio de Meta, cuando esté listo para producción real
+- Se obtiene en Meta Developer Portal → Configuración → Básico → "Clave secreta de la aplicación" (es distinto de WA_TOKEN y WA_VERIFY_TOKEN)
+- Configurar en Railway (Chatbot Altrans) y en `.env` local; luego probar webhook completo
