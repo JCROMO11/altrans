@@ -1,6 +1,6 @@
 .PHONY: help setup status count dedup-check verify-load verify-schema \
         db-reset etl load backup verify-backup verify-backup-email seed-users seed-users-dry list-users \
-        chatbot-status \
+        chatbot-status morning-check \
         test-db test-etl test-webhook test-dashboard test-agent \
         test-agent-propietario test-agent-multi test-concurrency test-moderacion test-all \
         test-excel-pre test-excel-post test-excel-generar \
@@ -164,6 +164,15 @@ list-users:
 
 chatbot-status:
 	$(PY) ai_agent/scripts/chatbot_status.py
+
+# Uso: make morning-check [NOTIF_URL=<url>]
+NOTIF_URL ?= http://127.0.0.1:8080
+
+morning-check:
+	@test -n "$$(grep '^ADMIN_TOKEN=' .env | cut -d= -f2-)" || (echo "ERROR: ADMIN_TOKEN no está en .env"; exit 1)
+	@curl -s -X POST "$(NOTIF_URL)/admin/morning-check" \
+	    -H "x-admin-token: $$(grep '^ADMIN_TOKEN=' .env | cut -d= -f2-)" \
+	    -w "\n[HTTP %{http_code}]\n"
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 

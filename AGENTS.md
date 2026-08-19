@@ -37,6 +37,22 @@
 - Las notificaciones automáticas fallaron porque el WA_TOKEN del servicio Notifications estaba desactualizado. **Ya se actualizó**.
 - Demo script: `tests/demo_notificaciones_20260717.py`
 
+### Monitoreo — Chequeo matutino (implementado en sesión del 19-ago-2026)
+- `notifications/health_report.py`: `run_morning_check()` revisa en un solo lugar:
+  - Servicios: Chatbot `/health`, Notifications `/health`, Dashboard `/`
+  - Infraestructura: vigencia WA_TOKEN (debug_token), filas+frescura de `manifiestos_flat`,
+    último backup (bucket `altrans-backups`), auto-notify de hoy (`messages_sent`),
+    sesiones activas/bloqueadas, jailbreaks y errores ERROR (24h)
+- Se ejecuta automáticamente todos los días a las **7:00 AM Colombia** (job `morning_report`
+  en `scheduler.py`), y manualmente con `POST /admin/morning-check` (header `x-admin-token`)
+  o `make morning-check`
+- Envía el resumen por email (Brevo) y/o WhatsApp según `MORNING_REPORT_EMAIL` / `MORNING_REPORT_TO`
+- Heartbeats opcionales a Healthchecks.io tras cada job (`HC_BACKUP_URL`, `HC_NOTIFY_URL`, `HC_MORNING_URL`)
+- Vars nuevas en `.env`: `CHATBOT_URL`, `NOTIFICATIONS_URL`, `DASHBOARD_URL`, `MORNING_REPORT_*`, `HC_*_URL`
+- Dashboard URL: `https://dashboard-2zk.pages.dev` (Cloudflare Pages) → `DASHBOARD_URL`
+- El chequeo matutino del 19-ago detectó 401 del WA_TOKEN y 1000 errores de auto-notify;
+  **causa confirmada: falta el WA_TOKEN definitivo** (se actualiza con `make update-wa-token WA_TOKEN=<tok>`)
+
 ### Pendientes para próxima sesión
 
 #### 1. Probar chatbot en Railway

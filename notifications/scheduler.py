@@ -18,12 +18,16 @@ Cada job llama run_auto_notify(templates=[una]) para procesar solo ese lote
 (los mensajes de la misma plantilla se envían en paralelo dentro de auto_notify).
 """
 import logging
+import os
+
+import httpx
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from backup_email import run_backup_and_email
 from auto_notify import run_auto_notify, TEMPLATE_ORDER
+from health_report import run_morning_check
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,17 @@ _TANDAS_UTC = (11,)
 _INTERVAL_MINUTES = 5
 
 
+def _ping_heartbeat(url: str | None) -> None:
+    """Ping opcional a Healthchecks.io al terminar un job (si HC_*_URL definido)."""
+    if not url:
+        return
+    try:
+        httpx.get(url, timeout=10)
+        logger.info("heartbeat_ping", extra={"url": url})
+    except Exception as e:
+        logger.warning("heartbeat_ping_failed", extra={"url": url, "error": str(e)})
+
+
 def _job_backup() -> None:
     logger.info("scheduler_backup_triggered")
     try:
@@ -41,6 +56,8 @@ def _job_backup() -> None:
         logger.info("scheduler_backup_done", extra={"consistent": result.get("consistent")})
     except Exception as e:
         logger.exception("scheduler_backup_error", extra={"error": str(e)})
+    finally:
+        _ping_heartbeat(os.environ.get("HC_BACKUP_URL"))
 
 
 def _make_auto_notify_job(template: str):
@@ -52,7 +69,20 @@ def _make_auto_notify_job(template: str):
         except Exception as e:
             logger.exception("scheduler_auto_notify_error",
                              extra={"template": template, "error": str(e)})
+        finally:
+            _ping_heartbeat(os.environ.get("HC_NOTIFY_URL"))
     return _job
+
+
+def _job_morning_report() -> None:
+    logger.info("scheduler_morning_report_triggered")
+    try:
+        result = run_morning_check()
+        logger.info("scheduler_morning_report_done", extra=result)
+    except Exception as e:
+        logger.exception("scheduler_morning_report_error", extra={"error": str(e)})
+    finally:
+        _ping_heartbeat(os.environ.get("HC_MORNING_URL"))
 
 
 def start() -> BackgroundScheduler:
@@ -79,6 +109,16 @@ def start() -> BackgroundScheduler:
                 name=f"Notificación {template} (6AM +{minute}m)",
                 replace_existing=True,
             )
+
+    # Chequeo matutino: 7:00 AM Colombia (12:00 UTC). Reporta el estado de
+    # todos los módulos por WhatsApp/email para "todo listo para trabajar".
+    _scheduler.add_job(
+        _job_morning_report,
+        CronTrigger(hour=7, minute=0, timezone="America/Bogota"),
+        id="morning_report",
+        name="Chequeo matutino (7AM)",
+        replace_existing=True,
+    )
 
     _scheduler.start()
     logger.info("scheduler_started", extra={"jobs": [j.id for j in _scheduler.get_jobs()]})
