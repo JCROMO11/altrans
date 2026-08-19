@@ -10,7 +10,8 @@ from whatsapp.client import send_text, mark_as_read
 from core.rate_limiter import rate_limiter
 
 SESSION_TTL          = timedelta(hours=8)
-MAX_HISTORIAL        = 8
+INACTIVITY_TTL       = timedelta(minutes=5)
+MAX_HISTORIAL        = 6
 MAX_AUTH_FAILS       = 3
 LOCKOUT_MIN          = 10
 MAX_MSGS_PER_SESSION = 4
@@ -55,6 +56,19 @@ _JAILBREAK_RE = re.compile(
     r'|acceso\s+(de\s+)?(administrador|admin|root|superusuario)'
     r'|modo\s+(prueba|test|debug|dios)'
     r'|eres\s+libre',
+    re.IGNORECASE,
+)
+
+_FAREWELL_RE = re.compile(
+    r'(?:muchas\s+|mil\s+)?gracias'
+    r'|chao+|adi[oó]s|hasta\s+(?:luego|pronto|ma\s*[ñn]ana)|nos\s+vemos|me\s+retiro'
+    r'|eso\s+es\s+todo|no\s+necesito\s+(?:nada\s+)?m[aá]s'
+    r'|listo(?:\s+gracias)?|perfecto(?:\s+gracias)?|excelente(?:\s+gracias)?|ok(?:\s+gracias)?',
+    re.IGNORECASE,
+)
+
+_GREETING_RE = re.compile(
+    r'^(?:hola|buenas|buenos?\s+(?:d[ií]as?|tardes|noches)|qu[ií]hubo|hey|ey|hello|hi)\s*[!¡]*$',
     re.IGNORECASE,
 )
 
@@ -120,12 +134,23 @@ def _detectar_tipo_usuario(texto: str) -> tuple[str, str] | None:
     return None
 
 
+def _es_despedida(texto: str) -> bool:
+    t = texto.strip()
+    if not t or len(t) > 120 or re.search(r'[?¿]', t):
+        return False
+    return bool(_FAREWELL_RE.search(t)) or bool(re.search(r'\bgracias\b', t, re.IGNORECASE))
+
+
 async def _load_session(wa_from: str) -> dict | None:
     session = await queries.get_session(wa_from)
     if not session:
         return None
     last = _parse_ts(session["last_activity"])
-    if _now() - last > SESSION_TTL:
+    idle = _now() - last
+    if idle > SESSION_TTL:
+        await queries.delete_session(wa_from)
+        return None
+    if session.get("estado") == "activa" and idle > INACTIVITY_TTL:
         await queries.delete_session(wa_from)
         return None
     return session
@@ -256,6 +281,14 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
 
     texto  = text.strip()
     estado = session["estado"]
+
+    # ── Despedida determinística (sin LLM) ─────────────────────────────────────
+    if _es_despedida(texto):
+        await queries.delete_session(wa_from)
+        await send_text(wa_from,
+            "¡Con gusto! Si necesitas algo más, escríbeme de nuevo. 👋")
+        logger.info("session_closed_farewell", wa_from=wa_from, estado=estado)
+        return
 
     # ── Admin: validar contraseña ─────────────────────────────────────────────
     if estado == "esperando_admin_pass":
@@ -401,6 +434,11 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
             return
 
         cedula = identificador
+
+        # Saludo simple → respuesta fija sin LLM
+        if _GREETING_RE.fullmatch(texto):
+            await send_text(wa_from, "¡Hola! ¿En qué te puedo ayudar?")
+            return
 
         # Capa 1: regex
         if session.get("tipo_usuario") != "admin" and _JAILBREAK_RE.search(texto):

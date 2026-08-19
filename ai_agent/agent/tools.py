@@ -127,7 +127,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "top_rutas",
-            "description": "Rutas origen-destino más frecuentes en un período.",
+            "description": "Rutas origen-destino más frecuentes. Si el usuario no indica período (mes/año), devuelve las rutas más frecuentes en general sin pedir aclaración.",
             "parameters": {
                 "type": "object",
                 "properties": {

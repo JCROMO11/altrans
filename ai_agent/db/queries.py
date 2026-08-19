@@ -33,6 +33,17 @@ def _add_dias_restantes(rows: list[dict]) -> list[dict]:
     return rows
 
 
+_ANULADO_PREFIXES = ("ANULADO", "ANULACION")
+
+
+def _es_anulado(r: dict) -> bool:
+    """Manifiesto anulado = estado_interno ANULADO o novedades que lo anulan (ANULADO/ANULACION...)."""
+    if (r.get("estado_interno") or "").upper() == "ANULADO":
+        return True
+    nov = (r.get("novedades") or "").strip().upper()
+    return nov.startswith(_ANULADO_PREFIXES)
+
+
 _CLIENT = httpx.AsyncClient(
     base_url=_BASE,
     headers=_HEADERS,
@@ -80,10 +91,10 @@ async def listar_manifiestos(cedula: str = None, mes: str = None, año: int = No
                              placa: str = None) -> list[dict]:
     if placa:
         select = ("manifiesto,fecha_despacho,origen,destino,cliente,conductor,placa,"
-                  "saldo,flete_conductor,fecha_pago,estado_interno,mes,año")
+                  "saldo,flete_conductor,fecha_pago,estado_interno,mes,año,novedades")
     else:
         select = ("manifiesto,fecha_despacho,origen,destino,cliente,"
-                  "saldo,flete_conductor,fecha_pago,estado_interno,mes,año")
+                  "saldo,flete_conductor,fecha_pago,estado_interno,mes,año,novedades")
     params = {
         "select": select,
         "order":  "manifiesto.desc",
@@ -93,7 +104,8 @@ async def listar_manifiestos(cedula: str = None, mes: str = None, año: int = No
     _apply_conductor(params, cedula)
     _apply_placa(params, placa)
     _apply_periodo(params, mes, año)
-    return await _get(CHATBOT_VIEW, params)
+    rows = await _get(CHATBOT_VIEW, params)
+    return [r for r in rows if not _es_anulado(r)]
 
 
 async def consultar_manifiesto(numero: int, cedula: str = None, placa: str = None) -> dict | None:
@@ -101,9 +113,9 @@ async def consultar_manifiesto(numero: int, cedula: str = None, placa: str = Non
         "manifiesto": f"eq.{numero}",
         "select": (
             "manifiesto,fecha_despacho,origen,destino,cliente,"
-            "conductor,cedula_conductor,celular,placa,tipo_vehiculo,propietario,"
+            "conductor,cedula_conductor,celular,placa,propietario,"
             "flete_conductor,saldo,"
-            "fecha_cumplido,compromiso_pago,fecha_estimada_pago,novedades,novedad_conductor,"
+            "fecha_cumplido,compromiso_pago,fecha_estimada_pago,novedades,"
             "estado_interno,"
             "fecha_pago,valor_pagado,mes,año"
         ),
@@ -113,16 +125,28 @@ async def consultar_manifiesto(numero: int, cedula: str = None, placa: str = Non
     rows = await _get(CHATBOT_VIEW, params)
     if not rows:
         return None
-    if rows[0].get("estado_interno") == "ANULADO":
+    if _es_anulado(rows[0]):
         return None
     _add_dias_restantes(rows)
-    return rows[0]
+    row = rows[0]
+    try:
+        extra = await _get(TABLE, {
+            "select":      "anticipo,retencion_conductor,entidad_financiera",
+            "manifiesto":  f"eq.{numero}",
+            "limit":       "1",
+        })
+        if extra:
+            row.update({k: extra[0].get(k)
+                        for k in ("anticipo", "retencion_conductor", "entidad_financiera")})
+    except Exception:
+        pass
+    return row
 
 
 async def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
                           placa: str = None) -> dict:
     params = {
-        "select": "manifiesto,flete_conductor,saldo,valor_pagado,estado_interno,fecha_pago",
+        "select": "manifiesto,flete_conductor,saldo,valor_pagado,estado_interno,fecha_pago,novedades",
         "or":     "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
     _apply_periodo(params, mes, año)
@@ -130,9 +154,18 @@ async def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
     _apply_placa(params, placa)
 
     rows = await _get(CHATBOT_VIEW, params)
+    rows = [r for r in rows if not _es_anulado(r)]
+
+    remesa_params = {"select": "manifiesto,valor_remesa,estado_interno,novedades"}
+    _apply_periodo(remesa_params, mes, año)
+    _apply_conductor(remesa_params, cedula)
+    _apply_placa(remesa_params, placa)
+    remesa_rows = [r for r in await _get(TABLE, remesa_params) if not _es_anulado(r)]
 
     total        = len(rows)
     total_flete  = sum(r.get("flete_conductor") or 0 for r in rows)
+    total_remesa = sum(r.get("valor_remesa") or 0 for r in remesa_rows)
+    pagados      = [r for r in rows if r.get("fecha_pago")]
     pendiente    = sum(
         (r.get("saldo") or 0) - (r.get("valor_pagado") or 0)
         for r in rows
@@ -149,17 +182,19 @@ async def resumen_periodo(mes: str = None, año: int = None, cedula: str = None,
         periodo = "todos los registros"
 
     return {
-        "periodo":        periodo,
-        "total":          total,
-        "total_flete":    total_flete,
-        "pendiente_pago": pendiente,
+        "periodo":            periodo,
+        "total":              total,
+        "total_flete":        total_flete,
+        "total_remesa":       total_remesa,
+        "manifiestos_pagados": len(pagados),
+        "pendiente_pago":     pendiente,
     }
 
 
 async def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula: str = None,
                                       placa: str = None) -> list[dict]:
     params = {
-        "select": "manifiesto,fecha_despacho,conductor,saldo,flete_conductor,valor_pagado,fecha_cumplido,compromiso_pago,fecha_estimada_pago,estado_interno",
+        "select": "manifiesto,fecha_despacho,conductor,saldo,flete_conductor,valor_pagado,fecha_cumplido,compromiso_pago,fecha_estimada_pago,estado_interno,novedades",
         "fecha_pago": "is.null",
         "or":         "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
@@ -168,6 +203,7 @@ async def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula:
     _apply_placa(params, placa)
 
     rows = await _get(CHATBOT_VIEW, params)
+    rows = [r for r in rows if not _es_anulado(r)]
     _add_dias_restantes(rows)
     return rows[:50]
 
@@ -175,7 +211,7 @@ async def manifiestos_pendientes_pago(mes: str = None, año: int = None, cedula:
 async def manifiestos_sin_factura(mes: str = None, año: int = None, cedula: str = None,
                                   placa: str = None) -> list[dict]:
     params = {
-        "select": "manifiesto,fecha_despacho,cliente,conductor,responsable_estado_interno,estado_interno",
+        "select": "manifiesto,fecha_despacho,cliente,conductor,responsable_estado_interno,estado_interno,novedades",
         "factura_no": "is.null",
         "or":         "(estado_interno.neq.ANULADO,estado_interno.is.null)",
     }
@@ -184,17 +220,18 @@ async def manifiestos_sin_factura(mes: str = None, año: int = None, cedula: str
     _apply_placa(params, placa)
 
     rows = await _get(TABLE, params)
+    rows = [r for r in rows if not _es_anulado(r)]
     return rows[:50]
 
 
 async def top_conductores(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
-    params = {"select": "conductor,estado_interno"}
+    params = {"select": "conductor,estado_interno,novedades"}
     _apply_periodo(params, mes, año)
 
     rows = await _get(TABLE, params)
     conteo: dict[str, int] = {}
     for r in rows:
-        if r.get("estado_interno") == "ANULADO":
+        if _es_anulado(r):
             continue
         nombre = (r.get("conductor") or "").strip()
         if not nombre or nombre.upper() == "ANULADO":
@@ -206,7 +243,7 @@ async def top_conductores(mes: str = None, año: int = None, limite: int = 10) -
 
 
 async def top_clientes(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
-    params = {"select": "cliente,valor_remesa,valor_factura"}
+    params = {"select": "cliente,valor_remesa,valor_factura,estado_interno,novedades"}
     _apply_periodo(params, mes, año)
 
     rows = await _get(TABLE, params)
@@ -214,6 +251,8 @@ async def top_clientes(mes: str = None, año: int = None, limite: int = 10) -> l
     remesas: dict[str, float] = {}
     facturado: dict[str, float] = {}
     for r in rows:
+        if _es_anulado(r):
+            continue
         nombre = r.get("cliente") or "Sin cliente"
         conteo[nombre]    = conteo.get(nombre, 0) + 1
         remesas[nombre]   = remesas.get(nombre, 0) + (r.get("valor_remesa") or 0)
@@ -224,12 +263,14 @@ async def top_clientes(mes: str = None, año: int = None, limite: int = 10) -> l
 
 
 async def top_rutas(mes: str = None, año: int = None, limite: int = 10) -> list[dict]:
-    params = {"select": "origen,destino"}
+    params = {"select": "origen,destino,estado_interno,novedades"}
     _apply_periodo(params, mes, año)
 
     rows = await _get(TABLE, params)
     conteo: dict[str, int] = {}
     for r in rows:
+        if _es_anulado(r):
+            continue
         ruta = f"{r.get('origen', '?')} → {r.get('destino', '?')}"
         conteo[ruta] = conteo.get(ruta, 0) + 1
 
@@ -254,6 +295,8 @@ async def manifiestos_con_novedad(mes: str = None, año: int = None, cedula: str
     rows = await _get(CHATBOT_VIEW, params)
     result = []
     for r in rows:
+        if _es_anulado(r):
+            continue
         nov = (r.get("novedades") or "").strip()
         if not nov:
             continue
@@ -276,7 +319,7 @@ async def conductor_info(nombre: str = None, cedula: str = None, cedula_auth: st
     if cedula_auth:
         cedula = cedula_auth
 
-    base_select = "conductor,cedula_conductor,celular,estado_interno"
+    base_select = "conductor,cedula_conductor,celular,estado_interno,novedades"
 
     if cedula:
         params = {"cedula_conductor": f"eq.{cedula}", "select": base_select}
@@ -291,7 +334,7 @@ async def conductor_info(nombre: str = None, cedula: str = None, cedula_auth: st
 
     seen: dict[str, dict] = {}
     for r in rows:
-        if r.get("estado_interno") == "ANULADO":
+        if _es_anulado(r):
             continue
         key = r.get("conductor") or ""
         if key not in seen:

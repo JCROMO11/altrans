@@ -5,7 +5,9 @@ from fastapi import HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 _bearer = HTTPBearer()
-_SECRET = os.environ.get("JWT_SECRET", "cambiar-en-produccion")
+_SECRET = os.environ.get("JWT_SECRET")
+if not _SECRET:
+    raise RuntimeError("JWT_SECRET no está definido en el entorno")
 _ALGO   = "HS256"
 _TTL_H  = 24
 

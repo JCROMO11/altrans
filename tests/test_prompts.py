@@ -51,6 +51,18 @@ async def test_base_prompt_fallback_cuando_db_no_disponible():
 
 
 @pytest.mark.asyncio
+async def test_base_prompt_no_cierra_con_pregunta_por_defecto():
+    """La regla de seguimiento debe ser restrictiva: NO preguntar de adorno."""
+    from agent.prompts import build_system_prompt
+
+    with patch("db.queries.get_prompt", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = None  # fuerza fallback inline
+        result = await build_system_prompt()
+        assert "NO termines con preguntas de seguimiento" in result
+        assert "solo cuando aporte" not in result
+
+
+@pytest.mark.asyncio
 async def test_conductor_incluye_block():
     from agent.prompts import build_system_prompt
 

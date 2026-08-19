@@ -24,7 +24,10 @@ def _json_format(record):
             record["exception"].value,
             record["exception"].traceback,
         ))
-    return json.dumps(payload, ensure_ascii=False, default=str)
+    # loguru 0.7.3 usa el string devuelto como template de formato → escapar
+    # llaves para que el JSON salga literal (si no, KeyError en format_map).
+    return json.dumps(payload, ensure_ascii=False, default=str).replace(
+        "{", "{{").replace("}", "}}")
 
 
 def setup_logging(level: str = "INFO") -> None:

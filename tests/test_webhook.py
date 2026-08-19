@@ -15,6 +15,7 @@ import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ai_agent'))
 
 import re
+from datetime import timedelta
 from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
 
@@ -594,6 +595,118 @@ class TestContadorConsultas:
             if upsert.call_args is not None:
                 saved = upsert.call_args[0][0]
                 assert saved['msg_count'] == 2
+
+
+# ── 11. DESPEDIDA / SALUDO SIN LLM ─────────────────────────────────────────────
+
+class TestDespedidaSaludo:
+    def _sess_activa(self):
+        return {
+            'wa_from':'57304','estado':'activa',
+            'tipo_usuario':'conductor',
+            'identificador_temp':None,
+            'identificador_auth':'1130668182',
+            'cedula_temp':None,'conductor_nombre_temp':None,
+            'conductor_cedula':'1130668182','conductor_nombre':'HENRY',
+            'historial':[],'msg_count':0,
+            'last_activity':wh._now().isoformat(),
+            'auth_fails':0,'locked_until':None,
+        }
+
+    @pytest.mark.parametrize("texto", [
+        "gracias", "muchas gracias", "mil gracias", "chao", "adios",
+        "hasta luego", "eso es todo", "no necesito más", "listo gracias",
+        "me ayudaste mucho gracias",
+    ])
+    def test_detecta_despedida(self, texto):
+        assert wh._es_despedida(texto)
+
+    @pytest.mark.parametrize("texto", [
+        "¿cuánto me deben?", "gracias, ¿cuánto me deben?", "muéstrame mis manifiestos",
+        "¿qué pasa con el manifiesto 21001?", "quiero saber mi saldo",
+        "dame mi resumen de junio", "¿cómo voy este mes?",
+    ])
+    def test_no_detecta_falso_positivo(self, texto):
+        assert not wh._es_despedida(texto)
+
+    def test_despedida_cierra_sesion_sin_llm(self):
+        with patch('whatsapp.webhook.queries.mark_message_processed', return_value=True), \
+             patch('whatsapp.webhook.mark_as_read'), \
+             patch('whatsapp.webhook.send_text') as send, \
+             patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa()), \
+             patch('whatsapp.webhook.queries.delete_session') as del_sess, \
+             patch('whatsapp.webhook.run') as run_, \
+             patch('whatsapp.webhook.rate_limiter.try_acquire', return_value=(True, "process")), \
+             patch('whatsapp.webhook.rate_limiter.release', return_value=None):
+            _run_async(wh.handle_message('57304', 'm', 'gracias'))
+            run_.assert_not_called()
+            del_sess.assert_called_once()
+            msg = send.call_args[0][1]
+            assert 'con gusto' in msg.lower() or 'escríbeme' in msg.lower()
+
+    def test_despedida_tambien_cierra_en_login(self):
+        sess = self._sess_activa()
+        sess['estado'] = 'esperando_identificador'
+        sess['conductor_cedula'] = None
+        sess['identificador_auth'] = None
+        with patch('whatsapp.webhook.queries.mark_message_processed', return_value=True), \
+             patch('whatsapp.webhook.mark_as_read'), \
+             patch('whatsapp.webhook.send_text') as send, \
+             patch('whatsapp.webhook.queries.get_session', return_value=sess), \
+             patch('whatsapp.webhook.queries.delete_session') as del_sess, \
+             patch('whatsapp.webhook.rate_limiter.try_acquire', return_value=(True, "process")), \
+             patch('whatsapp.webhook.rate_limiter.release', return_value=None):
+            _run_async(wh.handle_message('57304', 'm', 'chao'))
+            del_sess.assert_called_once()
+            assert 'escríbeme' in send.call_args[0][1].lower() or 'con gusto' in send.call_args[0][1].lower()
+
+    def test_saludo_en_sesion_activa_responde_fijo_sin_llm(self):
+        with patch('whatsapp.webhook.queries.mark_message_processed', return_value=True), \
+             patch('whatsapp.webhook.mark_as_read'), \
+             patch('whatsapp.webhook.send_text') as send, \
+             patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa()), \
+             patch('whatsapp.webhook.queries.upsert_session') as upsert, \
+             patch('whatsapp.webhook.run') as run_, \
+             patch('whatsapp.webhook.rate_limiter.try_acquire', return_value=(True, "process")), \
+             patch('whatsapp.webhook.rate_limiter.release', return_value=None):
+            _run_async(wh.handle_message('57304', 'm', 'hola'))
+            run_.assert_not_called()
+            assert 'ayudar' in send.call_args[0][1].lower()
+            assert upsert.call_args is None
+
+
+# ── 12. TIMEOUT DE INACTIVIDAD ─────────────────────────────────────────────────
+
+class TestInactivityTimeout:
+    def _sess_activa_vieja(self):
+        return {
+            'wa_from':'57305','estado':'activa',
+            'tipo_usuario':'conductor',
+            'identificador_temp':None,
+            'identificador_auth':'1130668182',
+            'cedula_temp':None,'conductor_nombre_temp':None,
+            'conductor_cedula':'1130668182','conductor_nombre':'HENRY',
+            'historial':[],'msg_count':0,
+            'last_activity':(wh._now() - timedelta(minutes=6)).isoformat(),
+            'auth_fails':0,'locked_until':None,
+        }
+
+    def test_sesion_inactiva_se_resetea_y_pide_cedula(self):
+        with patch('whatsapp.webhook.queries.mark_message_processed', return_value=True), \
+             patch('whatsapp.webhook.mark_as_read'), \
+             patch('whatsapp.webhook.send_text') as send, \
+             patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa_vieja()), \
+             patch('whatsapp.webhook.queries.delete_session') as del_sess, \
+             patch('whatsapp.webhook.queries.get_admin_by_wa_from', return_value=None), \
+             patch('whatsapp.webhook.queries.upsert_session') as upsert, \
+             patch('whatsapp.webhook.rate_limiter.try_acquire', return_value=(True, "process")), \
+             patch('whatsapp.webhook.rate_limiter.release', return_value=None):
+            _run_async(wh.handle_message('57305', 'm', '1130668182'))
+            del_sess.assert_called_once()
+            msg = send.call_args[0][1].lower()
+            assert 'cédula' in msg or 'cedula' in msg or 'bienvenido' in msg
+            new_sess = upsert.call_args[0][0]
+            assert new_sess['estado'] == 'esperando_identificador'
 
 
 if __name__ == '__main__':

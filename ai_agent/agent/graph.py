@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from groq import AsyncGroq
 from openai import AsyncOpenAI
 from config import get_settings
@@ -9,21 +10,127 @@ from loguru import logger
 
 _cfg = get_settings()
 
+# DeepSeek directo (primario). Si no hay key, se salta y va directo a OpenRouter.
+_DS_KEY   = os.getenv("DEEPSEEK_API_KEY", "").strip()
+_DS_BASE  = "https://api.deepseek.com"
+_DS_MODEL = "deepseek-chat"
+
 _client        = AsyncOpenAI(api_key=os.environ["OPENROUTER_API_KEY"], base_url="https://openrouter.ai/api/v1")
 MODEL          = "deepseek/deepseek-v4-flash"
 MODEL_FALLBACK = "anthropic/claude-haiku-4.5"
 _OR_MODELS     = {"models": [MODEL, MODEL_FALLBACK]}
 
-GROQ_MODEL     = "llama-3.3-70b-versatile"
+_ds_client = AsyncOpenAI(api_key=_DS_KEY, base_url=_DS_BASE) if _DS_KEY else None
+
+GROQ_MODEL     = "openai/gpt-oss-20b"
 _mod_client    = AsyncGroq()
 MODEL_MODERATE = "openai/gpt-oss-safeguard-20b"
 
 MAX_TOOL_ITERS = 6
 
+_MSG_AMBIGUA          = "¿Me aclaras un poquito más qué necesitas? Por ejemplo: un mes, un número de manifiesto, una placa o una ruta."
+_MSG_BLOQUEO_PLACA    = "Eso no te lo puedo mostrar, solo puedo ver la información de tu vehículo."
+_AMBIGUAS             = {"manifiestos", "manifiesto", "saldo", "viajes", "viaje", "pagos", "pago",
+                         "pendientes", "cedula", "cédula", "placa", "plata", "dinero", "?"}
+_PLACA_RE             = re.compile(r"\b([A-Za-z]{3})\s?(\d{2,3})\b")
+
+
+def _placa_foranea(mi_placa: str, mensaje: str) -> bool:
+    """True si el mensaje menciona una placa distinta a la del propietario autenticado."""
+    mi = mi_placa.replace(" ", "").upper()
+    for m in _PLACA_RE.finditer(mensaje):
+        cand = (m.group(1) + m.group(2)).upper()
+        if cand != mi:
+            return True
+    return False
+
+
+def _contar_emojis(texto: str) -> int:
+    import unicodedata as _ud
+    return sum(1 for ch in texto if _ud.category(ch) == "So")
+
+
+def _solo_primer_emoji(texto: str) -> str:
+    import unicodedata as _ud
+    visto = False
+    out: list[str] = []
+    i = 0
+    n = len(texto)
+    while i < n:
+        ch = texto[i]
+        if _ud.category(ch) == "So":
+            if not visto:
+                visto = True
+                out.append(ch)
+                i += 1
+            else:
+                i += 1
+                while i < n and texto[i] == "\ufe0f":
+                    i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _sanitizar_formato(texto: str) -> str:
+    """Limpia la respuesta para WhatsApp: sin markdown (**,*) y máx 1 emoji."""
+    if not texto:
+        return texto
+    texto = texto.replace("**", "").replace("*", "")
+    if _contar_emojis(texto) > 1:
+        texto = _solo_primer_emoji(texto)
+    return texto.strip()
+
+
+def _usage_info(model: str, response: object, provider: str) -> dict | None:
+    try:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+        pt = getattr(usage, "prompt_tokens", None) or 0
+        ct = getattr(usage, "completion_tokens", None) or 0
+        cached = None
+        ptd = getattr(usage, "prompt_tokens_details", None)
+        if ptd is not None:
+            cached = getattr(ptd, "cached_tokens", None)
+        if cached is None:
+            cached = getattr(usage, "prompt_cache_hit_tokens", None)
+        return {
+            "provider": provider,
+            "model": model,
+            "prompt_tokens": pt,
+            "completion_tokens": ct,
+            "cached_tokens": cached,
+            "cost": getattr(usage, "cost", None),
+        }
+    except Exception:
+        return None
+
 
 async def _call_llm(messages: list, tools: list = None, tool_choice: str = "auto",
-                    max_tokens: int = 8192, temperature: float = 0.2,
-                    extra_body: dict = None, model: str = None) -> tuple[object, bool]:
+                    max_tokens: int = 1024, temperature: float = 0.2,
+                    extra_body: dict = None, model: str = None) -> tuple[object, str]:
+    """Devuelve (response, provider). provider ∈ deepseek | openrouter | groq."""
+    # 1) DeepSeek directo (solo si hay key y no es override de modelo para A/B)
+    if _ds_client is not None and model is None:
+        try:
+            response = await _ds_client.chat.completions.create(
+                model=_DS_MODEL,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            info = _usage_info(_DS_MODEL, response, "deepseek")
+            if info:
+                logger.info("llm_usage", **info)
+            return response, "deepseek"
+        except Exception as ds_err:
+            logger.warning("llm_fallback_openrouter", reason=str(ds_err)[:200])
+
+    # 2) OpenRouter (deepseek-v4-flash con auto-failover a haiku)
     try:
         response = await _client.chat.completions.create(
             model=model or MODEL,
@@ -34,7 +141,10 @@ async def _call_llm(messages: list, tools: list = None, tool_choice: str = "auto
             temperature=temperature,
             extra_body=extra_body or _OR_MODELS,
         )
-        return response, False
+        info = _usage_info(model or MODEL, response, "openrouter")
+        if info:
+            logger.info("llm_usage", **info)
+        return response, "openrouter"
     except Exception as or_err:
         logger.warning("llm_fallback_groq", reason=str(or_err)[:200])
         try:
@@ -46,13 +156,28 @@ async def _call_llm(messages: list, tools: list = None, tool_choice: str = "auto
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
-            return response, True
+            info = _usage_info(GROQ_MODEL, response, "groq")
+            if info:
+                logger.info("llm_usage", **info)
+            return response, "groq"
         except Exception as groq_err:
-            logger.error("llm_both_failed", openrouter=str(or_err)[:200], groq=str(groq_err)[:200])
+            logger.error("llm_all_failed", openrouter=str(or_err)[:200], groq=str(groq_err)[:200])
             raise
 
 
-MAX_TOOL_ITERS = 6
+def _log_llm_totals(calls: list[dict], mensaje: str) -> None:
+    if not calls:
+        return
+    logger.info(
+        "agent_llm_totals",
+        calls=len(calls),
+        prompt_tokens=sum(c.get("prompt_tokens") or 0 for c in calls),
+        completion_tokens=sum(c.get("completion_tokens") or 0 for c in calls),
+        total_tokens=sum((c.get("prompt_tokens") or 0) + (c.get("completion_tokens") or 0) for c in calls),
+        models=",".join(sorted({c.get("model") or "" for c in calls})),
+        providers=",".join(sorted({c.get("provider") or "" for c in calls})),
+        mensaje=mensaje[:80],
+    )
 
 
 async def run(
@@ -83,38 +208,55 @@ async def run(
         messages.extend(historial)
     messages.append({"role": "user", "content": mensaje})
 
+    if tipo_usuario == "propietario" and placa and _placa_foranea(placa, mensaje):
+        _log_llm_totals([], mensaje)
+        return _sanitizar_formato(_MSG_BLOQUEO_PLACA), False
+
+    _limpio = mensaje.strip()
+    _tok = _limpio.lower().strip("¿?¡! .")
+    if len(_limpio.split()) <= 1 and (_tok in _AMBIGUAS or not _tok):
+        _log_llm_totals([], mensaje)
+        return _sanitizar_formato(_MSG_AMBIGUA), False
+
     active_tools = tool_executor.TOOLS_CONDUCTOR if autenticado else tool_executor.TOOLS
 
     _active_or_body = {} if _model_override else _OR_MODELS
 
     tools_called = False
-    usando_groq = False
+    llm_calls: list[dict] = []
 
     for _ in range(MAX_TOOL_ITERS):
-        response, usando_groq = await _call_llm(
+        response, provider = await _call_llm(
             messages=messages,
             tools=active_tools,
             tool_choice="auto",
             extra_body=_active_or_body,
             model=_model_override,
         )
+        _info = _usage_info(_model_label(provider, _model_override), response, provider)
+        if _info:
+            llm_calls.append(_info)
         msg = response.choices[0].message
 
         if not msg.tool_calls:
             content = msg.content
             if not content:
                 logger.warning("empty_response_retry", mensaje=mensaje[:100])
-                recovery, _ = await _call_llm(
+                recovery, recovery_provider = await _call_llm(
                     messages=messages,
                     tools=active_tools if active_tools else None,
                     tool_choice="auto" if active_tools else None,
                     temperature=0.3,
                     extra_body=_active_or_body,
                 )
+                _info = _usage_info(_model_label(recovery_provider, _model_override), recovery, recovery_provider)
+                if _info:
+                    llm_calls.append(_info)
                 content = recovery.choices[0].message.content or "Lo siento, no pude procesar tu consulta. Intenta de nuevo."
-            if usando_groq:
-                logger.info("groq_served_prompt", mensaje=mensaje[:80])
-            return content, tools_called
+            if provider != "deepseek":
+                logger.info("fallback_served_prompt", provider=provider, mensaje=mensaje[:80])
+            _log_llm_totals(llm_calls, mensaje)
+            return _sanitizar_formato(content), tools_called
 
         tools_called = True
         messages.append(msg)
@@ -143,13 +285,28 @@ async def run(
                 "content":      result,
             })
 
-    response, _ = await _call_llm(
+    response, final_provider = await _call_llm(
         messages=messages,
         tools=None,
         tool_choice=None,
     )
+    _info = _usage_info(_model_label(final_provider, _model_override), response, final_provider)
+    if _info:
+        llm_calls.append(_info)
+    _log_llm_totals(llm_calls, mensaje)
     content = response.choices[0].message.content or "No pude completar tu consulta. Intenta reformularla."
-    return content, tools_called
+    return _sanitizar_formato(content), tools_called
+
+
+def _model_label(provider: str, override: str | None) -> str:
+    """Nombre de modelo efectivo para el log de usage según el provider."""
+    if override:
+        return override
+    if provider == "deepseek":
+        return _DS_MODEL
+    if provider == "groq":
+        return GROQ_MODEL
+    return MODEL
 
 
 # ── Moderación ────────────────────────────────────────────────────────────────

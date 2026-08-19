@@ -16,12 +16,14 @@ El reporte se guarda en ai_agent/scripts/reportes/ con timestamp.
 """
 
 import os
+import re
 import sys
 import time
 import json
+import asyncio
 import argparse
+import unicodedata as _ud
 import datetime as _dt
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -77,23 +79,75 @@ NOMBRE_CONTINGENCIA      = "DIEGO ARMANDO MELO"
 MANIFIESTO_URBANO        = None   # URBANO — sin pendientes en DB
 MANIFIESTO_OTROS         = None   # OTROS — sin pendientes en DB
 MANIFIESTO_SIN_COMPROMISO = None  # compromiso_pago IS NULL — sin pendientes en DB
-MANIFIESTO_SIN_CUMPLIDO   = 34355 # viaje no cerrado por logística — ARTURO AYALA
-CEDULA_SIN_CUMPLIDO       = "13006481"
-NOMBRE_SIN_CUMPLIDO       = "ARTURO AYALA"
+MANIFIESTO_SIN_CUMPLIDO   = 27937 # viaje no cerrado por logística — HECTOR HERNAN BURITICA
+CEDULA_SIN_CUMPLIDO       = "16363529"
+NOMBRE_SIN_CUMPLIDO       = "HECTOR HERNAN BURITICA"
 MANIFIESTO_PRIORITARIO   = None   # PRIORITARIO — sin pendientes en DB
 
 MANIFIESTO_PRONTO_PAGO   = 33857  # PRONTO PAGO, pendiente, con fecha_cumplido
 CEDULA_PRONTO_PAGO       = "1088594060"
 NOMBRE_PRONTO_PAGO       = "OSCAR ARTURO ESCOBAR"
 
+# Conductor con saldos pendientes reales (para los casos de "cuánto me deben / cuándo me pagan").
+# ORLANDO ACEVEDO tiene 16 pendientes con compromisos y fechas estimadas.
+CEDULA_PENDIENTES   = "9990974"
+NOMBRE_PENDIENTES   = "ORLANDO ACEVEDO"
+
+# Manifiestos 33429/33201 (pagos, valor_pagado>0) — conductor propietario de esos viajes.
+CEDULA_INFORME_PAGO = "16462077"
+NOMBRE_INFORME_PAGO = "ALEJANDRO BURBANO"
+
 # Propietario de prueba — llenado desde scripts/descubrir_fixtures.py
 PLACA_TEST          = "QNM118"
 PROPIETARIO_NOMBRE  = "ALIANZA PARA EL TRANSPORTE Y COMERCIO INTERNACIONA"
 MANIFIESTO_PLACA    = 34355
 
-# Judge: DeepSeek v4 Flash via OpenRouter (mismo modelo que el agente primario).
-_judge = OpenAI(api_key=os.environ["OPENROUTER_API_KEY"], base_url="https://openrouter.ai/api/v1")
-JUDGE_MODEL = "deepseek/deepseek-v4-flash"
+# Pago parcial (valor_pagado > 0 pero fecha_pago null) — caso raro. None = skip documentado.
+MANIFIESTO_PAGO_PARCIAL = None
+CEDULA_PAGO_PARCIAL     = None
+NOMBRE_PAGO_PARCIAL     = None
+
+# Cédula/nombre por modalidad — se rellenan junto a cada MANIFIESTO_* por
+# descubrir_fixtures.py para que el par conductor↔manifiesto sea consistente.
+CEDULA_PAGO_20        = None
+NOMBRE_PAGO_20        = None
+CEDULA_PAGO_30        = None
+NOMBRE_PAGO_30        = None
+CEDULA_PAGO_5_8       = None
+NOMBRE_PAGO_5_8       = None
+CEDULA_INMEDIATO      = None
+NOMBRE_INMEDIATO      = None
+CEDULA_URBANO         = None
+NOMBRE_URBANO         = None
+CEDULA_OTROS          = None
+NOMBRE_OTROS          = None
+CEDULA_SIN_COMPROMISO = None
+NOMBRE_SIN_COMPROMISO = None
+CEDULA_PRIORITARIO    = None
+NOMBRE_PRIORITARIO    = None
+
+# ── Fixtures auto-descubiertos ─────────────────────────────────────────────────
+# Si existe fixtures_auto.py (generado por descubrir_fixtures.py), sobreescribe
+# los valores default de arriba con IDs reales encontrados en la BD.
+_FIXTURES_AUTO = os.path.join(os.path.dirname(__file__), "fixtures_auto.py")
+if os.path.exists(_FIXTURES_AUTO):
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location("fixtures_auto", _FIXTURES_AUTO)
+    _mod = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    for _k, _v in getattr(_mod, "FIXTURES", {}).items():
+        if _v is not None:
+            globals()[_k] = _v
+
+# Judge: DeepSeek v4 Flash. Prefiere DeepSeek direct (igual que run() en graph.py);
+# si no hay clave, cae a OpenRouter.
+_JUDGE_DS_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
+if _JUDGE_DS_KEY:
+    _judge = OpenAI(api_key=_JUDGE_DS_KEY, base_url="https://api.deepseek.com")
+    JUDGE_MODEL = "deepseek-chat"
+else:
+    _judge = OpenAI(api_key=os.environ["OPENROUTER_API_KEY"], base_url="https://openrouter.ai/api/v1")
+    JUDGE_MODEL = "deepseek/deepseek-v4-flash"
 
 # ── Casos de prueba ───────────────────────────────────────────────────────────
 # Cada caso: dict con:
@@ -334,7 +388,9 @@ CASOS_BASE = [
         "pregunta": "¿Cuánta plata me deben?",
         "judge_criterio": (
             "Entiende que pregunta por el pendiente de pago. Llama manifiestos_pendientes_pago "
-            "o resumen y da un total agregado en formato $."
+            "o resumen y da un total agregado en formato $. "
+            "Si el conductor no tiene pendientes, es válido responder que está al día con saldo $0 "
+            "sin inventar listas ni montos."
         ),
     },
     {
@@ -742,9 +798,11 @@ CASOS_BASE = [
         "pregunta_template": "Me puedes informar del pago de los manifiestos {MANIFIESTO_OK} y {MANIFIESTO_PAGADO}",
         "depende_de": "MANIFIESTO_PAGADO",
         "judge_criterio": (
-            "Consulta ambos manifiestos con consultar_manifiesto y reporta el estado de pago de cada uno. "
-            "Para el pagado indica fecha, valor y entidad. Para el pendiente muestra el compromiso. "
-            "No mezcla los dos ni inventa datos."
+            "Consulta ambos manifiestos y reporta el estado de pago de cada uno. "
+            "Si está pagado, indica fecha, valor y entidad si la herramienta la da; si está pendiente, "
+            "muestra el compromiso o fecha estimada. Los dos pueden estar pagados o pendientes. "
+            "PASS si responde ambos correctamente con datos reales y no los mezcla. "
+            "FAIL solo si inventa datos, los mezcla, o no responde uno de los dos."
         ),
     },
 
@@ -764,6 +822,8 @@ CASOS_BASE = [
         "categoria": "pago",
         "titulo": "¿Cuándo me pagan? — pregunta sin manifiesto específico",
         "pregunta": "¿Cuándo me van a pagar mis manifiestos pendientes?",
+        "cedula_override": CEDULA_PENDIENTES,
+        "nombre_override": NOMBRE_PENDIENTES,
         "judge_criterio": (
             "Llama manifiestos_pendientes_pago y muestra compromisos de pago y/o fechas estimadas. "
             "No inventa fechas exactas. "
@@ -834,6 +894,8 @@ CASOS_BASE = [
         "categoria": "pago",
         "titulo": "Informe de pago de dos manifiestos — frase real",
         "pregunta": "Me puedes informar del pago de saldos de los manifiestos 0033429 y 0033201",
+        "cedula_override": CEDULA_INFORME_PAGO,
+        "nombre_override": NOMBRE_INFORME_PAGO,
         "judge_criterio": (
             "Intenta consultar ambos manifiestos (33429 y 33201). "
             "Reporta el estado de pago de cada uno: "
@@ -848,6 +910,8 @@ CASOS_BASE = [
         "categoria": "pago",
         "titulo": "Cuánto me deben y para cuándo me pagan — combinado",
         "pregunta": "¿Cuánto me deben y para cuándo me van a pagar?",
+        "cedula_override": CEDULA_PENDIENTES,
+        "nombre_override": NOMBRE_PENDIENTES,
         "judge_criterio": (
             "Llama manifiestos_pendientes_pago. Da el total pendiente en $. "
             "Menciona compromisos de pago o fechas estimadas para los manifiestos pendientes. "
@@ -871,6 +935,8 @@ CASOS_BASE = [
         "categoria": "saldo",
         "titulo": "'¿Para cuándo está mi saldo?' — pregunta por la fecha del saldo",
         "pregunta": "¿Para cuándo está mi saldo?",
+        "cedula_override": CEDULA_PENDIENTES,
+        "nombre_override": NOMBRE_PENDIENTES,
         "judge_criterio": (
             "Entiende que pregunta CUÁNDO le pagan el saldo pendiente. "
             "Llama manifiestos_pendientes_pago y da compromisos de pago o fechas estimadas. "
@@ -909,28 +975,28 @@ CASOS_BASE = [
         "titulo": "Por qué el saldo difiere del flete (retención + anticipo)",
         "pregunta": f"¿Por qué el saldo del manifiesto {MANIFIESTO_OK} es menor que el flete?",
         "judge_criterio": (
-            "Explica de forma natural que al flete se le descuenta el anticipo ya entregado "
-            "y la retención (1%), por eso el saldo es menor. "
-            "Puede mencionar ajustes si el manifiesto los tiene. "
-            "PASS si la explicación es coherente y no inventa cifras (usa los datos del manifiesto). "
-            "FAIL si dice que el saldo es igual al flete o inventa un desglose sin consultar."
+            "Explica por qué el saldo es menor al flete usando los descuentos REALES del manifiesto "
+            "(retención 1%, anticipo si el manifiesto lo tiene). "
+            "Si el manifiesto no tiene anticipo, no es necesario mencionarlo. "
+            "PASS si la explicación es coherente y usa los datos del manifiesto (no inventa cifras). "
+            "FAIL si dice que el saldo es igual al flete, inventa un desglose, o se contradice con los datos."
         ),
     },
 
     # ── 34. PRONTO PAGO en manifiesto — redirige sin usar el término ──────────
     {
         "categoria": "pronto_pago",
-        "titulo": "Manifiesto con modalidad sin fecha fija — redirige sin nombrarla",
+        "titulo": "Manifiesto con modalidad sin fecha fija — redirige sin inventar fecha",
         "pregunta_template": "¿Para cuándo va a ser el pago del manifiesto {MANIFIESTO_PRONTO_PAGO}?",
         "depende_de": "MANIFIESTO_PRONTO_PAGO",
         "cedula_override": CEDULA_PRONTO_PAGO,
         "nombre_override": NOMBRE_PRONTO_PAGO,
-        "no_debe_contener": ["pronto pago"],
         "judge_criterio": (
-            "El manifiesto tiene una modalidad especial sin fecha fija. "
-            "El bot redirige al conductor con la persona que lo contrató, SIN usar el término 'pronto pago'. "
+            "El manifiesto tiene modalidad PRONTO PAGO (está permitido nombrarla). "
+            "El bot puede decir que el pago lo gestiona directamente la persona que contrató el servicio "
+            "y redirigir al conductor con esa persona. "
             "NO inventa fecha de pago ni da fecha estimada. "
-            "FAIL si usa el término prohibido o da una fecha inventada."
+            "FAIL si inventa una fecha o da una fecha estimada sin base."
         ),
     },
 
@@ -940,6 +1006,8 @@ CASOS_BASE = [
         "titulo": "Manifiesto PRIORITARIO — modalidad explícita + fecha tentativa",
         "pregunta_template": "¿Cuándo me pagan el manifiesto {MANIFIESTO_PRIORITARIO}?",
         "depende_de": "MANIFIESTO_PRIORITARIO",
+        "cedula_override": CEDULA_PRIORITARIO,
+        "nombre_override": NOMBRE_PRIORITARIO,
         "judge_criterio": (
             "Dice explícitamente que el manifiesto tiene modalidad PRIORITARIO. "
             "Explica que no tiene fecha fija definida. "
@@ -969,6 +1037,8 @@ CASOS_BASE = [
         "titulo": "PAGO A 20 DIAS — fecha estimada y días restantes",
         "pregunta_template": "¿Para cuándo está el pago del manifiesto {MANIFIESTO_PAGO_20}?",
         "depende_de": "MANIFIESTO_PAGO_20",
+        "cedula_override": CEDULA_PAGO_20,
+        "nombre_override": NOMBRE_PAGO_20,
         "judge_criterio": (
             "El manifiesto tiene modalidad *PAGO A 20 DIAS*. "
             "Muestra la fecha_estimada_pago en formato natural y los días restantes aproximados. "
@@ -980,6 +1050,8 @@ CASOS_BASE = [
         "titulo": "PAGO A 30 DIAS — fecha estimada y días restantes",
         "pregunta_template": "¿Cuándo me pagan el manifiesto {MANIFIESTO_PAGO_30}?",
         "depende_de": "MANIFIESTO_PAGO_30",
+        "cedula_override": CEDULA_PAGO_30,
+        "nombre_override": NOMBRE_PAGO_30,
         "judge_criterio": (
             "El manifiesto tiene modalidad *PAGO A 30 DIAS*. "
             "Muestra la fecha_estimada_pago en formato natural y los días restantes aproximados. "
@@ -991,6 +1063,8 @@ CASOS_BASE = [
         "titulo": "PAGO A 5-8 DIAS — fecha estimada y días restantes",
         "pregunta_template": "¿Para cuándo va a ser mi pago del manifiesto {MANIFIESTO_PAGO_5_8}?",
         "depende_de": "MANIFIESTO_PAGO_5_8",
+        "cedula_override": CEDULA_PAGO_5_8,
+        "nombre_override": NOMBRE_PAGO_5_8,
         "judge_criterio": (
             "El manifiesto tiene modalidad *PAGO A 5-8 DIAS*. "
             "Muestra la fecha_estimada_pago en formato natural y los días restantes aproximados. "
@@ -1004,6 +1078,8 @@ CASOS_BASE = [
         "titulo": "PAGO INMEDIATO — indica que debió pagarse al cumplido",
         "pregunta_template": "¿Cuándo me pagan el manifiesto {MANIFIESTO_INMEDIATO}?",
         "depende_de": "MANIFIESTO_INMEDIATO",
+        "cedula_override": CEDULA_INMEDIATO,
+        "nombre_override": NOMBRE_INMEDIATO,
         "judge_criterio": (
             "El manifiesto tiene modalidad PAGO INMEDIATO. "
             "El bot dice que el pago es inmediato al cumplido del viaje. "
@@ -1050,6 +1126,8 @@ CASOS_BASE = [
         "titulo": "URBANO — modalidad especial, contactar agencia",
         "pregunta_template": "¿Para cuándo va a ser el pago del manifiesto {MANIFIESTO_URBANO}?",
         "depende_de": "MANIFIESTO_URBANO",
+        "cedula_override": CEDULA_URBANO,
+        "nombre_override": NOMBRE_URBANO,
         "judge_criterio": (
             "El manifiesto tiene modalidad URBANO. "
             "El bot dice que es una modalidad especial que no maneja fecha de pago numérica. "
@@ -1065,6 +1143,8 @@ CASOS_BASE = [
         "titulo": "OTROS — sin plazo fijo, fecha tentativa",
         "pregunta_template": "¿Cuándo me van a pagar el manifiesto {MANIFIESTO_OTROS}?",
         "depende_de": "MANIFIESTO_OTROS",
+        "cedula_override": CEDULA_OTROS,
+        "nombre_override": NOMBRE_OTROS,
         "judge_criterio": (
             "El manifiesto tiene modalidad OTROS (sin días fijos definidos). "
             "El bot avisa que no hay un plazo fijo y da una fecha tentativa de ~20 días calendario desde el cumplido. "
@@ -1079,6 +1159,8 @@ CASOS_BASE = [
         "titulo": "Sin compromiso de pago registrado — fecha tentativa",
         "pregunta_template": "¿Me puedes decir cuándo me van a pagar el manifiesto {MANIFIESTO_SIN_COMPROMISO}?",
         "depende_de": "MANIFIESTO_SIN_COMPROMISO",
+        "cedula_override": CEDULA_SIN_COMPROMISO,
+        "nombre_override": NOMBRE_SIN_COMPROMISO,
         "judge_criterio": (
             "El manifiesto no tiene compromiso de pago registrado. "
             "El bot avisa que no hay compromiso definido. "
@@ -1102,6 +1184,35 @@ CASOS_BASE = [
             "Menciona que cuando logística cierre el viaje podrá dar el dato. "
             "FAIL si inventa una fecha de pago, si da una fecha estimada sin base, "
             "o si no menciona que el viaje no está cerrado."
+        ),
+    },
+
+    # ── 43. Regla nueva del prompt: NO cerrar con pregunta de seguimiento ─────
+    {
+        "categoria": "formato",
+        "titulo": "NO cierra con pregunta de seguimiento por defecto",
+        "pregunta": "¿Cuál es mi saldo?",
+        "judge_criterio": (
+            "Responde la consulta (monto del saldo en $ o que está al día) y cierra con punto final. "
+            "NO termina con preguntas de seguimiento por cortesía del tipo '¿Necesitas algo más?', "
+            "'¿Te reviso algo más?', '¿Quieres que revise otro?', '¿Necesitas ver algo más?'. "
+            "Si ya resolvió la consulta, no añade follow-up."
+        ),
+    },
+
+    # ── 44. Pago parcial (abono sin pago final) — caso raro ───────────────────
+    {
+        "categoria": "pago",
+        "titulo": "Pago parcial (abono sin fecha de pago final)",
+        "pregunta_template": "¿Cuál es el estado del pago del manifiesto {MANIFIESTO_PAGO_PARCIAL}?",
+        "depende_de": "MANIFIESTO_PAGO_PARCIAL",
+        "cedula_override": CEDULA_PAGO_PARCIAL,
+        "nombre_override": NOMBRE_PAGO_PARCIAL,
+        "judge_criterio": (
+            "El manifiesto tiene un ABONO (valor_pagado > 0) pero fecha_pago null. "
+            "El bot dice cuánto se ha abonado, cuánto queda pendiente (saldo), y según la modalidad "
+            "da la fecha estimada para el resto o redirige a Altrans. "
+            "NO inventa cifras ni presenta el abono como si fuera el pago final."
         ),
     },
 ]
@@ -1134,7 +1245,7 @@ CASOS_ADMIN = [
         "titulo": "Resumen consolidado del período",
         "pregunta": f"Dame el resumen general de {MES} {AÑO}",
         "conductor": False,
-        "judge_criterio": "Da KPIs agregados: total manifiestos, fletes, remesas.",
+        "judge_criterio": "Da KPIs agregados del período: total manifiestos, flete total y remesas o pendiente de pago.",
     },
     {
         "categoria": "admin",
@@ -1197,9 +1308,10 @@ CASOS_PROPIETARIO = [
         "pregunta": "¿Cómo va mi vehículo este mes?",
         "propietario": True,
         "judge_criterio": (
-            "PASS si infiere MAYO 2026 como mes actual y da cifras del vehículo (pueden ser 0). "
+            "PASS si infiere el MES ACTUAL (el del calendario hoy, o el período más reciente con datos) "
+            "y da cifras del vehículo (pueden ser 0). "
             "No se puede verificar qué herramienta se llamó — evalúa solo el contenido. "
-            "FAIL solo si da datos de otro vehículo o inventa cifras."
+            "FAIL solo si da datos de otro vehículo o inventa cifras sin base."
         ),
     },
     {
@@ -1259,9 +1371,10 @@ CASOS_PROPIETARIO = [
         "pregunta": "¿Cómo le fue al vehículo el mes pasado?",
         "propietario": True,
         "judge_criterio": (
-            "PASS si infiere el mes anterior (ABRIL 2026) y da cifras del vehículo para ese período. "
+            "PASS si infiere el mes anterior al actual (el del calendario hoy, o el período previo con datos) "
+            "y da cifras del vehículo para ese período. "
             "No se puede verificar qué herramienta se llamó desde la respuesta — evalúa solo el contenido. "
-            "FAIL si confunde el mes, pide aclaración, o da datos de otro vehículo."
+            "FAIL si confunde el mes, pide aclaración, da datos de otro vehículo, o inventa cifras sin base."
         ),
     },
     {
@@ -1496,6 +1609,20 @@ CASOS_PROPIETARIO = [
             "No inventa historial de accidentes."
         ),
     },
+
+    # ── H. Modalidades de pago de los pendientes del vehículo ────────────────
+    {
+        "categoria": "propietario_saldo",
+        "titulo": "Propietario — modalidades de pago de pendientes del vehículo",
+        "pregunta": "¿Cuáles son las modalidades de pago de los manifiestos que me deben de mi vehículo?",
+        "propietario": True,
+        "judge_criterio": (
+            "PASS si lista o resume los manifiestos pendientes del vehículo con su modalidad de pago "
+            "(ej: PAGO A 15 DIAS, CONTRAENTREGA) y su fecha estimada si está disponible, "
+            "o dice que no hay pendientes. "
+            "NO inventa modalidades, no da fechas sin consultar, y no mezcla datos de otro vehículo."
+        ),
+    },
 ]
 
 # ── Judge LLM ─────────────────────────────────────────────────────────────────
@@ -1574,13 +1701,14 @@ def _aplicar_template(caso: dict) -> dict | None:
         MANIFIESTO_SIN_CUMPLIDO=MANIFIESTO_SIN_CUMPLIDO,
         MANIFIESTO_PRIORITARIO=MANIFIESTO_PRIORITARIO,
         MANIFIESTO_PRONTO_PAGO=MANIFIESTO_PRONTO_PAGO,
+        MANIFIESTO_PAGO_PARCIAL=MANIFIESTO_PAGO_PARCIAL,
     )
     return {**caso, "pregunta": pregunta}
 
 
-def _invocar_modelo(modelo: str, pregunta: str, nombre: str | None, cedula: str | None,
-                    placa: str | None = None) -> str:
-    """Dispatch al runner del modelo via OpenRouter. deepseek = primario, haiku = fallback."""
+async def _invocar_modelo(modelo: str, pregunta: str, nombre: str | None, cedula: str | None,
+                          placa: str | None = None) -> str:
+    """Dispatch al runner del modelo. deepseek = primario, haiku = fallback."""
     if modelo not in MODELS:
         raise ValueError(f"Modelo desconocido: {modelo}. Opciones: {list(MODELS)}")
     model_id = MODELS[modelo]
@@ -1590,11 +1718,71 @@ def _invocar_modelo(modelo: str, pregunta: str, nombre: str | None, cedula: str 
         kwargs = {"nombre": nombre, "conductor_cedula": cedula}
     elif placa:
         kwargs = {"nombre": nombre, "placa": placa, "tipo_usuario": "propietario"}
-    respuesta, _tools_called = run_deepseek_prod(pregunta, [], _model_override=override, **kwargs)
+    respuesta, _tools_called = await run_deepseek_prod(pregunta, [], _model_override=override, **kwargs)
     return respuesta
 
 
-def correr_caso(caso: dict, modelo: str = "deepseek") -> dict:
+# ── Asserts mecánicos de formato (baratos, sin LLM) ────────────────────────────
+
+_AMOUNT_TOKEN = re.compile(r"\$\s?(\d[\d.,]*)")
+
+# Patrones de pregunta de seguimiento de cierre (regla nueva del prompt).
+_FOLLOW_UP_RE = re.compile(
+    r"¿?(necesitas algo más|revisar algo más|te reviso (otro|algo)|te ayudo en algo|te ayudo con algo|"
+    r"quieres que (revise|te|te muestre)|necesitas ver|necesitas (otro|algo)|puedo ayudarte en algo|"
+    r"alguna otra cosa|deseas (revisar|algo)|en qué más puedo|algo más\?)",
+    re.IGNORECASE,
+)
+
+
+def _contar_emojis(texto: str) -> int:
+    """Cuenta símbolos/emojis por categoría Unicode 'So' (✅ ⚠️ 🚛 💰 etc.)."""
+    return sum(1 for ch in texto if _ud.category(ch) == "So")
+
+
+def _problemas_moneda(respuesta: str) -> list[str]:
+    """Valida que todo monto con '$' tenga formato colombiano $1.234.567 (sin coma, sin decimales)."""
+    problemas = []
+    for m in _AMOUNT_TOKEN.finditer(respuesta):
+        token = m.group(1)
+        if token.endswith(".") or token.endswith(","):
+            token = token[:-1]
+        if "," in token:
+            problemas.append(f"monto con coma: ${token}")
+            continue
+        if not re.fullmatch(r"\d{1,3}(\.\d{3})*", token):
+            problemas.append(f"monto sin formato colombiano: ${token}")
+    return problemas
+
+
+def _format_asserts(respuesta: str) -> tuple[list[dict], list[str]]:
+    """Devuelve (asserts mecánicos de formato, advertencias) para una respuesta."""
+    asserts: list[dict] = []
+    advertencias: list[str] = []
+
+    asserts.append({
+        "tipo": "no_doble_asterisco",
+        "sub": "**", "pass": "**" not in respuesta,
+    })
+    n_emojis = _contar_emojis(respuesta)
+    asserts.append({
+        "tipo": "max_1_emoji",
+        "sub": f"emojis={n_emojis}", "pass": n_emojis <= 1,
+    })
+    for prob in _problemas_moneda(respuesta):
+        asserts.append({"tipo": "moneda_formato", "sub": prob, "pass": False})
+
+    if _FOLLOW_UP_RE.search(respuesta):
+        advertencias.append("posible pregunta de seguimiento de cierre")
+    lineas = respuesta.strip().splitlines()
+    if len(lineas) > 8:
+        advertencias.append(f"respuesta larga ({len(lineas)} líneas)")
+    if lineas and max(len(l) for l in lineas) > 200:
+        advertencias.append("línea > 200 caracteres")
+    return asserts, advertencias
+
+
+async def correr_caso(caso: dict, modelo: str = "deepseek") -> dict:
     caso = _aplicar_template(caso)
     if caso is None:
         return {"skip": True, "razon": "variable global no configurada"}
@@ -1621,7 +1809,7 @@ def correr_caso(caso: dict, modelo: str = "deepseek") -> dict:
 
     t0 = time.time()
     try:
-        respuesta = _invocar_modelo(modelo, caso["pregunta"], nombre, cedula, placa)
+        respuesta = await _invocar_modelo(modelo, caso["pregunta"], nombre, cedula, placa)
         err = None
     except Exception as e:
         respuesta = f"[EXCEPCION] {e}"
@@ -1637,6 +1825,12 @@ def correr_caso(caso: dict, modelo: str = "deepseek") -> dict:
     for sub in caso.get("no_debe_contener", []):
         ok_a = sub.lower() not in txt_low
         asserts.append({"tipo": "no_debe_contener", "sub": sub, "pass": ok_a})
+
+    # Asserts mecánicos de formato + advertencias (solo si no hubo excepción)
+    advertencias: list[str] = []
+    if err is None:
+        fmt_asserts, advertencias = _format_asserts(respuesta)
+        asserts.extend(fmt_asserts)
 
     asserts_pass = all(a["pass"] for a in asserts)
 
@@ -1656,6 +1850,7 @@ def correr_caso(caso: dict, modelo: str = "deepseek") -> dict:
         "latencia_s":  round(latencia, 2),
         "asserts":     asserts,
         "asserts_pass": asserts_pass,
+        "advertencias": advertencias,
         "judge_pass":  judge_pass,
         "judge_razon": judge_razon,
         "error":       err,
@@ -1665,22 +1860,22 @@ def correr_caso(caso: dict, modelo: str = "deepseek") -> dict:
 
 # ── Test de concurrencia ──────────────────────────────────────────────────────
 
-def test_concurrencia(n: int = 10) -> dict:
+async def test_concurrencia(n: int = 10) -> dict:
     """Lanza n conductores en paralelo haciendo una consulta simple."""
     pregunta = f"¿Cuál es mi resumen de {MES} {AÑO}?"
     t0 = time.time()
-    errores = []
-    def _one():
-        respuesta, _ = run_deepseek_prod(pregunta, [], conductor_nombre=CONDUCTOR_NOMBRE, conductor_cedula=CONDUCTOR_CEDULA)
+
+    async def _one():
+        respuesta, _ = await run_deepseek_prod(
+            pregunta, [], conductor_nombre=CONDUCTOR_NOMBRE, conductor_cedula=CONDUCTOR_CEDULA,
+        )
         return respuesta
 
-    with ThreadPoolExecutor(max_workers=n) as pool:
-        futures = [pool.submit(_one) for _ in range(n)]
-        for f in as_completed(futures):
-            try:
-                f.result()
-            except Exception as e:
-                errores.append(str(e))
+    errores = []
+    try:
+        await asyncio.gather(*(_one() for _ in range(n)))
+    except Exception as e:
+        errores.append(str(e))
     elapsed = time.time() - t0
     return {
         "n_conductores": n,
@@ -1720,12 +1915,12 @@ CASOS_MODERACION = [
 ]
 
 
-def test_moderacion() -> dict:
+async def test_moderacion() -> dict:
     """Corre los casos por moderate_label() y mide recall/precision de la capa."""
     resultados = []
     for categoria, texto, es_ataque in CASOS_MODERACION:
         t0 = time.time()
-        label = moderate_label(texto)
+        label = await moderate_label(texto)
         latencia = time.time() - t0
         detectado = label.startswith("UNSAFE")
         resultados.append({
@@ -1779,6 +1974,10 @@ def generar_reporte(resultados: list[dict], concurrencia: dict | None,
     L.append(f"- **Casos ejecutados:** {total}")
     L.append(f"- **Pasaron:** {pasaron}/{total} ({100*pasaron/total if total else 0:.0f}%)")
     L.append(f"- **Saltados:** {saltados} (variables globales no configuradas)\n")
+
+    n_warn = sum(1 for r in resultados if r.get("advertencias"))
+    if n_warn:
+        L.append(f"- **Con advertencias de formato:** {n_warn}\n")
 
     # ── Tiempos del agente ───────────────────────────────────────────────────
     lats = [r["latencia_s"] for r in resultados if not r.get("skip") and r.get("latencia_s") is not None]
@@ -1846,6 +2045,8 @@ def generar_reporte(resultados: list[dict], concurrencia: dict | None,
                 for a in r["asserts"]:
                     am = "✓" if a["pass"] else "✗"
                     L.append(f"- {am} `{a['tipo']}`: `{a['sub']}`")
+            if r.get("advertencias"):
+                L.append(f"\n**Advertencias:** {', '.join(r['advertencias'])}")
             L.append(f"\n**Judge:** {'✓' if r['judge_pass'] else '✗'} — {r['judge_razon']}")
             if r.get("error"):
                 L.append(f"\n**Error:** `{r['error']}`")
@@ -1862,11 +2063,11 @@ def generar_reporte(resultados: list[dict], concurrencia: dict | None,
 
 # ── Runner del test de moderación ───────────────────────────────────────────────
 
-def _run_moderacion() -> int:
+async def _run_moderacion() -> int:
     """Corre el test de moderación, imprime resultados, guarda reporte. Retorna exit code."""
     print(f"\n=== Test de moderación ({MODEL_MODERATE}) — "
           f"{len(CASOS_MODERACION)} casos ===\n")
-    res = test_moderacion()
+    res = await test_moderacion()
 
     print(f"{'CATEGORÍA':<14}{'ESPERADO':<10}{'OBTENIDO':<10}{'LABEL':<10}{'OK':<6} TEXTO")
     print("-" * 100)
@@ -1910,6 +2111,11 @@ def _run_moderacion() -> int:
         f.write("\n".join(L))
     print(f"\nReporte: {out_path}")
 
+    json_path = out_path.replace(".md", ".json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=2, default=str)
+    print(f"JSON: {json_path}")
+
     # FN en exfiltración no fallan el suite (los cubre agente+RLS, no esta capa);
     # FN en inyección y cualquier FP sí son fallos de la capa de moderación.
     fallos_criticos = [r for r in res["resultados"]
@@ -1919,12 +2125,12 @@ def _run_moderacion() -> int:
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
-def main():
+async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--categoria", help="Filtrar por categoría (exacta)")
     ap.add_argument("--tipo", choices=["conductor", "admin", "propietario", "todos"],
                     default="todos", help="Tipo de usuario: conductor | admin | propietario | todos (default)")
-    ap.add_argument("--workers", type=int, default=10, help="Hilos paralelos (10 por defecto)")
+    ap.add_argument("--workers", type=int, default=10, help="Casos en paralelo (10 por defecto)")
     ap.add_argument("--concurrencia", action="store_true", help="Incluir test de concurrencia con N conductores en paralelo")
     ap.add_argument("--n-concurrencia", type=int, default=30, help="Número de conductores paralelos en el test de concurrencia (default: 30)")
     ap.add_argument("--solo-asserts", action="store_true", help="Saltar judge LLM (más rápido y barato)")
@@ -1934,7 +2140,7 @@ def main():
     args = ap.parse_args()
 
     if args.moderacion:
-        sys.exit(_run_moderacion())
+        sys.exit(await _run_moderacion())
 
     modelos = [m.strip() for m in args.modelos.split(",") if m.strip()]
     desconocidos = [m for m in modelos if m not in MODELS]
@@ -1955,20 +2161,24 @@ def main():
         for c in casos:
             c.pop("judge_criterio", None)
 
+    sem = asyncio.Semaphore(max(1, args.workers))
+
+    async def _run_caso(c: dict, modelo: str) -> dict:
+        async with sem:
+            return await correr_caso(c, modelo)
+
     todos_los_resultados: list[dict] = []
     elapsed_por_modelo: dict[str, float] = {}
     for modelo in modelos:
-        print(f"\n=== Modelo: {modelo} ({MODELS.get(modelo, modelo)}) — {len(casos)} casos · {args.workers} hilos ===")
+        print(f"\n=== Modelo: {modelo} ({MODELS.get(modelo, modelo)}) — {len(casos)} casos · {args.workers} en paralelo ===")
         t0 = time.time()
         resultados_m: list[dict] = []
-        with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            futures = {pool.submit(correr_caso, c, modelo): c for c in casos}
-            for i, f in enumerate(as_completed(futures), 1):
-                r = f.result()
-                resultados_m.append(r)
-                mark = "·" if r.get("skip") else ("✓" if r.get("pass") else "✗")
-                titulo = futures[f].get("titulo", "?")
-                print(f"  [{i}/{len(casos)}] {mark} {titulo}")
+        for i, coro in enumerate(asyncio.as_completed([_run_caso(c, modelo) for c in casos]), 1):
+            r = await coro
+            resultados_m.append(r)
+            mark = "·" if r.get("skip") else ("✓" if r.get("pass") else "✗")
+            titulo = r.get("titulo", "?")
+            print(f"  [{i}/{len(casos)}] {mark} {titulo}")
         elapsed_por_modelo[modelo] = time.time() - t0
         todos_los_resultados.extend(resultados_m)
         print(f"  → {elapsed_por_modelo[modelo]:.1f}s wall-clock")
@@ -1977,7 +2187,7 @@ def main():
     if args.concurrencia:
         n = args.n_concurrencia
         print(f"\nProbando concurrencia con {n} conductores paralelos (DeepSeek)…")
-        conc = test_concurrencia(n)
+        conc = await test_concurrencia(n)
         print(f"  → {'OK' if conc['pass'] else 'FALLÓ'} · {conc['elapsed_s']}s · errores {conc['errores']}")
 
     # Guardar reporte
@@ -1995,6 +2205,16 @@ def main():
             f.write(generar_reporte_comparativo(todos_los_resultados, modelos,
                                                 elapsed_por_modelo, args.workers))
     print(f"\nReporte: {out_path}")
+
+    json_path = out_path.replace(".md", ".json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "fecha":         _dt.datetime.now().isoformat(timespec="seconds"),
+            "modelos":       modelos,
+            "concurrencia":  conc,
+            "resultados":    todos_los_resultados,
+        }, f, ensure_ascii=False, indent=2, default=str)
+    print(f"JSON: {json_path}")
 
     # Resumen final por modelo
     print()
@@ -2093,4 +2313,4 @@ def generar_reporte_comparativo(resultados: list[dict], modelos: list[str],
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
