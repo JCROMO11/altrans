@@ -687,7 +687,7 @@ class TestInactivityTimeout:
             'cedula_temp':None,'conductor_nombre_temp':None,
             'conductor_cedula':'1130668182','conductor_nombre':'HENRY',
             'historial':[],'msg_count':0,
-            'last_activity':(wh._now() - timedelta(minutes=6)).isoformat(),
+            'last_activity':(wh._now() - timedelta(minutes=12)).isoformat(),
             'auth_fails':0,'locked_until':None,
         }
 

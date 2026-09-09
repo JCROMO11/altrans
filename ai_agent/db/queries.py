@@ -442,6 +442,15 @@ async def get_session(wa_from: str) -> dict | None:
     return rows[0] if rows else None
 
 
+async def get_sessions_inactivas(cutoff_iso: str) -> list[dict]:
+    """Sesiones activas con última actividad anterior a cutoff (auto-logout)."""
+    return await _get("chatbot_sesiones", {
+        "estado":         "eq.activa",
+        "last_activity":  f"lt.{cutoff_iso}",
+        "select":         "*",
+    })
+
+
 async def upsert_session(session: dict) -> None:
     await _request(
         "POST",

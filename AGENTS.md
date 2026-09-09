@@ -69,7 +69,20 @@
 - User tiene "respuestas de gerencia" con cambios a implementar
 - Revisar requerimientos y modificar código del chatbot/notificaciones
 
-#### 4. WA_APP_SECRET (HMAC del webhook) — pendiente de producción real
+#### 4. Mejoras al chatbot implementadas (Sep 09 2026)
+- [x] **Contacto humano alternativo**: intercepción por regex en `webhook.py`
+      (`_PEDIR_HUMANO_RE`) → responde con el número de `WA_CONTACTO_HUMANO`
+      (placeholder `600 00 00` — ⚠️ **reemplazar por el real en producción**).
+      Línea corta "📞 Contacto Altrans" también en el saludo inicial y post-login.
+      No consume consulta ni entra al historial; no aplica a admins.
+- [x] **Auto-logout por inactividad**: columna `inactividad_avisado_at` en
+      `chatbot_sesiones` (ALTER TABLE aplicado) + worker `whatsapp/inactivity.py`
+      lanzado en startup de `main.py` (1 instancia). Env: `WA_INACT_AVISO_MIN=5`,
+      `WA_INACT_CIERRE_MIN=10`. Solo sesiones `estado=activa`.
+- [x] Fix loguru: `format` callable devolvía JSON → loguru lo leía como plantilla
+      `{...}` (KeyError '"ts"'). Solución: escapar llaves en `logging_config.py`.
+
+#### 5. WA_APP_SECRET (HMAC del webhook) — pendiente de producción real
 - `WA_APP_SECRET` (App Secret de la app de Meta "Altrans Chatbot") está **vacío/ausente**: la validación `X-Hub-Signature-256` del webhook se omite (`hmac_skipped_no_secret` en main.py)
 - Configurarlo **después** de la verificación del negocio de Meta, cuando esté listo para producción real
 - Se obtiene en Meta Developer Portal → Configuración → Básico → "Clave secreta de la aplicación" (es distinto de WA_TOKEN y WA_VERIFY_TOKEN)

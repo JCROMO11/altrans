@@ -24,10 +24,13 @@ def _json_format(record):
             record["exception"].value,
             record["exception"].traceback,
         ))
-    # loguru 0.7.3 usa el string devuelto como template de formato → escapar
-    # llaves para que el JSON salga literal (si no, KeyError en format_map).
-    return json.dumps(payload, ensure_ascii=False, default=str).replace(
-        "{", "{{").replace("}", "}}")
+    # loguru re-interpreta lo que devuelve un format callable como plantilla
+    # str.format: las llaves del JSON se volverían placeholders (KeyError '"ts"').
+    # Escaparlas ({{ }} → { }) deja el JSON literal al aplicar format_map.
+    # El "\n" final: loguru no agrega salto de línea a format callables.
+    return (json.dumps(payload, ensure_ascii=False, default=str).replace(
+        "{", "{{"
+    ).replace("}", "}}")) + "\n"
 
 
 def setup_logging(level: str = "INFO") -> None:

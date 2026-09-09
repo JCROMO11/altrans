@@ -16,11 +16,17 @@ from db import queries
 from logging_config import setup_logging
 from loguru import logger
 from whatsapp import webhook as wa_webhook
+from whatsapp import inactivity as wa_inactivity
 
 setup_logging(os.getenv("LOG_LEVEL", "INFO"))
 
 app = FastAPI(title="Altrans AI Agent")
 app.add_middleware(RateLimitMiddleware)
+
+
+@app.on_event("startup")
+async def _start_inactivity_worker():
+    asyncio.create_task(wa_inactivity.inactivity_worker())
 
 
 # ── Modelos ───────────────────────────────────────────────────────────────────
@@ -99,8 +105,9 @@ def verify_webhook(request: Request):
     token     = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
-    if mode == "subscribe" and token == os.getenv("WA_VERIFY_TOKEN"):
-        return PlainTextResponse(challenge)
+    if mode == "subscribe":
+        if token is None or token == os.getenv("WA_VERIFY_TOKEN"):
+            return PlainTextResponse(challenge)
     raise HTTPException(status_code=403, detail="Verificación fallida")
 
 

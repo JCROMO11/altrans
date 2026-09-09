@@ -31,6 +31,11 @@ def get_wa_settings() -> dict:
         "wa_verify_token":    os.environ["WA_VERIFY_TOKEN"],
         # Opcional: para validar firma HMAC de Meta en producción
         "wa_app_secret":      os.getenv("WA_APP_SECRET", ""),
+        # Contacto humano alternativo (placeholder hasta tener el real)
+        "wa_contacto_humano": os.getenv("WA_CONTACTO_HUMANO", "600 00 00"),
+        # Auto-logout por inactividad (worker whatsapp/inactivity.py)
+        "wa_inact_aviso_min": int(os.getenv("WA_INACT_AVISO_MIN", "5")),
+        "wa_inact_cierre_min": int(os.getenv("WA_INACT_CIERRE_MIN", "10")),
     }
 
 

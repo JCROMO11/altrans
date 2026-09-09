@@ -5,12 +5,16 @@ import bcrypt
 from loguru import logger
 
 from db import queries
+from config import get_wa_settings
 from agent.graph import run, moderate
 from whatsapp.client import send_text, mark_as_read
 from core.rate_limiter import rate_limiter
 
+_WA_SETTINGS = get_wa_settings()
+_CONTACTO_HUMANO = (_WA_SETTINGS.get("wa_contacto_humano") or "600 00 00").strip()
+_INACT_CIERRE = timedelta(minutes=int(_WA_SETTINGS.get("wa_inact_cierre_min") or 10))
+
 SESSION_TTL          = timedelta(hours=8)
-INACTIVITY_TTL       = timedelta(minutes=5)
 MAX_HISTORIAL        = 6
 MAX_AUTH_FAILS       = 3
 LOCKOUT_MIN          = 10
@@ -69,6 +73,20 @@ _FAREWELL_RE = re.compile(
 
 _GREETING_RE = re.compile(
     r'^(?:hola|buenas|buenos?\s+(?:d[ií]as?|tardes|noches)|qu[ií]hubo|hey|ey|hello|hi)\s*[!¡]*$',
+    re.IGNORECASE,
+)
+
+_PEDIR_HUMANO_RE = re.compile(
+    r'hablar\s+con\s+(una\s+)?(persona|alguien|un\s+humano|un\s+asesor|un\s+ejecutivo|un\s+agente)'
+    r'|(con|ante)\s+(una\s+)?(persona|alguien|un\s+humano|un\s+asesor|un\s+ejecutivo|un\s+agente)'
+    r'|asesor\s+humano|atenci[oó]n\s+humana|contacto\s+humano'
+    r'|p[aá]seme\s+con\s+(alguien|una\s+persona|un\s+asesor|un\s+agente|supervisor|gerencia)'
+    r'|(quiero|necesito)\s+(hablar|contactar|comunicarme|que\s+me\s+(atienda|contacte))\s+(con|a)?\s*'
+    r'(una\s+persona|alguien|un\s+humano|asesor(ía|\.)?|un\s+asesor|ejecutivo|agente|gerencia|soporte)'
+    r'|(atender|contactar|llamar|hablar|comunicar(se)?)\s+(con|a|por|me)\s*(altrans|la\s+agencia|la\s+empresa|gerencia|soporte)'
+    r'|(tel[eé]fono|n[uú]mero|contacto|whatsapp)\s+(de|del?)\s*(altrans|la\s+empresa|la\s+agencia|gerencia|soporte)'
+    r'|(escalar|derivar)\s*(con|a|a\s+una)?\s*(persona|humano|asesor|supervisor)?'
+    r'|estoy\s+hablando\s+(con\s+)?(un\s+)?(bot|robots?)\s*(y\s+)?(quiero|necesito)\s+(a\s+)?(una\s+persona|un\s+humano|un\s+asesor)',
     re.IGNORECASE,
 )
 
@@ -150,7 +168,7 @@ async def _load_session(wa_from: str) -> dict | None:
     if idle > SESSION_TTL:
         await queries.delete_session(wa_from)
         return None
-    if session.get("estado") == "activa" and idle > INACTIVITY_TTL:
+    if session.get("estado") == "activa" and idle > _INACT_CIERRE:
         await queries.delete_session(wa_from)
         return None
     return session
@@ -267,7 +285,8 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
             "Para empezar, cuéntame:\n"
             "- Si eres *conductor*, escribe tu número de cédula.\n"
             "- Si eres *propietario de vehículo*, escribe la placa.\n\n"
-            f"{_TIPS}"
+            f"{_TIPS}\n"
+            f"📞 Contacto Altrans: *{_CONTACTO_HUMANO}*"
         )
         logger.info("session_new", wa_from=wa_from)
         return
@@ -281,6 +300,14 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
 
     texto  = text.strip()
     estado = session["estado"]
+
+    # ── Contacto humano alternativo (antes de la máquina de estados) ──────────
+    if not session.get("admin_rol") and _PEDIR_HUMANO_RE.search(texto):
+        await send_text(wa_from,
+            f"📞 Contacto Altrans: *{_CONTACTO_HUMANO}*\n\n"
+            "Yo sigo disponible para tus consultas de manifiestos, fletes y pagos.")
+        logger.info("contacto_humano", wa_from=wa_from)
+        return
 
     # ── Despedida determinística (sin LLM) ─────────────────────────────────────
     if _es_despedida(texto):
@@ -419,7 +446,8 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
         await send_text(wa_from,
             f"Verificado. Bienvenido {nombre} ({rol}).\n\n"
             f"{_TIPS}\n\n"
-            "¿En qué te puedo ayudar?")
+            "¿En qué te puedo ayudar?\n"
+            f"📞 Contacto Altrans: *{_CONTACTO_HUMANO}*")
         logger.info("auth_ok", wa_from=wa_from, tipo=tipo, identificador=identificador)
         return
 
