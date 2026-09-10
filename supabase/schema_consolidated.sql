@@ -475,7 +475,9 @@ CREATE TABLE IF NOT EXISTS public.chatbot_sesiones (
     msg_count              INTEGER     NOT NULL DEFAULT 0,
     last_activity          TIMESTAMPTZ NOT NULL DEFAULT now(),
     auth_fails             INTEGER     NOT NULL DEFAULT 0,
-    locked_until           TIMESTAMPTZ
+    locked_until           TIMESTAMPTZ,
+    inactividad_avisado_at TIMESTAMPTZ,                              -- aviso de auto-logout enviado
+    admin_rol              TEXT                                      -- 'gerencia' | ... para admins
 );
 CREATE INDEX IF NOT EXISTS idx_chatbot_last_activity ON public.chatbot_sesiones (last_activity);
 
@@ -486,6 +488,8 @@ ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS identificador_temp 
 ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS identificador_auth TEXT;
 ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS nombre_temp        TEXT;
 ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS nombre             TEXT;
+ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS inactividad_avisado_at TIMESTAMPTZ;
+ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS admin_rol          TEXT;
 
 -- Idempotencia del webhook de Meta
 CREATE TABLE IF NOT EXISTS public.processed_messages (
