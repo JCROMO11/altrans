@@ -509,6 +509,14 @@ CREATE TABLE IF NOT EXISTS public.chatbot_cuota (
 );
 CREATE INDEX IF NOT EXISTS idx_chatbot_cuota_ventana ON public.chatbot_cuota (ventana_inicio);
 
+-- Sembrar el cupo desde las sesiones vivas, para no regalar consultas al
+-- desplegar. `last_activity` se usa como inicio aproximado de la ventana.
+INSERT INTO public.chatbot_cuota (wa_from, ventana_inicio, consultas)
+SELECT wa_from, last_activity, msg_count
+FROM public.chatbot_sesiones
+WHERE msg_count > 0
+ON CONFLICT (wa_from) DO NOTHING;
+
 -- Idempotencia del webhook de Meta
 CREATE TABLE IF NOT EXISTS public.processed_messages (
     message_id   TEXT        PRIMARY KEY,
