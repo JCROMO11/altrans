@@ -176,6 +176,13 @@ CREATE TABLE IF NOT EXISTS public.manifiestos_flat (
     estado_interno              TEXT,
     responsable_estado_interno  TEXT,
 
+    -- ── Archivado histórico ─────────────────────────────────────────────────
+    -- Marca manual (NO la toca el ETL: no está en COLS) para excluir
+    -- manifiestos antiguos de las notificaciones y de las alertas del
+    -- dashboard (rojo / por vencer). Se archiva por año con
+    -- `make archive-historico`. Los archivados siguen guardados y buscables.
+    archivado                   BOOLEAN         NOT NULL DEFAULT false,
+
     -- ── Ajustes al flete ────────────────────────────────────────────────────
     ajuste_positivo_flete       NUMERIC(14, 2)  CHECK (ajuste_positivo_flete >= 0),
     ajuste_negativo_flete       NUMERIC(14, 2)  CHECK (ajuste_negativo_flete >= 0),
@@ -315,6 +322,7 @@ CREATE INDEX IF NOT EXISTS idx_mflat_agencia          ON public.manifiestos_flat
 CREATE INDEX IF NOT EXISTS idx_mflat_archivo_origen   ON public.manifiestos_flat (archivo_origen);
 CREATE INDEX IF NOT EXISTS idx_mflat_cedula           ON public.manifiestos_flat (cedula_conductor);
 CREATE INDEX IF NOT EXISTS idx_mflat_estado_interno   ON public.manifiestos_flat (estado_interno);
+CREATE INDEX IF NOT EXISTS idx_mflat_archivado        ON public.manifiestos_flat (archivado) WHERE archivado;
 
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
@@ -917,7 +925,10 @@ SELECT
             WHEN 'CONTINGENCIA 20-25 DH'  THEN 35
             ELSE 21  -- PRONTO PAGO, PRIORITARIO, OTROS, NULL (tentativo)
         END)
-    END AS fecha_estimada_pago
+    END AS fecha_estimada_pago,
+    -- archivado al final: CREATE OR REPLACE VIEW solo permite agregar
+    -- columnas nuevas al final de la lista.
+    m.archivado
 FROM public.manifiestos_flat m;
 
 
@@ -1014,8 +1025,8 @@ AS $$
            OR (p_nombre_responsable IS NOT NULL AND nombre_responsable ILIKE '%' || p_nombre_responsable || '%')
            OR (p_nombre_responsable_2 IS NOT NULL AND nombre_responsable ILIKE '%' || p_nombre_responsable_2 || '%'))
       AND (p_estado_vencimiento IS NULL
-           OR (p_estado_vencimiento = 'vencidos'   AND fecha_estimada_pago < CURRENT_DATE)
-           OR (p_estado_vencimiento = 'por_vencer' AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7))
+           OR (p_estado_vencimiento = 'vencidos'   AND fecha_estimada_pago < CURRENT_DATE     AND NOT archivado)
+           OR (p_estado_vencimiento = 'por_vencer' AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7 AND NOT archivado))
     ORDER BY fecha_despacho DESC, manifiesto DESC
     LIMIT  p_limit
     OFFSET p_offset;
@@ -1081,8 +1092,8 @@ AS $$
            OR (p_nombre_responsable IS NOT NULL AND nombre_responsable   ILIKE '%' || p_nombre_responsable || '%')
            OR (p_nombre_responsable_2 IS NOT NULL AND nombre_responsable ILIKE '%' || p_nombre_responsable_2 || '%'))
       AND (p_estado_vencimiento  IS NULL
-           OR (p_estado_vencimiento = 'vencidos'    AND fecha_estimada_pago < CURRENT_DATE)
-           OR (p_estado_vencimiento = 'por_vencer'  AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7));
+           OR (p_estado_vencimiento = 'vencidos'    AND fecha_estimada_pago < CURRENT_DATE     AND NOT archivado)
+           OR (p_estado_vencimiento = 'por_vencer'  AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7 AND NOT archivado));
 $$;
 
 
@@ -1096,7 +1107,8 @@ SET search_path = ''
 AS $$
     WITH base AS (
         SELECT * FROM public.v_manifiestos
-        WHERE (p_nombre_responsable IS NULL OR nombre_responsable = p_nombre_responsable)
+        WHERE NOT archivado
+          AND (p_nombre_responsable IS NULL OR nombre_responsable = p_nombre_responsable)
     )
     SELECT json_build_object(
         'vencidos',     (SELECT COUNT(*)                        FROM base WHERE fecha_estimada_pago < CURRENT_DATE),
@@ -1122,6 +1134,17 @@ AS $$
     GROUP BY mes
     ORDER BY MIN(fecha_despacho);
 $$;
+
+
+-- ── notify_min_date (única perilla de antigüedad para notificaciones) ────────
+-- Fecha mínima de despacho que se considera notificable. Por defecto es el
+-- 1 de enero del año en curso (dinámico). Para fijarla a un año específico,
+-- cambiar el cuerpo por: SELECT DATE '2026-01-01';
+CREATE OR REPLACE FUNCTION public.notify_min_date()
+RETURNS DATE
+LANGUAGE sql STABLE
+SET search_path = ''
+AS $$ SELECT date_trunc('year', CURRENT_DATE)::DATE $$;
 
 
 -- ── get_pendientes_notificacion ──────────────────────────────────────────────
@@ -1166,10 +1189,12 @@ AS $$
             END AS es_novedad_real
         FROM public.manifiestos_flat
         WHERE fecha_pago IS NULL
+          AND NOT archivado
           AND estado_interno IS DISTINCT FROM 'ANULADO'
           AND conductor IS NOT NULL
           AND celular IS NOT NULL
           AND celular ~ '^\d{10}$'
+          AND fecha_despacho >= public.notify_min_date()
     ),
     notificados AS (
         SELECT manifiesto, template_name
@@ -1264,6 +1289,7 @@ AS $$
                 END)
             END AS fecha_estimada_pago
         FROM activos
+        WHERE NOT archivado
     )
     SELECT json_build_object(
         'totalManifiestos',   (SELECT COUNT(*)            FROM base),

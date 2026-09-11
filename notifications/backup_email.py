@@ -267,8 +267,23 @@ def _send_email(
     recipients: list[str],
     consistency: dict[str, dict] | None = None,
 ) -> None:
-    """Envía el ZIP por API HTTP de Brevo si hay key; si no, por SMTP."""
-    if os.environ.get("BREVO_API_KEY", ""):
+    """Envía el ZIP por API HTTP de Brevo si hay key; si no, por SMTP.
+
+    Si el ZIP supera el límite de adjunto de la API de Brevo (8 MB) pero hay
+    credenciales SMTP, cae a SMTP en lugar de fallar. Así un backup grande no
+    deja de enviarse.
+    """
+    api_key = os.environ.get("BREVO_API_KEY", "")
+    smtp_ok = bool(os.environ.get("BREVO_SMTP_LOGIN") and os.environ.get("BREVO_SMTP_PASSWORD"))
+    too_big = len(zip_bytes) > _BREVO_ATTACHMENT_LIMIT
+
+    if too_big and smtp_ok:
+        logger.warning("email_zip_over_api_limit_using_smtp",
+                       extra={"zip_mb": round(len(zip_bytes) / 1024 / 1024, 2)})
+        _send_email_smtp(zip_bytes, counts, recipients, consistency)
+        return
+
+    if api_key:
         _send_email_api(zip_bytes, counts, recipients, consistency)
     else:
         _send_email_smtp(zip_bytes, counts, recipients, consistency)

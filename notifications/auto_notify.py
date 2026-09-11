@@ -129,8 +129,10 @@ def _log_sent(manifiesto: int, template_name: str, phone: str, status: str, erro
 
 
 def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[dict]:
-    """Obtiene TODOS los registros pending de pago_realizado con el valor pagado.
+    """Obtiene los registros de pago_realizado pendientes o con error previo.
 
+    Incluye status=error para reintentar confirmaciones de pago que fallaron
+    (antes solo se procesaban las pending y los errores quedaban huérfanos).
     Pagina automáticamente para evitar truncar con límites fijos.
     """
     _PAGE_SIZE = 500
@@ -149,7 +151,7 @@ def _fetch_pending_pago_realizado(client: httpx.Client, headers: dict) -> list[d
             params={
                 "select": "id,manifiesto,phone",
                 "template_name": "eq.pago_realizado",
-                "status": "eq.pending",
+                "status": "in.(pending,error)",
                 "order": "sent_at.asc",
             },
         )
@@ -383,6 +385,55 @@ def run_auto_notify(manifestos: list[int] | None = None,
     logger.info("auto_notify_done",
                 extra={"sent": sent, "errors": errors, "skipped": skipped, "total": total})
     return {"status": "ok", "sent": sent, "errors": errors, "skipped": skipped, "total": total}
+
+
+def preview_pendientes(manifestos: list[int] | None = None,
+                       templates: list[str] | None = None) -> dict:
+    """Cuenta qué se enviaría en una ronda, sin enviar nada.
+
+    Aplica los mismos filtros que run_auto_notify (RPC + pago_realizado) y
+    devuelve totales por plantilla, celulares únicos y una muestra de filas.
+    Útil para previsualizar la ronda antes de dispararla.
+    """
+    url_rpc = f"{os.environ['SUPABASE_URL']}/rest/v1/rpc/get_pendientes_notificacion"
+    headers = {
+        "apikey":        os.environ["SUPABASE_SERVICE_KEY"],
+        "Authorization": f"Bearer {os.environ['SUPABASE_SERVICE_KEY']}",
+        "Content-Type":  "application/json",
+    }
+
+    with httpx.Client(timeout=30) as client:
+        r = client.post(url_rpc, headers=headers)
+        r.raise_for_status()
+        pendientes: list = r.json() or []
+        pagados = _fetch_pending_pago_realizado(client, headers)
+
+    if manifestos is not None:
+        allowed = set(manifestos)
+        pendientes = [p for p in pendientes if p.get("manifiesto") in allowed]
+        pagados = [p for p in pagados if p.get("manifiesto") in allowed]
+
+    all_items: list[dict] = list(pagados) + list(pendientes)
+    if templates is not None:
+        allowed_t = set(templates)
+        all_items = [i for i in all_items if i.get("template_name") in allowed_t]
+
+    por_plantilla: dict[str, int] = {}
+    phones: set[str] = set()
+    for item in all_items:
+        template = item.get("template_name")
+        por_plantilla[template] = por_plantilla.get(template, 0) + 1
+        raw_phone = item.get("phone") or item.get("celular") or ""
+        if raw_phone:
+            phones.add(_format_phone(raw_phone))
+
+    return {
+        "status": "ok",
+        "total": len(all_items),
+        "celulares": len(phones),
+        "por_plantilla": por_plantilla,
+        "muestra": all_items[:20],
+    }
 
 
 def run_auto_notify_cycle(manifestos: list[int] | None = None,

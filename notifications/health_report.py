@@ -323,8 +323,14 @@ def run_morning_check() -> dict:
     else:
         checks.append((_WARN, "Chatbot /health", "CHATBOT_URL no definido"))
 
-    est, det = _check_service(os.getenv("NOTIFICATIONS_URL", "http://127.0.0.1:8080").rstrip("/") + "/health")
-    checks.append((est, "Notifications /health", det))
+    notifications_url = os.getenv("NOTIFICATIONS_URL", "").rstrip("/")
+    if notifications_url:
+        est, det = _check_service(f"{notifications_url}/health")
+        checks.append((est, "Notifications /health", det))
+    else:
+        # Sin default a 127.0.0.1:8080: ese puerto es el chatbot local y daría
+        # un falso positivo. Si no está definida, se omite con WARN.
+        checks.append((_WARN, "Notifications /health", "NOTIFICATIONS_URL no definido"))
 
     dashboard_url = os.getenv("DASHBOARD_URL", "").rstrip("/")
     if dashboard_url:

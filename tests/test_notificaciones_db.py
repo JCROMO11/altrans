@@ -8,7 +8,11 @@ Cubre:
 
 Manifiestos de prueba: 1-20 (números < 21074 para que el RPC los incluya).
 
-Ejecutar: python3 -m pytest tests/test_notificaciones_db.py -v
+⚠️  ESTE TEST ESCRIBE Y BORRA EN LA DB apuntada por DATABASE_URL (producción).
+    Por seguridad está deshabilitado salvo que se exporte
+    ALTRANS_ALLOW_TEST_DB_WRITES=1 de forma consciente.
+
+Ejecutar: ALTRANS_ALLOW_TEST_DB_WRITES=1 python3 -m pytest tests/test_notificaciones_db.py -v
 """
 import os, sys, json, requests
 import datetime as _dt
@@ -18,6 +22,14 @@ import pytest
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+
+# Guarda de seguridad: sin el flag explícito, no se toca la DB.
+if os.environ.get("ALTRANS_ALLOW_TEST_DB_WRITES") != "1":
+    pytest.skip(
+        "test_notificaciones_db muta la DB de DATABASE_URL. "
+        "Exporta ALTRANS_ALLOW_TEST_DB_WRITES=1 para ejecutarlo.",
+        allow_module_level=True,
+    )
 
 DB_URL      = os.environ["DATABASE_URL"]
 SUPA_URL    = os.environ["SUPABASE_URL"]

@@ -7,6 +7,7 @@ Endpoints:
   POST /admin/notify/wa        → envía mensaje WA manual a lista de números
   POST /admin/auto-notify      → dispara ronda de notificaciones automáticas
   POST /admin/auto-notify-cycle → dispara ciclo completo (plantilla a plantilla, N min)
+  POST /admin/notify/preview   → cuenta qué se enviaría, sin enviar nada
   POST /admin/morning-check    → dispara el chequeo matutino (health_report)
 """
 import logging
@@ -23,7 +24,7 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from auto_notify import run_auto_notify, run_auto_notify_cycle
+from auto_notify import run_auto_notify, run_auto_notify_cycle, preview_pendientes
 from backup_email import run_backup_and_email
 from whatsapp_notify import send_whatsapp_bulk
 from health_report import run_morning_check
@@ -149,6 +150,24 @@ def admin_auto_notify(request: Request, background_tasks: BackgroundTasks,
     background_tasks.add_task(run_auto_notify, manifestos, templates)
     return {"status": "scheduled", "detail": "Notificaciones automáticas en curso.",
             "manifestos": manifestos, "templates": templates}
+
+
+@app.post("/admin/notify/preview")
+def admin_notify_preview(request: Request, body: AutoNotifyRequest | None = None):
+    """Devuelve qué notificaciones se enviarían, sin enviar nada.
+
+    Aplica los mismos filtros que /admin/auto-notify y responde con totales por
+    plantilla, celulares únicos y una muestra. Útil para revisar la ronda antes
+    de dispararla.
+    """
+    _check_admin_token(request)
+    manifestos = body.manifestos if body else None
+    templates = body.templates if body else None
+    try:
+        return preview_pendientes(manifestos, templates)
+    except Exception as exc:
+        logger.exception("notify_preview_failed")
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 @app.post("/admin/auto-notify-cycle")

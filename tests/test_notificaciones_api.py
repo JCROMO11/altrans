@@ -22,6 +22,19 @@ client = TestClient(app)
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
 
+def _require_side_effects():
+    """Bloquea tests que disparan acciones reales (envío WA / backup).
+
+    El TestClient ejecuta las BackgroundTasks in-process, así que estos tests
+    enviarían mensajes o backups de verdad. Solo corren con el flag explícito.
+    """
+    if os.environ.get("ALTRANS_ALLOW_SIDE_EFFECTS") != "1":
+        pytest.skip(
+            "Dispara acciones reales (envío WhatsApp / backup). "
+            "Exporta ALTRANS_ALLOW_SIDE_EFFECTS=1 para ejecutarlo."
+        )
+
+
 class TestHealth:
     def test_health_returns_ok_or_degraded(self):
         """/health debe responder sin importar disponibilidad de Supabase."""
@@ -50,6 +63,7 @@ class TestAuthBackup:
     def test_token_valido(self):
         if not ADMIN_TOKEN:
             pytest.skip("ADMIN_TOKEN no configurado en .env")
+        _require_side_effects()
         r = client.post("/admin/backup", headers={"x-admin-token": ADMIN_TOKEN})
         assert r.status_code == 200
         assert r.json()["status"] == "scheduled"
@@ -97,6 +111,24 @@ class TestAuthAutoNotify:
     def test_token_valido(self):
         if not ADMIN_TOKEN:
             pytest.skip("ADMIN_TOKEN no configurado")
+        _require_side_effects()
         r = client.post("/admin/auto-notify", headers={"x-admin-token": ADMIN_TOKEN})
         assert r.status_code == 200
         assert r.json()["status"] == "scheduled"
+
+
+class TestAuthNotifyPreview:
+    """POST /admin/notify/preview: solo lectura, nunca envía."""
+
+    def test_sin_token(self):
+        r = client.post("/admin/notify/preview")
+        assert r.status_code == 403
+
+    def test_token_valido(self):
+        if not ADMIN_TOKEN:
+            pytest.skip("ADMIN_TOKEN no configurado")
+        r = client.post("/admin/notify/preview", headers={"x-admin-token": ADMIN_TOKEN})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "ok"
+        assert "total" in body and "por_plantilla" in body

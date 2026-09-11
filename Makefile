@@ -1,5 +1,5 @@
 .PHONY: help setup status count dedup-check verify-load verify-schema \
-        db-reset etl load backup verify-backup verify-backup-email seed-users seed-users-dry list-users \
+        db-reset archive-historico etl load backup verify-backup verify-backup-email seed-users seed-users-dry list-users \
         chatbot-status morning-check \
         test-db test-etl test-webhook test-dashboard test-agent \
         test-agent-propietario test-agent-multi test-concurrency test-moderacion test-all \
@@ -22,6 +22,7 @@ help:
 	@echo ""
 	@echo "  Pipeline de datos  (ojo: destructivo)"
 	@echo "    db-reset           - DROPea schema y reaplica schema_consolidated.sql"
+	@echo "    archive-historico  - Archiva manifiestos antiguos (ARGS=--dry-run para previsualizar)"
 	@echo "    etl                - Excel -> sheets -> cleaning -> informe_etl"
 	@echo "    load               - Sube cleaned_data a Supabase"
 	@echo "    count              - SELECT COUNT(*) de manifiestos_flat"
@@ -107,6 +108,9 @@ db-reset:
 	    -c "TRUNCATE public.manifiestos_flat, public.audit_log, public.chatbot_sesiones, public.processed_messages, public.jailbreak_log RESTART IDENTITY CASCADE;" \
 	    -f supabase/schema_consolidated.sql
 	@echo "✅ Datos borrados y schema re-aplicado"
+
+archive-historico:
+	$(PY) -m scripts.archive_historico $(ARGS)
 
 etl:
 	$(PY) -m etl_individual.exports
