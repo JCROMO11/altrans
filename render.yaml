@@ -1,0 +1,115 @@
+# Blueprint de Render para PRUEBAS (plan free).
+# Cada servicio usa su propio Dockerfile (contexto = su carpeta) y escucha en $PORT.
+# Las variables marcadas `sync: false` NO se guardan en el repo: Render las pide
+# al crear el Blueprint (pegar el valor real del .env local).
+#
+# Nota: en el plan free los web services se duermen por inactividad (~15 min) y
+# no corren bien tareas de fondo (scheduler de notifications). Sirve para probar
+# endpoints; para produccion usar Railway/pago.
+
+services:
+  # ── Chatbot ────────────────────────────────────────────────────────────────
+  - type: web
+    name: altrans-chatbot
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: ai_agent
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: WA_TOKEN
+        sync: false
+      - key: WA_PHONE_NUMBER_ID
+        sync: false
+      - key: WA_VERIFY_TOKEN
+        sync: false
+      - key: WA_APP_SECRET
+        sync: false
+      - key: APP_ID
+        sync: false
+      - key: WA_CONTACTO_HUMANO
+        sync: false
+      - key: WA_INACT_AVISO_MIN
+        value: "5"
+      - key: WA_INACT_CIERRE_MIN
+        value: "10"
+      - key: LOG_LEVEL
+        value: INFO
+
+  # ── Notifications ──────────────────────────────────────────────────────────
+  - type: web
+    name: altrans-notifications
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: notifications
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: WA_TOKEN
+        sync: false
+      - key: WA_PHONE_NUMBER_ID
+        sync: false
+      - key: WA_SEND_MODE
+        value: template
+      - key: BREVO_SMTP_LOGIN
+        sync: false
+      - key: BREVO_SMTP_PASSWORD
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BACKUP_EMAIL_FROM
+        value: jromoguijarro@gmail.com
+      - key: BACKUP_EMAIL_TO
+        value: jromoguijarro@gmail.com
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: AUTO_NOTIFY_DAYS
+        value: mon,wed
+      - key: AUTO_NOTIFY_HOUR_UTC
+        value: "11"
+      - key: CHATBOT_URL
+        sync: false
+      - key: NOTIFICATIONS_URL
+        sync: false
+      - key: DASHBOARD_URL
+        sync: false
+      - key: MORNING_REPORT_EMAIL
+        sync: false
+      - key: MORNING_REPORT_TO
+        sync: false
+      - key: HC_BACKUP_URL
+        sync: false
+      - key: HC_NOTIFY_URL
+        sync: false
+      - key: HC_MORNING_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
