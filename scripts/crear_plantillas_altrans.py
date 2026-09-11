@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
-WABA_ID = os.environ.get("WABA_ID", "2434251620392649")
+WABA_ID = os.environ.get("WABA_ID", "2373194893454397")
 GRAPH = "https://graph.facebook.com/v23.0"
 
 # Nombre de cada plantilla y texto con variables posicionales {{N}}.

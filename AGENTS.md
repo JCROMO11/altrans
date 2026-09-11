@@ -9,12 +9,18 @@
 | **Notifications Altrans** | `https://notifications-altrans-production-5b04.up.railway.app` | ✅ Online |
 
 ### WhatsApp Cloud API — Configuración
-- WABA: `2434251620392649` (Test WhatsApp Business Account)
-- Phone: `1135782176294036` (+1 555-183-1621)
+- WABA **producción**: `2373194893454397` ("Altrans SAS", COP, tz America/Bogota)
+- Phone **producción**: `1218689764671502` (+57 312 3228874, verified_name "Altrans SAS", CONNECTED)
+- WABA/Phone de prueba (antiguos): WABA `2434251620392649` / Phone `1135782176294036` (+1 555-183-1621)
 - App: `1355075269345648` ("Altrans Chatbot")
 - Webhook: `https://altrans-production.up.railway.app/webhook`
 - Verify token: `7a275268ea05768a7a5de0f8990fbd1`
 - WA_TOKEN (token actual) almacenado en `.env` local y en Railway (ambos servicios)
+- ⚠️ Las plantillas `altrans_*` deben existir **en el WABA del número** (producción `2373194893454397`).
+  Si faltan → Meta error `132001 Template name does not exist in the translation`.
+  Crear/verificar con `WABA_ID=2373194893454397 python -m scripts.crear_plantillas_altrans --list`
+- ⚠️ `GET /<PHONE_NUMBER_ID>?fields=health_status` revela el WABA que posee el número
+  (entidad `WABA`), útil si no se tiene `business_management` para enumerar WABAs.
 
 ### Chatbot — Flujo funcionando
 1. Usuario escribe "Hola" → webhook recibe → chatbot responde pidiendo cédula
