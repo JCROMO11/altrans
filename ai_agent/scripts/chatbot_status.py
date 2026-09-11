@@ -24,7 +24,9 @@ cur.execute("""
         COUNT(*) FILTER (WHERE estado = 'activa') AS activas,
         COUNT(*) FILTER (WHERE estado = 'activa' AND last_activity > now() - interval '1h') AS ultima_hora,
         COUNT(*) FILTER (WHERE locked_until > now()) AS bloqueadas,
-        COUNT(*) FILTER (WHERE msg_count >= 4) AS limite_alcanzado,
+        (SELECT COUNT(*) FROM chatbot_cuota
+          WHERE consultas >= 4
+            AND ventana_inicio > now() - interval '8h') AS limite_alcanzado,
         COUNT(*) AS total
     FROM chatbot_sesiones
 """)

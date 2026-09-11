@@ -34,6 +34,11 @@ def _patches():
     p['get_session']    = patch('whatsapp.webhook.queries.get_session', return_value=None)
     p['upsert_session'] = patch('whatsapp.webhook.queries.upsert_session')
     p['delete_session'] = patch('whatsapp.webhook.queries.delete_session')
+    p['get_cuota']      = patch('whatsapp.webhook.queries.get_cuota',
+                                return_value={'wa_from': 'x',
+                                              'ventana_inicio': wh._now().isoformat(),
+                                              'consultas': 0})
+    p['upsert_cuota']   = patch('whatsapp.webhook.queries.upsert_cuota')
     p['get_conductor']  = patch('whatsapp.webhook.queries.get_conductor_by_cedula')
     p['verif_manif']    = patch('whatsapp.webhook.queries.verificar_manifiesto_conductor')
     p['log_jailbreak']  = patch('whatsapp.webhook.queries.log_jailbreak')
@@ -283,6 +288,7 @@ class TestJailbreakBlock:
              patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa()), \
              ps['upsert_session'], \
              ps['log_jailbreak'], \
+             ps['get_cuota'], ps['upsert_cuota'], \
              patch('whatsapp.webhook.run', return_value=('Aquí tu resumen.', True)) as run_, \
              patch('whatsapp.webhook.moderate', return_value=False), \
              ps['rate_acquire'], ps['rate_release']:
@@ -306,6 +312,10 @@ class TestMessageLimit:
         with ps['mark_processed'], ps['mark_as_read'], ps['send_text'] as send, \
              patch('whatsapp.webhook.queries.get_session', return_value=sess_full), \
              ps['upsert_session'], \
+             patch('whatsapp.webhook.queries.get_cuota',
+                   return_value={'wa_from':'57301','ventana_inicio':wh._now().isoformat(),
+                                 'consultas': MAX_MSGS_PER_SESSION}), \
+             ps['upsert_cuota'], \
              patch('whatsapp.webhook.run') as run_, \
              ps['rate_acquire'], ps['rate_release']:
             _run_async(wh.handle_message('57301', 'm', '¿Otra consulta?'))
@@ -333,6 +343,7 @@ class TestAgentReply:
         with ps['mark_processed'], ps['mark_as_read'], ps['send_text'] as send, \
              patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa()), \
              patch('whatsapp.webhook.queries.upsert_session') as upsert, \
+             ps['get_cuota'], ps['upsert_cuota'], \
              patch('whatsapp.webhook.run', return_value=('Tu flete pendiente es $500.000', True)), \
              ps['rate_acquire'], ps['rate_release']:
             _run_async(wh.handle_message('57301', 'm', 'mis pendientes'))
@@ -349,6 +360,7 @@ class TestAgentReply:
         with ps['mark_processed'], ps['mark_as_read'], ps['send_text'] as send, \
              patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa()), \
              ps['upsert_session'], \
+             ps['get_cuota'], ps['upsert_cuota'], \
              patch('whatsapp.webhook.run', return_value=('', True)), \
              ps['rate_acquire'], ps['rate_release']:
             _run_async(wh.handle_message('57301', 'm', '???'))
@@ -362,6 +374,7 @@ class TestAgentReply:
         with ps['mark_processed'], ps['mark_as_read'], ps['send_text'] as send, \
              patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa()), \
              ps['upsert_session'], \
+             ps['get_cuota'], ps['upsert_cuota'], \
              patch('whatsapp.webhook.run', side_effect=Exception('boom')), \
              ps['rate_acquire'], ps['rate_release']:
             _run_async(wh.handle_message('57301', 'm', 'test'))
@@ -556,6 +569,9 @@ class TestContadorConsultas:
              patch('whatsapp.webhook.send_text'), \
              patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa(msg_count=0)), \
              patch('whatsapp.webhook.queries.upsert_session') as upsert, \
+             patch('whatsapp.webhook.queries.get_cuota',
+                   return_value={'wa_from':'57303','ventana_inicio':wh._now().isoformat(),'consultas':0}), \
+             patch('whatsapp.webhook.queries.upsert_cuota'), \
              patch('whatsapp.webhook.moderate', return_value=False), \
              patch('whatsapp.webhook.run', return_value=('¿A qué te refieres?', False)), \
              patch('whatsapp.webhook.rate_limiter.try_acquire', return_value=(True, "process")), \
@@ -571,6 +587,9 @@ class TestContadorConsultas:
              patch('whatsapp.webhook.send_text'), \
              patch('whatsapp.webhook.queries.get_session', return_value=self._sess_activa(msg_count=0)), \
              patch('whatsapp.webhook.queries.upsert_session') as upsert, \
+             patch('whatsapp.webhook.queries.get_cuota',
+                   return_value={'wa_from':'57303','ventana_inicio':wh._now().isoformat(),'consultas':0}), \
+             patch('whatsapp.webhook.queries.upsert_cuota'), \
              patch('whatsapp.webhook.moderate', return_value=False), \
              patch('whatsapp.webhook.run', return_value=('Tu pendiente es $500.000', True)), \
              patch('whatsapp.webhook.rate_limiter.try_acquire', return_value=(True, "process")), \
@@ -595,6 +614,68 @@ class TestContadorConsultas:
             if upsert.call_args is not None:
                 saved = upsert.call_args[0][0]
                 assert saved['msg_count'] == 2
+
+
+# ── 10b. CUPO PERSISTENTE (ventana de 8h) ─────────────────────────────────────
+
+class TestCuotaPersistente:
+    def _cuota(self, consultas, horas=0):
+        return {
+            'wa_from': '57306',
+            'ventana_inicio': (wh._now() - timedelta(hours=horas)).isoformat(),
+            'consultas': consultas,
+        }
+
+    def test_ventana_expirada_resetea(self):
+        with patch('whatsapp.webhook.queries.get_cuota',
+                   return_value=self._cuota(consultas=4, horas=9)), \
+             patch('whatsapp.webhook.queries.upsert_cuota') as upsert:
+            cuota = _run_async(wh._cuota_vigente('57306'))
+            assert cuota['consultas'] == 0
+            upsert.assert_called_once()
+            assert upsert.call_args[0][2] == 0
+
+    def test_ventana_vigente_conserva(self):
+        with patch('whatsapp.webhook.queries.get_cuota',
+                   return_value=self._cuota(consultas=2, horas=1)), \
+             patch('whatsapp.webhook.queries.upsert_cuota') as upsert:
+            cuota = _run_async(wh._cuota_vigente('57306'))
+            assert cuota['consultas'] == 2
+            upsert.assert_not_called()
+
+    def test_sin_cuota_crea_en_cero(self):
+        with patch('whatsapp.webhook.queries.get_cuota', return_value=None), \
+             patch('whatsapp.webhook.queries.upsert_cuota') as upsert:
+            cuota = _run_async(wh._cuota_vigente('57306'))
+            assert cuota['consultas'] == 0
+            upsert.assert_called_once()
+
+    def test_limite_persiste_tras_relogin(self):
+        """Sesión nueva (msg_count=0) pero cupo en 4 → bloquea sin llamar al LLM."""
+        sess = {
+            'wa_from':'57306','estado':'activa','tipo_usuario':'conductor',
+            'identificador_auth':'1130668182','nombre':'HENRY',
+            'identificador_temp':None,'cedula_temp':None,
+            'conductor_nombre_temp':None,'conductor_cedula':'1130668182',
+            'conductor_nombre':'HENRY','historial':[],'msg_count':0,
+            'last_activity':wh._now().isoformat(),'auth_fails':0,'locked_until':None,
+        }
+        with patch('whatsapp.webhook.queries.mark_message_processed', return_value=True), \
+             patch('whatsapp.webhook.mark_as_read'), \
+             patch('whatsapp.webhook.send_text') as send, \
+             patch('whatsapp.webhook.queries.get_session', return_value=sess), \
+             patch('whatsapp.webhook.queries.upsert_session'), \
+             patch('whatsapp.webhook.queries.get_cuota',
+                   return_value={'wa_from':'57306','ventana_inicio':wh._now().isoformat(),
+                                 'consultas': MAX_MSGS_PER_SESSION}), \
+             patch('whatsapp.webhook.queries.upsert_cuota'), \
+             patch('whatsapp.webhook.run') as run_, \
+             patch('whatsapp.webhook.rate_limiter.try_acquire', return_value=(True, "process")), \
+             patch('whatsapp.webhook.rate_limiter.release', return_value=None):
+            _run_async(wh.handle_message('57306', 'm', '¿Cuánto me deben?'))
+            run_.assert_not_called()
+            msg = send.call_args[0][1].lower()
+            assert 'alcanzado' in msg or 'lím' in msg
 
 
 # ── 11. DESPEDIDA / SALUDO SIN LLM ─────────────────────────────────────────────

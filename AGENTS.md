@@ -27,7 +27,10 @@
 2. Usuario escribe cédula → valida vs `manifiestos_flat` → pide manifiesto
 3. Usuario escribe manifiesto → verifica pertenencia → sesión activa
 4. Usuario consulta saldos, manifiestos, etc.
-- Límite: 4 consultas por sesión, sesión expira en 8h
+- Límite: 4 consultas cada 8h por número (tabla `chatbot_cuota`, ventana persistente).
+  Sobrevive al cierre de sesión ("gracias"/inactividad) y al re-login; solo se
+  reinicia si pasan 8h desde `ventana_inicio`. `chatbot_sesiones.msg_count` queda
+  como espejo para logs/estado.
 - Tasa: 5 msg/min, rate limiter con cola
 
 ### LLM — Proveedores y fallback

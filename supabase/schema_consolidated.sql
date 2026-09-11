@@ -499,6 +499,16 @@ ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS nombre             
 ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS inactividad_avisado_at TIMESTAMPTZ;
 ALTER TABLE public.chatbot_sesiones ADD COLUMN IF NOT EXISTS admin_rol          TEXT;
 
+-- Cupo de consultas del chatbot: sobrevive al cierre de sesión y al re-login.
+-- Ventana persistente de 8h (se reinicia solo si pasa ese tiempo).
+CREATE TABLE IF NOT EXISTS public.chatbot_cuota (
+    wa_from        TEXT        PRIMARY KEY,
+    ventana_inicio TIMESTAMPTZ NOT NULL DEFAULT now(),
+    consultas      INTEGER     NOT NULL DEFAULT 0,
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chatbot_cuota_ventana ON public.chatbot_cuota (ventana_inicio);
+
 -- Idempotencia del webhook de Meta
 CREATE TABLE IF NOT EXISTS public.processed_messages (
     message_id   TEXT        PRIMARY KEY,
@@ -1868,6 +1878,7 @@ CREATE POLICY audit_log_no_writes ON public.audit_log
 -- ── chatbot_sesiones / processed_messages: solo service_role ────────────────
 ALTER TABLE public.chatbot_sesiones    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.processed_messages  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chatbot_cuota       ENABLE ROW LEVEL SECURITY;
 
 
 -- ── jailbreak_log: solo gerencia lee ────────────────────────────────────────
@@ -1910,6 +1921,7 @@ GRANT ALL    ON public.manifiestos_flat TO postgres;  -- RPCs SECURITY DEFINER l
 -- Audit / chatbot / jailbreak: bloquear escritura a authenticated y anon
 REVOKE INSERT, UPDATE, DELETE ON public.audit_log          FROM authenticated, anon, PUBLIC;
 REVOKE ALL                    ON public.chatbot_sesiones   FROM PUBLIC, anon, authenticated;
+REVOKE ALL                    ON public.chatbot_cuota      FROM PUBLIC, anon, authenticated;
 REVOKE ALL                    ON public.processed_messages FROM PUBLIC, anon, authenticated;
 REVOKE INSERT, UPDATE, DELETE ON public.jailbreak_log      FROM authenticated, anon, PUBLIC;
 REVOKE ALL                    ON public.messages_sent      FROM PUBLIC, anon, authenticated;

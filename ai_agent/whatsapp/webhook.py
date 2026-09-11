@@ -19,6 +19,7 @@ MAX_HISTORIAL        = 6
 MAX_AUTH_FAILS       = 3
 LOCKOUT_MIN          = 10
 MAX_MSGS_PER_SESSION = 4
+CUOTA_VENTANA        = timedelta(hours=8)
 
 
 # ── Patrones de inyección / jailbreak ─────────────────────────────────────────
@@ -92,7 +93,8 @@ _PEDIR_HUMANO_RE = re.compile(
 
 _TIPS = (
     "📝 Escribe cada consulta completa en un solo mensaje. Tienes "
-    f"{MAX_MSGS_PER_SESSION} consultas por sesión — úsalas para preguntas "
+    f"{MAX_MSGS_PER_SESSION} consultas cada "
+    f"{int(CUOTA_VENTANA.total_seconds() // 3600)} horas — úsalas para preguntas "
     "concretas como '¿cuánto me deben de junio?' o 'muéstrame mis manifiestos "
     "con novedades'."
 )
@@ -177,6 +179,26 @@ async def _load_session(wa_from: str) -> dict | None:
 async def _save(session: dict) -> None:
     session["last_activity"] = _now().isoformat()
     await queries.upsert_session(session)
+
+
+async def _cuota_vigente(wa_from: str) -> dict:
+    """Cupo de consultas vigente (ventana persistente de 8h).
+
+    Es independiente de la sesión: sobrevive a la despedida, al auto-logout
+    por inactividad y al re-login. Solo se reinicia cuando pasan
+    ``CUOTA_VENTANA`` desde ``ventana_inicio``.
+    """
+    cuota = await queries.get_cuota(wa_from)
+    ahora = _now()
+    if not cuota:
+        cuota = {"wa_from": wa_from, "ventana_inicio": ahora.isoformat(), "consultas": 0}
+        await queries.upsert_cuota(wa_from, cuota["ventana_inicio"], 0)
+        return cuota
+    if ahora - _parse_ts(cuota["ventana_inicio"]) >= CUOTA_VENTANA:
+        cuota["ventana_inicio"] = ahora.isoformat()
+        cuota["consultas"] = 0
+        await queries.upsert_cuota(wa_from, cuota["ventana_inicio"], 0)
+    return cuota
 
 
 def _register_fail(session: dict) -> bool:
@@ -490,14 +512,19 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
             except Exception:
                 logger.exception("moderation_failed", wa_from=wa_from)
 
-        # Límite de mensajes por sesión
-        if session.get("tipo_usuario") != "admin" and session["msg_count"] >= MAX_MSGS_PER_SESSION:
-            await send_text(wa_from,
-                f"Has alcanzado el límite de {MAX_MSGS_PER_SESSION} consultas en "
-                "esta sesión. Tu acceso se renovará en unas horas o puedes "
-                "contactar a tu supervisor.")
-            logger.info("msg_limit_reached", wa_from=wa_from, cedula=cedula)
-            return
+        # Cupo de consultas (ventana persistente: sobrevive cierre/re-login)
+        cuota = None
+        if session.get("tipo_usuario") != "admin":
+            cuota = await _cuota_vigente(wa_from)
+            session["msg_count"] = cuota["consultas"]
+            if cuota["consultas"] >= MAX_MSGS_PER_SESSION:
+                await send_text(wa_from,
+                    f"Has alcanzado el límite de {MAX_MSGS_PER_SESSION} consultas. "
+                    "Tu acceso se renovará en unas horas o puedes "
+                    "contactar a tu supervisor.")
+                logger.info("msg_limit_reached", wa_from=wa_from, cedula=cedula,
+                            consultas=cuota["consultas"])
+                return
 
         try:
             run_kwargs = {
@@ -531,6 +558,9 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
             session["historial"] = session["historial"][-MAX_HISTORIAL:]
         if tools_called:
             session["msg_count"] += 1
+            if cuota is not None:
+                cuota["consultas"] += 1
+                await queries.upsert_cuota(wa_from, cuota["ventana_inicio"], cuota["consultas"])
         await _save(session)
 
         logger.info("agent_reply",

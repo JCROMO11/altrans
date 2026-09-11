@@ -464,6 +464,25 @@ async def delete_session(wa_from: str) -> None:
     await _request("DELETE", "chatbot_sesiones", params={"wa_from": f"eq.{wa_from}"})
 
 
+async def get_cuota(wa_from: str) -> dict | None:
+    """Cupo de consultas persistente del usuario (sobrevive a la sesión)."""
+    rows = await _get("chatbot_cuota", {"wa_from": f"eq.{wa_from}", "select": "*"})
+    return rows[0] if rows else None
+
+
+async def upsert_cuota(wa_from: str, ventana_inicio_iso: str, consultas: int) -> None:
+    await _request(
+        "POST",
+        "chatbot_cuota",
+        json_body={
+            "wa_from":        wa_from,
+            "ventana_inicio": ventana_inicio_iso,
+            "consultas":      consultas,
+        },
+        headers_extra={"Prefer": "resolution=merge-duplicates,return=minimal"},
+    )
+
+
 async def mark_message_processed(message_id: str) -> bool:
     r = await _CLIENT.post(
         "/processed_messages",
