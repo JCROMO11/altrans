@@ -52,6 +52,23 @@
 - **PREGUNTAR EN LA EMPRESA**: ¿la empresa recargará créditos en los 3 servicios? Recomendación: recargar DeepSeek ($5, es la primaria), **no** recargar OpenRouter (agrega markup sobre el mismo modelo DeepSeek → doble gasto; dejar solo como respaldo ante caída de DeepSeek con crédito mínimo), mantener Groq gratis como última línea
 - ⚠️ OpenRouter actualmente con 402 (créditos agotados); Groq es el respaldo efectivo hoy
 
+### Preguntas para la reunión con Altrans
+1. **Créditos LLM**: ¿recargan los 3 servicios? Recomendación: DeepSeek sí
+   (primario), OpenRouter no (markup sobre el mismo modelo), Groq gratis (última línea).
+2. **Contacto humano**: número real para `WA_CONTACTO_HUMANO` (hoy `600 00 00`).
+3. **Inconsistencia de montos**: criterio correcto entre "me deben" (suma `saldo`,
+   p. ej. `$7.175.400`) y resumen anual (resta `valor_pagado`, `$6.647.775`).
+4. **Columnas por rol** — ¿aprueban los campos a los que accede cada rol?
+   - **Conductor**: `manifiesto, fecha_despacho, origen, destino, cliente,
+     flete_conductor, saldo, fecha_cumplido, compromiso_pago, fecha_estimada_pago,
+     fecha_pago, valor_pagado, estado_interno, novedades, mes, año`
+     (+ su cédula/celular).
+   - **Propietario**: lo anterior para los viajes de su placa + `conductor, placa,
+     propietario`; puede ver cédula y celular de los conductores que manejaron su vehículo.
+   - **Bloqueado a ambos**: datos de otros conductores/propietarios y consolidados
+     de la empresa (facturación, NIT, listas de conductores, totales).
+5. **Modificaciones de gerencia**: implementar las "respuestas de gerencia" pendientes.
+
 ### Notificaciones — Envío manual funciona ✅
 - 4 plantillas: `saldo_falta_factura`, `saldo_falta_documentacion`, `saldo_novedad_pendiente`, `saldo_plazo_vigente`
 - 1 plantilla de pago: `pago_realizado`
