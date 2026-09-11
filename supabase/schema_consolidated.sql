@@ -1137,14 +1137,15 @@ $$;
 
 
 -- ── notify_min_date (única perilla de antigüedad para notificaciones) ────────
--- Fecha mínima de despacho que se considera notificable. Por defecto es el
--- 1 de enero del año en curso (dinámico). Para fijarla a un año específico,
--- cambiar el cuerpo por: SELECT DATE '2026-01-01';
+-- Fecha mínima de despacho que se considera notificable. FIJA en 2026-01-01:
+-- los manifiestos desde 2026 en adelante (incluidos los de diciembre que sigan
+-- sin pagar en enero) se mantienen visibles y notificables hasta que la empresa
+-- los complete/pague. Para mover el corte, cambiar la fecha aquí y reaplicar.
 CREATE OR REPLACE FUNCTION public.notify_min_date()
 RETURNS DATE
 LANGUAGE sql STABLE
 SET search_path = ''
-AS $$ SELECT date_trunc('year', CURRENT_DATE)::DATE $$;
+AS $$ SELECT DATE '2026-01-01' $$;
 
 
 -- ── get_pendientes_notificacion ──────────────────────────────────────────────

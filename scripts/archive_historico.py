@@ -5,9 +5,10 @@ Los manifiestos archivados NO se notifican por WhatsApp y NO cuentan en las
 alertas del dashboard (vencidos / por vencer / saldo vencido). Siguen
 guardados y buscables.
 
-Por defecto archiva todo lo despachado antes del 1 de enero del año en curso
-(misma fecha que `public.notify_min_date()`) y los manifiestos sin fecha de
-despacho. El ETL no toca la columna `archivado`, así que la marca persiste.
+Por defecto archiva todo lo despachado antes de `public.notify_min_date()`
+(hoy fija en 2026-01-01) y los manifiestos sin fecha de despacho. Así el corte
+del archivado y el de las notificaciones quedan siempre alineados. El ETL no
+toca la columna `archivado`, así que la marca persiste.
 
 Uso:
     python -m scripts.archive_historico --dry-run          # ver qué haría
@@ -49,15 +50,10 @@ def main() -> None:
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT date_trunc('year', CURRENT_DATE)::DATE")
-            default_cutoff = cur.fetchone()[0]
-
             if cutoff:
                 where = f"fecha_despacho < DATE '{cutoff}'"
-                cutoff_txt = cutoff
             else:
-                where = "fecha_despacho < date_trunc('year', CURRENT_DATE)"
-                cutoff_txt = str(default_cutoff)
+                where = "fecha_despacho < public.notify_min_date()"
             if null_clause:
                 where = f"({where} {null_clause})"
 
