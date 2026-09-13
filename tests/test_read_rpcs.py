@@ -56,7 +56,7 @@ def _setup_fixtures():
                 manifiesto, archivo_origen, mes, año, periodo, semana, consecutivo_semanal,
                 fecha_despacho, origen, departamento_origen, destino, departamento_destino,
                 cliente, remesas, valor_remesa, flete_conductor, anticipo,
-                placa, tipo_vehiculo, conductor, cedula_conductor,
+                placa, placa_remolque, conductor, cedula_conductor,
                 agencia_despachadora, estado_interno
             ) VALUES (
                 %s, 'TEST.xlsx', %s, %s,
@@ -64,7 +64,7 @@ def _setup_fixtures():
                           WHEN 'ABRIL' THEN 4 WHEN 'MAYO' THEN 5 WHEN 'JUNIO' THEN 6
                           WHEN 'JULIO' THEN 7 WHEN 'AGOSTO' THEN 8 WHEN 'SEPTIEMBRE' THEN 9
                           WHEN 'OCTUBRE' THEN 10 WHEN 'NOVIEMBRE' THEN 11 WHEN 'DICIEMBRE' THEN 12 END, 1),
-                'S20', 1,
+                'Semana 20', 1,
                 CURRENT_DATE, 'CALI','VALLE DEL CAUCA','BOGOTA','CUNDINAMARCA',
                 %s, 'REM', %s, %s, %s,
                 'ABC123','SENCILLO', %s, '12345678',

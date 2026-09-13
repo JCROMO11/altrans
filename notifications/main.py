@@ -100,7 +100,7 @@ def health():
     jobs = []
     if sched._scheduler:
         jobs = [{"id": j.id, "next_run": str(j.next_run_time)} for j in sched._scheduler.get_jobs()]
-    return {"status": "ok", "scheduled_jobs": jobs}
+    return {"status": "ok", "auto_notify_enabled": sched._AUTO_NOTIFY_ENABLED, "scheduled_jobs": jobs}
 
 
 @app.post("/admin/backup")

@@ -136,24 +136,48 @@ def verify_consistency(backup_counts: dict[str, int]) -> dict[str, dict]:
     return results
 
 
-def _build_zip() -> tuple[bytes, dict[str, int]]:
+def _fetch_table_with_retry(client: httpx.Client, table: str) -> list[dict]:
+    """Descarga una tabla con reintentos. Lanza si agota los intentos."""
+    last_exc: Exception | None = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return _fetch_table(client, table)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("backup_table_failed",
+                           extra={"table": table, "attempt": attempt, "error": str(exc)})
+            if attempt < _MAX_RETRIES:
+                time.sleep(_RETRY_DELAY)
+    assert last_exc is not None
+    raise last_exc
+
+
+def _build_zip() -> tuple[bytes, dict[str, int], list[str]]:
+    """Construye el ZIP. Retorna (bytes, counts, tablas_fallidas).
+
+    Si una tabla falla tras los reintentos se marca con count=-1 y se agrega a
+    `failed`. El llamador debe tratar el backup como INCOMPLETO (no subirlo como
+    si fuera válido).
+    """
     counts: dict[str, int] = {}
+    failed: list[str] = []
     buf = io.BytesIO()
     with httpx.Client(timeout=120) as client, \
          zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for table in _TABLES:
             try:
-                rows = _fetch_table(client, table)
-            except httpx.HTTPStatusError as e:
-                logger.warning("backup_table_failed",
-                               extra={"table": table, "status": e.response.status_code})
+                rows = _fetch_table_with_retry(client, table)
+            except Exception as exc:
+                logger.error("backup_table_giving_up",
+                             extra={"table": table, "error": str(exc)})
                 counts[table] = -1
+                failed.append(table)
                 continue
             counts[table] = len(rows)
             label = _TABLE_LABELS.get(table, table)
             fname = f"{label.replace('/', '-')}.csv"
             zf.writestr(fname, _rows_to_csv(rows))
-    return buf.getvalue(), counts
+    return buf.getvalue(), counts, failed
 
 
 _BREVO_API = "https://api.brevo.com/v3/smtp/email"
@@ -161,12 +185,23 @@ _BREVO_ATTACHMENT_LIMIT = 8 * 1024 * 1024
 
 
 def _email_content(zip_bytes: bytes, counts: dict[str, int], recipients: list[str],
-                   consistency: dict[str, dict] | None) -> tuple[str, str, str]:
+                   consistency: dict[str, dict] | None,
+                   failed: list[str] | None = None) -> tuple[str, str, str]:
     """Retorna (subject, body_text, fname) comunes a SMTP y a la API de Brevo."""
+    failed = failed or []
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"  . {_TABLE_LABELS.get(t, t)}: {n:,} filas" if n >= 0
              else f"  . {_TABLE_LABELS.get(t, t)}: ERROR (revisar logs)"
              for t, n in counts.items()]
+
+    failed_block = ""
+    if failed:
+        labels = ", ".join(_TABLE_LABELS.get(t, t) for t in failed)
+        failed_block = (
+            f"\n*** BACKUP INCOMPLETO ***\n"
+            f"Tablas que NO se pudieron respaldar ({len(failed)}): {labels}\n"
+            f"El ZIP adjunto NO contiene estas tablas. NO usar como copia válida.\n"
+        )
 
     consistency_block = ""
     if consistency:
@@ -190,10 +225,15 @@ def _email_content(zip_bytes: bytes, counts: dict[str, int], recipients: list[st
         f"Generado: {ts}\n\n"
         "Datos incluidos:\n" + "\n".join(lines) +
         f"\n\nTamano del ZIP: {len(zip_bytes) // 1024} KB"
+        + failed_block
         + consistency_block
     )
     fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
-    subject = f"Backup Altrans: {ts}"
+    if failed:
+        fname = f"altrans_backup_INCOMPLETO_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+        subject = f"[INCOMPLETO] Backup Altrans: {ts}"
+    else:
+        subject = f"Backup Altrans: {ts}"
     return subject, body, fname
 
 
@@ -202,12 +242,13 @@ def _send_email_smtp(
     counts: dict[str, int],
     recipients: list[str],
     consistency: dict[str, dict] | None = None,
+    failed: list[str] | None = None,
 ) -> None:
     smtp_login = os.environ["BREVO_SMTP_LOGIN"]
     smtp_password = os.environ["BREVO_SMTP_PASSWORD"]
     from_email = os.environ.get("BACKUP_EMAIL_FROM", "jromoguijarro@gmail.com")
 
-    subject, body, fname = _email_content(zip_bytes, counts, recipients, consistency)
+    subject, body, fname = _email_content(zip_bytes, counts, recipients, consistency, failed)
 
     msg = MIMEMultipart()
     msg["From"] = from_email
@@ -234,6 +275,7 @@ def _send_email_api(
     counts: dict[str, int],
     recipients: list[str],
     consistency: dict[str, dict] | None = None,
+    failed: list[str] | None = None,
 ) -> None:
     api_key = os.environ.get("BREVO_API_KEY", "")
     if not api_key:
@@ -245,7 +287,7 @@ def _send_email_api(
         )
     from_email = os.environ.get("BACKUP_EMAIL_FROM", "jromoguijarro@gmail.com")
 
-    subject, body, fname = _email_content(zip_bytes, counts, recipients, consistency)
+    subject, body, fname = _email_content(zip_bytes, counts, recipients, consistency, failed)
 
     payload = {
         "sender":   {"email": from_email, "name": "Altrans Backups"},
@@ -266,6 +308,7 @@ def _send_email(
     counts: dict[str, int],
     recipients: list[str],
     consistency: dict[str, dict] | None = None,
+    failed: list[str] | None = None,
 ) -> None:
     """Envía el ZIP por API HTTP de Brevo si hay key; si no, por SMTP.
 
@@ -280,13 +323,13 @@ def _send_email(
     if too_big and smtp_ok:
         logger.warning("email_zip_over_api_limit_using_smtp",
                        extra={"zip_mb": round(len(zip_bytes) / 1024 / 1024, 2)})
-        _send_email_smtp(zip_bytes, counts, recipients, consistency)
+        _send_email_smtp(zip_bytes, counts, recipients, consistency, failed)
         return
 
     if api_key:
-        _send_email_api(zip_bytes, counts, recipients, consistency)
+        _send_email_api(zip_bytes, counts, recipients, consistency, failed)
     else:
-        _send_email_smtp(zip_bytes, counts, recipients, consistency)
+        _send_email_smtp(zip_bytes, counts, recipients, consistency, failed)
 
 
 def _storage_headers() -> dict:
@@ -361,7 +404,7 @@ def run_backup_and_email(recipients: list[str] | None = None) -> dict:
 
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            zip_bytes, counts = _build_zip()
+            zip_bytes, counts, failed = _build_zip()
             break
         except Exception as exc:
             logger.warning("backup_build_failed", extra={"attempt": attempt, "error": str(exc)})
@@ -371,20 +414,28 @@ def run_backup_and_email(recipients: list[str] | None = None) -> dict:
                 raise
 
     consistency = verify_consistency(counts)
-    all_ok = all(v["ok"] for v in consistency.values())
+    all_ok = all(v["ok"] for v in consistency.values()) and not failed
+    if failed:
+        logger.error("backup_incomplete",
+                     extra={"failed": failed, "zip_kb": len(zip_bytes) // 1024})
     if not all_ok:
         logger.warning("backup_consistency_mismatch", extra={"consistency": consistency})
 
-    _send_email(zip_bytes, counts, recipients, consistency)
+    _send_email(zip_bytes, counts, recipients, consistency, failed)
 
     fname = f"altrans_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
-    _upload_to_storage_and_prune(zip_bytes, fname)
+    if failed:
+        # No subir un backup parcial al bucket: no debe reemplazar copias válidas.
+        logger.error("backup_storage_skipped_incomplete", extra={"failed": failed})
+    else:
+        _upload_to_storage_and_prune(zip_bytes, fname)
 
     logger.info("backup_complete", extra={
         "counts": counts, "zip_kb": len(zip_bytes) // 1024,
-        "consistent": all_ok,
+        "consistent": all_ok, "failed": failed,
     })
-    return {"counts": counts, "consistency": consistency, "consistent": all_ok}
+    return {"counts": counts, "consistency": consistency,
+            "consistent": all_ok, "failed": failed}
 
 
 if __name__ == "__main__":

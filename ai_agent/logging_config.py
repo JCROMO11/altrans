@@ -33,7 +33,14 @@ def _json_format(record):
     ).replace("}", "}}")) + "\n"
 
 
-def setup_logging(level: str = "INFO") -> None:
+def _env_bool(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on", "si", "sí")
+
+
+def setup_logging(level: str = "INFO", enable_sink: bool | None = None) -> None:
     logger.remove()
     logger.add(sys.stdout, level=level, format=_json_format)
 
@@ -48,13 +55,18 @@ def setup_logging(level: str = "INFO") -> None:
         compression="gz",
     )
 
-    from config import get_settings
-    from core.log_sink import make_supabase_sink
-    cfg = get_settings()
-    logger.add(
-        make_supabase_sink(cfg["supabase_url"], cfg["supabase_service_key"]),
-        level=level,
-    )
+    # El sink a Supabase escribe en app_logs de PRODUCCIÓN. En tests se desactiva
+    # (LOG_SINK_ENABLED=false en conftest.py) para no contaminar los logs reales.
+    if enable_sink is None:
+        enable_sink = _env_bool("LOG_SINK_ENABLED", True)
+    if enable_sink:
+        from config import get_settings
+        from core.log_sink import make_supabase_sink
+        cfg = get_settings()
+        logger.add(
+            make_supabase_sink(cfg["supabase_url"], cfg["supabase_service_key"]),
+            level=level,
+        )
 
     logger.disable("httpx")
     logger.disable("httpcore")

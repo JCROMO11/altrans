@@ -5,3 +5,6 @@ import os
 os.environ.setdefault("WA_TOKEN", "test-token")
 os.environ.setdefault("WA_PHONE_NUMBER_ID", "12345")
 os.environ.setdefault("WA_VERIFY_TOKEN", "test-verify")
+
+# Los tests NO deben escribir en app_logs de producción vía el sink de Supabase.
+os.environ["LOG_SINK_ENABLED"] = "false"

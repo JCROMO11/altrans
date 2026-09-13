@@ -38,7 +38,7 @@ from openpyxl.utils import get_column_letter
 
 DB_FIELDS = [
     "fecha_despacho", "origen", "destino", "cliente", "conductor",
-    "cedula_conductor", "celular", "placa", "tipo_vehiculo", "propietario",
+    "cedula_conductor", "celular", "placa", "placa_remolque", "propietario",
     "agencia_despachadora", "nombre_responsable",
     "valor_remesa", "flete_conductor", "anticipo", "remesas",
 ]
@@ -46,7 +46,7 @@ DB_FIELDS = [
 FIELD_LABELS = {
     "fecha_despacho": "Fecha despacho", "origen": "Origen", "destino": "Destino",
     "cliente": "Cliente", "conductor": "Conductor", "cedula_conductor": "Cédula",
-    "celular": "Celular", "placa": "Placa", "tipo_vehiculo": "Remolque",
+    "celular": "Celular", "placa": "Placa", "placa_remolque": "Remolque",
     "propietario": "Propietario", "agencia_despachadora": "Agencia Despachadora",
     "nombre_responsable": "Responsable",
     "valor_remesa": "Valor remesa", "flete_conductor": "Flete",
@@ -66,7 +66,7 @@ EXCEL_TO_DB = {
     "ORIGEN":             "origen",
     "DESTINO":            "destino",
     "PLACA":              "placa",
-    "REMOLQUE":           "tipo_vehiculo",
+    "REMOLQUE":           "placa_remolque",
     "REMESAS":            "remesas",
     "VALORES REMESAS":    "valor_remesa",
     "CONDUCTOR":          "conductor",
@@ -332,7 +332,7 @@ def excel_row_to_comparable(excel_row):
     result['cedula_conductor'] = _trim_or_none(excel_row.get('DOC. CONDUCTOR'))
     result['celular'] = _trim_or_none(excel_row.get('TEL. CONDUCTOR'))
     result['placa'] = _trim_or_none(excel_row.get('PLACA'))
-    result['tipo_vehiculo'] = _trim_or_none(excel_row.get('REMOLQUE'))
+    result['placa_remolque'] = _trim_or_none(excel_row.get('REMOLQUE'))
 
     poseedor = excel_row.get('POSEEDOR')
     propietario = excel_row.get('PROPIETARIO')

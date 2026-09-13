@@ -39,10 +39,10 @@ def _setup():
             manifiesto, archivo_origen, mes, año, periodo, semana,
             consecutivo_semanal, fecha_despacho, origen, departamento_origen,
             destino, departamento_destino, cliente, remesas,
-            placa, tipo_vehiculo, conductor, cedula_conductor,
+            placa, placa_remolque, conductor, cedula_conductor,
             valor_remesa, flete_conductor, anticipo
         ) VALUES (
-            %s,'TEST.xlsx','MAYO',2026,'2026-05-01','S20',1,
+            %s,'TEST.xlsx','MAYO',2026,'2026-05-01','Semana 20',1,
             '2026-05-01','BOGOTA','CUNDINAMARCA','CALI','VALLE DEL CAUCA',
             'CLIENTE ORIG','REM','ABC123','SENCILLO','CONDUCTOR ORIG','12345678',
             1000000, 500000, 100000
@@ -215,9 +215,9 @@ class TestAuditLog:
                 manifiesto, archivo_origen, mes, año, periodo, semana,
                 consecutivo_semanal, fecha_despacho, origen, departamento_origen,
                 destino, departamento_destino, cliente, remesas,
-                placa, tipo_vehiculo, conductor, cedula_conductor
+                placa, placa_remolque, conductor, cedula_conductor
             ) VALUES (
-                %s,'TEST.xlsx','MAYO',2026,'2026-05-01','S20',1,
+                %s,'TEST.xlsx','MAYO',2026,'2026-05-01','Semana 20',1,
                 '2026-05-01','BOGOTA','CUNDINAMARCA','CALI','VALLE DEL CAUCA',
                 'CLIENTE INS','REM','ABC123','SENCILLO','CONDUCTOR INS','12345678'
             )

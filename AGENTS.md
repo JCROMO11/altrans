@@ -47,18 +47,22 @@
 - Tasa: 5 msg/min, rate limiter con cola
 
 ### LLM — Proveedores y fallback
-- Cadena: **DeepSeek directo** (`deepseek-chat`, primario) → **OpenRouter** (`deepseek/deepseek-v4-flash`, alt) → **Groq** (`openai/gpt-oss-20b`, última línea, free tier)
-- DeepSeek es la fuente principal; Groq sirvió de respaldo mientras faltaba `DEEPSEEK_API_KEY` en el hosting (ya se agregó)
-- **PREGUNTAR EN LA EMPRESA**: ¿la empresa recargará créditos en los 3 servicios? Recomendación: recargar DeepSeek ($5, es la primaria), **no** recargar OpenRouter (agrega markup sobre el mismo modelo DeepSeek → doble gasto; dejar solo como respaldo ante caída de DeepSeek con crédito mínimo), mantener Groq gratis como última línea
-- ⚠️ OpenRouter actualmente con 402 (créditos agotados); Groq es el respaldo efectivo hoy
+- Cadena: **DeepSeek directo** (`deepseek-chat`, primario) → **Groq** (`openai/gpt-oss-20b`, última línea, free tier)
+- **OpenRouter RETIRADO** (sep-2026): no se usa. `OPENROUTER_API_KEY` comentada en `.env`
+  y eliminada de `config.py`/`render.yaml`. `DEEPSEEK_API_KEY` ahora es requerida por `get_settings()`.
+- **PREGUNTAR EN LA EMPRESA**: ¿recargan créditos en DeepSeek? (es la primaria; ~$5).
+  Groq se mantiene gratis como respaldo.
 
 ### Preguntas para la reunión con Altrans
-1. **Créditos LLM**: ¿recargan los 3 servicios? Recomendación: DeepSeek sí
-   (primario), OpenRouter no (markup sobre el mismo modelo), Groq gratis (última línea).
+1. **Créditos LLM**: ¿recargan DeepSeek? (primario). Groq gratis como respaldo. OpenRouter ya no se usa.
 2. **Contacto humano**: número real para `WA_CONTACTO_HUMANO` (hoy `600 00 00`).
 3. **Inconsistencia de montos**: criterio correcto entre "me deben" (suma `saldo`,
    p. ej. `$7.175.400`) y resumen anual (resta `valor_pagado`, `$6.647.775`).
-4. **Columnas por rol** — ¿aprueban los campos a los que accede cada rol?
+4. **Archivados en KPIs y corte de notificaciones** (ver
+   `docs/informe_columnas_roles_y_datos_historicos.md`, Parte 2):
+   ¿se excluyen los 10.401 archivados de los KPIs/totales/tendencia/catálogos?
+   ¿el corte de notificaciones en 2026-01-01 es el correcto (evita 838 de 2023-2025)?
+5. **Columnas por rol** — ¿aprueban los campos a los que accede cada rol?
    - **Conductor**: `manifiesto, fecha_despacho, origen, destino, cliente,
      flete_conductor, saldo, fecha_cumplido, compromiso_pago, fecha_estimada_pago,
      fecha_pago, valor_pagado, estado_interno, novedades, mes, año`
@@ -67,15 +71,21 @@
      propietario`; puede ver cédula y celular de los conductores que manejaron su vehículo.
    - **Bloqueado a ambos**: datos de otros conductores/propietarios y consolidados
      de la empresa (facturación, NIT, listas de conductores, totales).
-5. **Modificaciones de gerencia**: implementar las "respuestas de gerencia" pendientes.
+6. **Modificaciones de gerencia**: implementar las "respuestas de gerencia" pendientes.
 
 ### Notificaciones — Envío manual funciona ✅
 - 4 plantillas: `saldo_falta_factura`, `saldo_falta_documentacion`, `saldo_novedad_pendiente`, `saldo_plazo_vigente`
 - 1 plantilla de pago: `pago_realizado`
-- Backup vía email: funciona
-- Las notificaciones automáticas fallaron porque el WA_TOKEN del servicio Notifications estaba desactualizado. **Ya se actualizó**.
+- **AUTO-NOTIFY DESHABILITADO** (13-sep-2026) con `AUTO_NOTIFY_ENABLED=false` hasta
+  aprobación de la empresa. Los envíos manuales (`/admin/auto-notify`, `/preview`) siguen.
+  `GET /health` expone `auto_notify_enabled`; con false el scheduler solo deja
+  `backup_entre_semana` y `morning_report`.
 - **E2E contra Render OK**: `POST /admin/notify/preview` → 913 msgs / 435 celulares;
   15 plantillas `sent`; dedup y `messages_sent` OK. El usuario confirmó que **le llegaron** los WhatsApp.
+- Con los datos del 13-sep: 976 saldos + 144 `pago_realizado` pendientes (no se envían).
+- Backup vía email: funciona. **Fix 13-sep**: `manifiestos_flat` daba 504 y el ZIP
+  parcial se enviaba como exitoso; ahora hay reintento por tabla, un backup incompleto
+  se marca `[INCOMPLETO]`, no se sube al bucket y no se reporta como válido.
 - Demo script: `tests/demo_notificaciones_20260717.py`
 
 ### Monitoreo — Chequeo matutino (implementado en sesión del 19-ago-2026)
@@ -93,6 +103,33 @@
 - Dashboard URL: `https://dashboard-2zk.pages.dev` (Cloudflare Pages) → `DASHBOARD_URL`
 - El chequeo matutino del 19-ago detectó 401 del WA_TOKEN y 1000 errores de auto-notify;
   **causa confirmada: falta el WA_TOKEN definitivo** (se actualiza con `make update-wa-token WA_TOKEN=<tok>`)
+
+### Sesión 13-sep-2026 (pre-piloto)
+- **Datos actualizados** con el Excel de hoy: 14.154 → 14.486 manifiestos.
+  - Enum `responsable_enum` +`JOHANA` (consolidado en `schema_consolidated.sql`).
+  - `load_flat.py` normaliza `N/A` → `NULL` en `semana` (el esquema exige `Semana N`).
+  - Archivado: 10.401 filas (`make archive-historico`); se corrigió que el UPDATE
+    re-tocaba las ya archivadas (faltaba el filtro `archivado IS DISTINCT FROM`).
+- **OpenRouter retirado** de la cadena LLM (DeepSeek directo → Groq).
+- **Backup blindado** y **sink de logs desactivado en tests** (`LOG_SINK_ENABLED=false`).
+- **Informe para la empresa**: `docs/informe_columnas_roles_y_datos_historicos.md`.
+- Gerentes confirmados en `admin_usuarios`: Julián `573004724887`, Julio `573184871084`.
+- **Tests del chatbot** (`make test-agent`): **130/130** (138 casos, DeepSeek). Se corrigieron
+  falsos negativos del LLM-judge: `tools_called` ahora es **lista de nombres** en
+  `agent/graph.py` y se le pasa al judge; ante un FAIL el judge pide una **2ª opinión**
+  (`_JUDGE_PROMPT_CONFIRM` en `scripts/test_agent.py`). Prompts mejorados (inferencia de
+  fechas y de saldo; `propietario_block` v3, `system_prompt_base` v3) en `agent/prompts.py`,
+  `schema_consolidated.sql` y la tabla `system_prompts`. `make test-dashboard` 101/101.
+- **DB/Supabase**: `make test-db` en verde (se actualizaron los tests tras el rename
+  `tipo_vehiculo`→`placa_remolque`, el constraint `chk_semana_formato` y el test de
+  CASCADE en `audit_log`, ahora append-only). **Advisors de performance en 0**
+  (InitPlan `(select auth.role())`, policies acotadas por rol, 2 índices sin uso
+  dropeados) — todo consolidado en `supabase/schema_consolidated.sql`. HIBP no
+  aplica (requiere plan Pro).
+  CLI re-linkeado a `cymxvxrdfkmydnbuvbeq` (apuntaba a `kpepoagujbeiyyqpvxpo`, inexistente).
+- ⚠️ **504 transitorios de PostgREST** en Supabase free (visto en backup
+  `manifiestos_flat` y en `tendencia_anual`): reintentar; ya hay retry en backup y en
+  `ai_agent/db/queries._get` (429/5xx + timeouts, 3 intentos con backoff).
 
 ### Pendientes para próxima sesión
 

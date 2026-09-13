@@ -10,15 +10,10 @@ from loguru import logger
 
 _cfg = get_settings()
 
-# DeepSeek directo (primario). Si no hay key, se salta y va directo a OpenRouter.
+# DeepSeek directo (primario). Si no hay key o falla, se usa Groq como última línea.
 _DS_KEY   = os.getenv("DEEPSEEK_API_KEY", "").strip()
 _DS_BASE  = "https://api.deepseek.com"
 _DS_MODEL = "deepseek-chat"
-
-_client        = AsyncOpenAI(api_key=os.environ["OPENROUTER_API_KEY"], base_url="https://openrouter.ai/api/v1")
-MODEL          = "deepseek/deepseek-v4-flash"
-MODEL_FALLBACK = "anthropic/claude-haiku-4.5"
-_OR_MODELS     = {"models": [MODEL, MODEL_FALLBACK]}
 
 _ds_client = AsyncOpenAI(api_key=_DS_KEY, base_url=_DS_BASE) if _DS_KEY else None
 
@@ -111,9 +106,15 @@ def _usage_info(model: str, response: object, provider: str) -> dict | None:
 async def _call_llm(messages: list, tools: list = None, tool_choice: str = "auto",
                     max_tokens: int = 1024, temperature: float = 0.2,
                     extra_body: dict = None, model: str = None) -> tuple[object, str]:
-    """Devuelve (response, provider). provider ∈ deepseek | openrouter | groq."""
-    # 1) DeepSeek directo (solo si hay key y no es override de modelo para A/B)
-    if _ds_client is not None and model is None:
+    """Devuelve (response, provider). provider ∈ deepseek | groq.
+
+    Cadena: DeepSeek directo (primario) → Groq (última línea).
+    `model` (override para A/B) solo se usa para forzar Groq.
+    """
+    ds_err: Exception | None = None
+
+    # 1) DeepSeek directo (primario), salvo override explícito a Groq.
+    if _ds_client is not None and model != GROQ_MODEL:
         try:
             response = await _ds_client.chat.completions.create(
                 model=_DS_MODEL,
@@ -127,42 +128,29 @@ async def _call_llm(messages: list, tools: list = None, tool_choice: str = "auto
             if info:
                 logger.info("llm_usage", **info)
             return response, "deepseek"
-        except Exception as ds_err:
-            logger.warning("llm_fallback_openrouter", reason=str(ds_err)[:200])
+        except Exception as exc:
+            ds_err = exc
+            logger.warning("llm_fallback_groq", reason=str(exc)[:200])
 
-    # 2) OpenRouter (deepseek-v4-flash con auto-failover a haiku)
+    # 2) Groq (última línea, free tier)
     try:
-        response = await _client.chat.completions.create(
-            model=model or MODEL,
+        response = await _mod_client.chat.completions.create(
+            model=GROQ_MODEL,
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
             max_tokens=max_tokens,
             temperature=temperature,
-            extra_body=extra_body or _OR_MODELS,
         )
-        info = _usage_info(model or MODEL, response, "openrouter")
+        info = _usage_info(GROQ_MODEL, response, "groq")
         if info:
             logger.info("llm_usage", **info)
-        return response, "openrouter"
-    except Exception as or_err:
-        logger.warning("llm_fallback_groq", reason=str(or_err)[:200])
-        try:
-            response = await _mod_client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
-            info = _usage_info(GROQ_MODEL, response, "groq")
-            if info:
-                logger.info("llm_usage", **info)
-            return response, "groq"
-        except Exception as groq_err:
-            logger.error("llm_all_failed", openrouter=str(or_err)[:200], groq=str(groq_err)[:200])
-            raise
+        return response, "groq"
+    except Exception as groq_err:
+        logger.error("llm_all_failed",
+                     deepseek=(str(ds_err)[:200] if ds_err else "sin key / no intentado"),
+                     groq=str(groq_err)[:200])
+        raise
 
 
 def _log_llm_totals(calls: list[dict], mensaje: str) -> None:
@@ -190,7 +178,7 @@ async def run(
     tipo_usuario: str = None,
     admin_rol: str = None,
     _model_override: str = None,
-) -> tuple[str, bool]:
+) -> tuple[str, list[str]]:
     if conductor_cedula and not tipo_usuario:
         tipo_usuario = "conductor"
         nombre = nombre or conductor_nombre
@@ -210,19 +198,17 @@ async def run(
 
     if tipo_usuario == "propietario" and placa and _placa_foranea(placa, mensaje):
         _log_llm_totals([], mensaje)
-        return _sanitizar_formato(_MSG_BLOQUEO_PLACA), False
+        return _sanitizar_formato(_MSG_BLOQUEO_PLACA), []
 
     _limpio = mensaje.strip()
     _tok = _limpio.lower().strip("¿?¡! .")
     if len(_limpio.split()) <= 1 and (_tok in _AMBIGUAS or not _tok):
         _log_llm_totals([], mensaje)
-        return _sanitizar_formato(_MSG_AMBIGUA), False
+        return _sanitizar_formato(_MSG_AMBIGUA), []
 
     active_tools = tool_executor.TOOLS_CONDUCTOR if autenticado else tool_executor.TOOLS
 
-    _active_or_body = {} if _model_override else _OR_MODELS
-
-    tools_called = False
+    tools_called: list[str] = []
     llm_calls: list[dict] = []
 
     for _ in range(MAX_TOOL_ITERS):
@@ -230,7 +216,6 @@ async def run(
             messages=messages,
             tools=active_tools,
             tool_choice="auto",
-            extra_body=_active_or_body,
             model=_model_override,
         )
         _info = _usage_info(_model_label(provider, _model_override), response, provider)
@@ -247,7 +232,6 @@ async def run(
                     tools=active_tools if active_tools else None,
                     tool_choice="auto" if active_tools else None,
                     temperature=0.3,
-                    extra_body=_active_or_body,
                 )
                 _info = _usage_info(_model_label(recovery_provider, _model_override), recovery, recovery_provider)
                 if _info:
@@ -258,9 +242,9 @@ async def run(
             _log_llm_totals(llm_calls, mensaje)
             return _sanitizar_formato(content), tools_called
 
-        tools_called = True
         messages.append(msg)
         for tc in msg.tool_calls:
+            tools_called.append(tc.function.name)
             try:
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError as e:
@@ -304,9 +288,7 @@ def _model_label(provider: str, override: str | None) -> str:
         return override
     if provider == "deepseek":
         return _DS_MODEL
-    if provider == "groq":
-        return GROQ_MODEL
-    return MODEL
+    return GROQ_MODEL
 
 
 # ── Moderación ────────────────────────────────────────────────────────────────

@@ -57,6 +57,20 @@ _AUTO_NOTIFY_HOUR_UTC = int(os.environ.get("AUTO_NOTIFY_HOUR_UTC", "11"))
 _INTERVAL_MINUTES = 5
 
 
+def _env_bool(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on", "si", "sí")
+
+
+# Interruptor de seguridad: con AUTO_NOTIFY_ENABLED=false no se programan los
+# jobs de auto-notify (los envíos manuales por /admin/* siguen disponibles).
+# Backup y chequeo matutino no se ven afectados.
+_AUTO_NOTIFY_ENABLED = _env_bool("AUTO_NOTIFY_ENABLED", True)
+
+
+
 def _ping_heartbeat(url: str | None) -> None:
     """Ping opcional a Healthchecks.io al terminar un job (si HC_*_URL definido)."""
     if not url:
@@ -118,15 +132,19 @@ def start() -> BackgroundScheduler:
     )
 
     # Auto-notify: 5 plantillas por tanda, 5 min entre cada una.
-    for i, template in enumerate(TEMPLATE_ORDER):
-        minute = i * _INTERVAL_MINUTES
-        _scheduler.add_job(
-            _make_auto_notify_job(template),
-            CronTrigger(day_of_week=_AUTO_NOTIFY_DAYS, hour=_AUTO_NOTIFY_HOUR_UTC, minute=minute, timezone="UTC"),
-            id=f"auto_notify_{template}",
-            name=f"Notificación {template} ({_AUTO_NOTIFY_DAYS} {_AUTO_NOTIFY_HOUR_UTC}:00Z +{minute}m)",
-            replace_existing=True,
-        )
+    if _AUTO_NOTIFY_ENABLED:
+        for i, template in enumerate(TEMPLATE_ORDER):
+            minute = i * _INTERVAL_MINUTES
+            _scheduler.add_job(
+                _make_auto_notify_job(template),
+                CronTrigger(day_of_week=_AUTO_NOTIFY_DAYS, hour=_AUTO_NOTIFY_HOUR_UTC, minute=minute, timezone="UTC"),
+                id=f"auto_notify_{template}",
+                name=f"Notificación {template} ({_AUTO_NOTIFY_DAYS} {_AUTO_NOTIFY_HOUR_UTC}:00Z +{minute}m)",
+                replace_existing=True,
+            )
+    else:
+        logger.warning("auto_notify_disabled", extra={"reason": "AUTO_NOTIFY_ENABLED=false"})
+
 
     # Chequeo matutino: 7:00 AM Colombia (12:00 UTC). Reporta el estado de
     # todos los módulos por WhatsApp/email para "todo listo para trabajar".

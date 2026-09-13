@@ -6,7 +6,7 @@ Cubre:
   2. RLS sobre tablas privadas (chatbot_sesiones, processed_messages, jailbreak_log)
   3. Permisos de RPCs por rol (guardar_digitador / logistico / tesoreria / financiero / borrar)
   4. Upsert idempotente de guardar_digitador
-  5. CASCADE en audit_log
+  5. audit_log append-only (sin CASCADE)
   6. Fórmula saldo (flete ± ajustes − retención 1% − anticipo; NO incluye consignacion_a_terceros)
   7. ANULADO oculto a conductores en RPCs del chatbot
 
@@ -187,9 +187,9 @@ sql_direct("""
         manifiesto, archivo_origen, mes, año, periodo, semana,
         consecutivo_semanal, fecha_despacho, origen, departamento_origen,
         destino, departamento_destino, cliente, remesas,
-        placa, tipo_vehiculo, conductor, cedula_conductor
+        placa, placa_remolque, conductor, cedula_conductor
     ) VALUES (
-        999100,'TEST.xlsx','MAYO',2026,'2026-05-01','S20',1,
+        999100,'TEST.xlsx','MAYO',2026,'2026-05-01','Semana 20',1,
         '2026-05-01','BOGOTA','CUNDINAMARCA','CALI','VALLE DEL CAUCA',
         'CLIENTE TEST','REM-TEST','ABC123','SENCILLO','CONDUCTOR TEST','12345678'
     )
@@ -317,7 +317,7 @@ else:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-print("\n── 5. CASCADE en audit_log al borrar manifiesto ──────────────────────")
+print("\n── 5. audit_log append-only al borrar manifiesto (sin CASCADE) ───────")
 
 # Insertar manifiesto temporal + audit_log
 sql_direct("""
@@ -325,9 +325,9 @@ sql_direct("""
         manifiesto, archivo_origen, mes, año, periodo, semana,
         consecutivo_semanal, fecha_despacho, origen, departamento_origen,
         destino, departamento_destino, cliente, remesas,
-        placa, tipo_vehiculo, conductor, cedula_conductor
+        placa, placa_remolque, conductor, cedula_conductor
     ) VALUES (
-        999900,'TEST_CASCADE.xlsx','MAYO',2026,'2026-05-01','S20',1,
+        999900,'TEST_CASCADE.xlsx','MAYO',2026,'2026-05-01','Semana 20',1,
         '2026-05-01','BOGOTA','CUNDINAMARCA','CALI','VALLE DEL CAUCA',
         'CLIENTE CASCADE','REM-CASCADE','XYZ999','SENCILLO','CONDUCTOR CASCADE','99999999'
     ) ON CONFLICT (manifiesto) DO NOTHING
@@ -340,12 +340,18 @@ sql_direct("""
 audit_antes = sql_direct("SELECT COUNT(*) FROM audit_log WHERE manifiesto = 999900")[0][0]
 sql_direct("DELETE FROM manifiestos_flat WHERE manifiesto = 999900", fetch=False)
 audit_despues = sql_direct("SELECT COUNT(*) FROM audit_log WHERE manifiesto = 999900")[0][0]
+eliminado = sql_direct(
+    "SELECT COUNT(*) FROM audit_log WHERE manifiesto = 999900 AND campo = 'ELIMINADO'"
+)[0][0]
 
-if audit_antes > 0 and audit_despues == 0:
-    ok("cascade", f"audit_log eliminado al borrar manifiesto ({audit_antes} fila)")
+# audit_log NO tiene FK: la historia previa sobrevive y se agrega un renglón
+# 'ELIMINADO' con el snapshot. Por eso después >= antes.
+if audit_antes > 0 and audit_despues >= audit_antes and eliminado >= 1:
+    ok("audit-persist",
+       f"audit_log persiste tras borrar + registra ELIMINADO (antes={audit_antes}, después={audit_despues})")
 else:
-    fail("cascade", "audit_log eliminado en CASCADE",
-         f"antes={audit_antes} después={audit_despues}")
+    fail("audit-persist", "audit_log append-only y evento ELIMINADO",
+         f"antes={audit_antes} después={audit_despues} eliminado={eliminado}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -394,9 +400,9 @@ sql_direct("""
         manifiesto, archivo_origen, mes, año, periodo, semana,
         consecutivo_semanal, fecha_despacho, origen, departamento_origen,
         destino, departamento_destino, cliente, remesas,
-        placa, tipo_vehiculo, conductor, cedula_conductor, estado_interno
+        placa, placa_remolque, conductor, cedula_conductor, estado_interno
     ) VALUES (
-        999500,'TEST_ANULADO.xlsx','MAYO',2026,'2026-05-01','S20',1,
+        999500,'TEST_ANULADO.xlsx','MAYO',2026,'2026-05-01','Semana 20',1,
         '2026-05-01','BOGOTA','CUNDINAMARCA','CALI','VALLE DEL CAUCA',
         'CLIENTE','REM','PLA999','SENCILLO','CONDUCTOR ANULADO','99999998','ANULADO'
     ) ON CONFLICT (manifiesto) DO UPDATE SET estado_interno = 'ANULADO'
@@ -435,9 +441,9 @@ sql_direct("""
         manifiesto, archivo_origen, mes, año, periodo, semana,
         consecutivo_semanal, fecha_despacho, origen, departamento_origen,
         destino, departamento_destino, cliente, remesas,
-        placa, tipo_vehiculo, conductor, cedula_conductor
+        placa, placa_remolque, conductor, cedula_conductor
     ) VALUES (
-        %s,'TEST.xlsx','MAYO',2026,'2026-05-01','S20',1,
+        %s,'TEST.xlsx','MAYO',2026,'2026-05-01','Semana 20',1,
         '2026-05-01','BOGOTA','CUNDINAMARCA','CALI','VALLE DEL CAUCA',
         'CLIENTE FACT','REM-FACT','ABC123','SENCILLO','CONDUCTOR FACT','12345678'
     )

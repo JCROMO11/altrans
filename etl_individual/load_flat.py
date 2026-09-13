@@ -80,12 +80,12 @@ def _prep(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Strings: vacío y 'nan' → None
+    # Strings: vacío, 'nan' y centinelas ('N/A') → None
     str_cols = [c for c in available if c not in DATE_COLS + NUMERIC_COLS + ["manifiesto"]]
     for col in str_cols:
         df[col] = df[col].astype(object).where(df[col].notna(), None)
         df[col] = df[col].apply(
-            lambda v: None if v is None or str(v).strip().upper() in ("NAN", "NONE", "") else str(v).strip()
+            lambda v: None if v is None or str(v).strip().upper() in ("NAN", "NONE", "", "N/A") else str(v).strip()
         )
 
     # Conversión final: reemplazar cualquier float NaN residual por None en todo el df

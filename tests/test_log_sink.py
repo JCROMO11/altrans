@@ -116,7 +116,7 @@ class TestLoggingConfig:
                 mock_client = MagicMock()
                 mock_client_class.return_value = mock_client
                 import logging_config
-                logging_config.setup_logging("DEBUG")
+                logging_config.setup_logging("DEBUG", enable_sink=True)
                 assert len(logger._core.handlers) == 3
 
 

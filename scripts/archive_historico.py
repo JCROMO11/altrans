@@ -77,7 +77,7 @@ def main() -> None:
                 print("Nada por hacer.")
                 return
 
-            cur.execute(f"UPDATE manifiestos_flat SET archivado = {target}, actualizado_en = now() WHERE {where}")
+            cur.execute(f"UPDATE manifiestos_flat SET archivado = {target}, actualizado_en = now() WHERE {where} AND archivado IS DISTINCT FROM {target}")
             print(f"✅ {cur.rowcount:,} manifiestos actualizados a archivado={target}")
         conn.commit()
     finally:

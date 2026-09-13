@@ -1,3 +1,4 @@
+import asyncio
 import time as _time
 from datetime import date, datetime
 
@@ -55,13 +56,27 @@ _CLIENT = httpx.AsyncClient(
     ),
 )
 
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF = (0.5, 1.0)
+
 
 async def _get(path: str, params: dict = None) -> list[dict]:
     qs = "&".join(f"{k}={v}" for k, v in (params or {}).items())
     url = f"/{path}?{qs}" if qs else f"/{path}"
-    r = await _CLIENT.get(url)
-    r.raise_for_status()
-    return r.json()
+    for intento in range(_RETRY_ATTEMPTS):
+        try:
+            r = await _CLIENT.get(url)
+            if r.status_code in _RETRY_STATUS and intento < _RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_RETRY_BACKOFF[intento])
+                continue
+            r.raise_for_status()
+            return r.json()
+        except httpx.TransportError:
+            if intento < _RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_RETRY_BACKOFF[intento])
+                continue
+            raise
 
 
 def _apply_periodo(params: dict, mes: str = None, año: int = None):

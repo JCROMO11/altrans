@@ -565,7 +565,7 @@ async def _process_message(wa_from: str, message_id: str, text: str) -> None:
 
         logger.info("agent_reply",
                     wa_from=wa_from, cedula=cedula,
-                    msg_count=session["msg_count"], tools_called=tools_called,
+                    msg_count=session["msg_count"], tools_called=bool(tools_called),
                     len_in=len(texto), len_out=len(respuesta))
 
         await send_text(wa_from, respuesta)

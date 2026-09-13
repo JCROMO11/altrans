@@ -27,8 +27,6 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: DEEPSEEK_API_KEY
@@ -85,12 +83,12 @@ services:
         value: jromoguijarro@gmail.com
       - key: BACKUP_EMAIL_TO
         value: jromoguijarro@gmail.com
-      - key: OPENROUTER_API_KEY
-        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: DEEPSEEK_API_KEY
         sync: false
+      - key: AUTO_NOTIFY_ENABLED
+        value: "false"
       - key: AUTO_NOTIFY_DAYS
         value: mon,wed
       - key: AUTO_NOTIFY_HOUR_UTC

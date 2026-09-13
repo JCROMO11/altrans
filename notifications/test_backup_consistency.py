@@ -23,8 +23,10 @@ def main() -> int:
     setup_logging(os.getenv("LOG_LEVEL", "WARNING"))
 
     print("Generando backup (mismo código que corre en producción)…")
-    zip_bytes, counts = _build_zip()
+    zip_bytes, counts, failed = _build_zip()
     print(f"  ZIP generado: {len(zip_bytes) // 1024} KB")
+    if failed:
+        print(f"  ❌ Tablas fallidas: {', '.join(failed)}")
     print()
 
     print("Verificando consistencia contra DB en vivo…")
@@ -41,6 +43,8 @@ def main() -> int:
             print(f"  ❌ {table.ljust(width)}  backup={v['backup']:>7,}  live={v['live']:>7,}  — MISMATCH")
 
     print()
+    if failed:
+        all_ok = False
     if all_ok:
         print("✅ Backup íntegro — los conteos del ZIP coinciden con la DB en vivo")
         return 0

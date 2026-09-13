@@ -23,7 +23,7 @@ from cleaning_individual import (
     _cedula,
     _clean_celular,
     _clean_cedula_conductor,
-    _clean_tipo_vehiculo,
+    _clean_placa_remolque,
     _clean_entidad_financiera,
     _normalize_estado,
     _normalize_person_base,
@@ -215,19 +215,19 @@ class TestCleanCedulaConductor:
         assert 'CEDULA INUSUAL' in nota
 
 
-# ── _clean_tipo_vehiculo ─────────────────────────────────────────────────────
-class TestCleanTipoVehiculo:
+# ── _clean_placa_remolque ────────────────────────────────────────────────────
+class TestCleanPlacaRemolque:
     def test_placa_con_digitos_se_conserva(self):
-        assert _clean_tipo_vehiculo('ABC123') == ('ABC123', None)
+        assert _clean_placa_remolque('ABC123') == ('ABC123', None)
 
     def test_descriptor_va_a_novedades(self):
-        val, nota = _clean_tipo_vehiculo('MULA')
+        val, nota = _clean_placa_remolque('MULA')
         assert val is None
-        assert 'TIPO VEHICULO' in nota
+        assert 'PLACA_REMOLQUE' in nota
         assert 'MULA' in nota
 
     def test_anulado(self):
-        assert _clean_tipo_vehiculo('ANULADO') == (None, None)
+        assert _clean_placa_remolque('ANULADO') == (None, None)
 
 
 # ── _clean_entidad_financiera ────────────────────────────────────────────────
