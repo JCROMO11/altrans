@@ -1689,7 +1689,14 @@ BEGIN
         valor_remesa          = COALESCE(EXCLUDED.valor_remesa,         public.manifiestos_flat.valor_remesa),
         flete_conductor       = COALESCE(EXCLUDED.flete_conductor,      public.manifiestos_flat.flete_conductor),
         anticipo              = COALESCE(EXCLUDED.anticipo,             public.manifiestos_flat.anticipo),
-            -- placa / placa_remolque / conductor / cedula_conductor / propietario no se sobreescriben en recarga (inmutables)
+            -- Conductor / vehículo / propietario: se llenan solo si están vacíos
+            -- (manifiestos placeholder creados sin datos). Si ya hay un valor, se
+            -- preserva y NO se sobreescribe con lo del Excel.
+        placa                 = COALESCE(NULLIF(public.manifiestos_flat.placa, ''),            EXCLUDED.placa),
+        placa_remolque        = COALESCE(NULLIF(public.manifiestos_flat.placa_remolque, ''),   EXCLUDED.placa_remolque),
+        conductor             = COALESCE(NULLIF(public.manifiestos_flat.conductor, ''),        EXCLUDED.conductor),
+        cedula_conductor      = COALESCE(NULLIF(public.manifiestos_flat.cedula_conductor, ''), EXCLUDED.cedula_conductor),
+        propietario           = COALESCE(NULLIF(public.manifiestos_flat.propietario, ''),      EXCLUDED.propietario),
         celular               = COALESCE(EXCLUDED.celular,              public.manifiestos_flat.celular),
         agencia_despachadora  = COALESCE(EXCLUDED.agencia_despachadora, public.manifiestos_flat.agencia_despachadora),
         nombre_responsable    = COALESCE(EXCLUDED.nombre_responsable,   public.manifiestos_flat.nombre_responsable),

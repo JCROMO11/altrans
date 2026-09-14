@@ -123,11 +123,17 @@ def load_flat(df: pd.DataFrame, engine, dry_run: bool = False) -> dict:
     import io
     df = _prep(df)
     available_cols = [c for c in COLS if c in df.columns]
-    IMMUTABLE_RELOAD_COLS = {"conductor", "cedula_conductor", "propietario"}
-    update_cols    = [c for c in available_cols if c != "manifiesto" and c not in IMMUTABLE_RELOAD_COLS]
+    # Campos de conductor/vehículo/propietario: se llenan solo si están vacíos
+    # (manifiestos placeholder creados sin datos). Si ya hay un valor, se preserva.
+    FILL_IF_NULL_COLS = {"conductor", "cedula_conductor", "propietario", "placa", "placa_remolque"}
+    update_cols    = [c for c in available_cols if c != "manifiesto"]
 
     update_clause = ",\n            ".join(
-        f"{c} = COALESCE(EXCLUDED.{c}, manifiestos_flat.{c})"
+        (
+            f"{c} = COALESCE(NULLIF(manifiestos_flat.{c}, ''), EXCLUDED.{c})"
+            if c in FILL_IF_NULL_COLS
+            else f"{c} = COALESCE(EXCLUDED.{c}, manifiestos_flat.{c})"
+        )
         for c in update_cols
     )
     col_list = ", ".join(available_cols)

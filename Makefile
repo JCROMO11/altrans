@@ -181,7 +181,7 @@ morning-check:
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 test-db:
-	$(PY) -m pytest tests/test_audit_log.py tests/test_read_rpcs.py -v
+	$(PY) -m pytest tests/test_audit_log.py tests/test_read_rpcs.py tests/test_rpc_fill_null.py -v
 	$(PY) tests/test_seguridad_integridad.py
 
 test-etl:

@@ -313,14 +313,16 @@ const FACT_INIT = {
 // ── Excel Upload Panel ───────────────────────────────────────────────────────
 // Campos comparables entre payload y DB para detectar cambios
 const DB_FIELDS = [
-  'fecha_despacho','origen','destino','cliente','celular',
+  'fecha_despacho','origen','destino','cliente','conductor','cedula_conductor',
+  'celular','placa','placa_remolque','propietario',
   'agencia_despachadora','nombre_responsable',
   'valor_remesa','flete_conductor','anticipo','remesas',
   'reteica','r_fopat',
 ]
 const FIELD_LABELS = {
   fecha_despacho:'Fecha despacho', origen:'Origen', destino:'Destino',
-  cliente:'Cliente', celular:'Celular',
+  cliente:'Cliente', conductor:'Conductor', cedula_conductor:'Cédula',
+  celular:'Celular', placa:'Placa', placa_remolque:'Remolque', propietario:'Propietario',
   agencia_despachadora:'Agencia Despachadora', nombre_responsable:'Responsable',
   valor_remesa:'Valor remesa', flete_conductor:'Flete', anticipo:'Anticipo',
   remesas:'Remesas', reteica:'ReteICA', r_fopat:'R. FOPAT',
