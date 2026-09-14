@@ -1045,7 +1045,7 @@ AS $$
       AND (p_estado_vencimiento IS NULL
            OR (p_estado_vencimiento = 'vencidos'   AND fecha_estimada_pago < CURRENT_DATE     AND NOT archivado)
            OR (p_estado_vencimiento = 'por_vencer' AND fecha_estimada_pago BETWEEN CURRENT_DATE AND CURRENT_DATE + 7 AND NOT archivado))
-    ORDER BY fecha_despacho DESC, manifiesto DESC
+    ORDER BY fecha_despacho DESC NULLS LAST, manifiesto DESC
     LIMIT  p_limit
     OFFSET p_offset;
 $$;
